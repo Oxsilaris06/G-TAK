@@ -29,7 +29,6 @@ import { connectivityService, ConnectivityEvent } from './services/connectivityS
 import OperatorCard from './components/OperatorCard';
 import TacticalMap from './components/TacticalMap';
 import SettingsView from './components/SettingsView';
-// import OperatorActionModal from './components/OperatorActionModal'; // Si utilisé
 
 // --- COMPOSANT NOTIFICATION SWIPABLE ---
 const NavNotification = ({ message, onDismiss }: { message: string, onDismiss: () => void }) => {
@@ -64,7 +63,6 @@ const NavNotification = ({ message, onDismiss }: { message: string, onDismiss: (
 const App: React.FC = () => {
   useKeepAwake();
   
-  // FIX: Safe permission hook usage
   const [permission, requestPermission] = useCameraPermissions 
     ? useCameraPermissions() 
     : [{ granted: false, canAskAgain: true }, async () => ({ granted: false })];
@@ -109,7 +107,7 @@ const App: React.FC = () => {
   const [navTargetId, setNavTargetId] = useState<string | null>(null);
   const [incomingNavNotif, setIncomingNavNotif] = useState<string | null>(null);
 
-  const [hasConsent, setHasConsent] = useState(true); // Supposé true pour simplifier le debug, ou via PrivacyConsentModal
+  const [hasConsent, setHasConsent] = useState(true);
   const [isOffline, setIsOffline] = useState(false);
   const [isServicesReady, setIsServicesReady] = useState(false);
   const [gpsStatus, setGpsStatus] = useState<'WAITING' | 'OK' | 'ERROR'>('WAITING');
@@ -304,9 +302,15 @@ const App: React.FC = () => {
       if (gpsSubscription.current) { gpsSubscription.current.remove(); gpsSubscription.current = null; }
       setPeers({}); setPings([]); setHostId(''); setView('login'); 
       setIsServicesReady(false); setIsMigrating(false); setNavTargetId(null); setIncomingNavNotif(null);
+      // Reset user state (sauf username/trigramme)
+      setUser(prev => ({...prev, id: '', role: OperatorRole.OPR, status: OperatorStatus.CLEAR, lastMsg: '' }));
   };
 
-  const copyToClipboard = async () => { if (user.id) { await Clipboard.setStringAsync(user.id); showToast("ID Copié"); } };
+  const copyToClipboard = async () => { 
+      // Si Host : mon ID. Si Client : hostId.
+      const idToShare = hostId || user.id;
+      if (idToShare) { await Clipboard.setStringAsync(idToShare); showToast("ID Session Copié"); } 
+  };
 
   const enterPrivateMode = (targetId: string) => {
       setPrivatePeerId(targetId);
@@ -324,11 +328,6 @@ const App: React.FC = () => {
       showToast("Utilisateur Banni");
   };
 
-  const handleRequestPrivate = (targetId: string) => {
-      enterPrivateMode(targetId);
-      setSelectedOperatorId(null);
-  };
-
   const handleStartNavigation = (targetId: string) => {
       setSelectedOperatorId(null);
       setNavTargetId(targetId); 
@@ -339,9 +338,19 @@ const App: React.FC = () => {
 
   const sendQuickMessage = (msg: string) => {
       const finalMsg = msg === "RAS / Effacer" ? "" : msg;
+      // UPDATE LOCAL
+      setUser(prev => ({ ...prev, lastMsg: finalMsg }));
+      // UPDATE NETWORK
       connectivityService.updateUser({ lastMsg: finalMsg });
       setShowQuickMsgModal(false);
       showToast(finalMsg ? "Message transmis" : "Message effacé");
+  };
+
+  const updateMyStatus = (s: OperatorStatus) => {
+      // UPDATE LOCAL (Critical for pulse animation)
+      setUser(prev => ({ ...prev, status: s }));
+      // UPDATE NETWORK
+      connectivityService.updateUserStatus(s);
   };
 
   const joinSession = async (id?: string) => {
@@ -558,7 +567,10 @@ const App: React.FC = () => {
       <View style={styles.mainContent}>
         {view === 'ops' ? (
           <ScrollView contentContainerStyle={styles.grid}>
+             {/* Moi-même */}
              <OperatorCard user={user} isMe style={{ width: '100%' }} />
+             
+             {/* Les autres */}
              {Object.values(peers).filter(p => p.id !== user.id).map(p => (
                  <TouchableOpacity 
                     key={p.id} 
@@ -614,7 +626,7 @@ const App: React.FC = () => {
             {[OperatorStatus.PROGRESSION, OperatorStatus.CONTACT, OperatorStatus.CLEAR].map(s => (
                 <TouchableOpacity 
                     key={s} 
-                    onPress={() => { connectivityService.updateUserStatus(s); }}
+                    onPress={() => updateMyStatus(s)}
                     style={[styles.statusBtn, user.status === s ? { backgroundColor: STATUS_COLORS[s], borderColor: 'white' } : null]}
                 >
                     <Text style={[styles.statusBtnText, user.status === s ? {color:'white'} : null]}>{s}</Text>
@@ -630,36 +642,19 @@ const App: React.FC = () => {
             </TouchableOpacity>
         </View>
       </View>
-    </View>
-  );
 
-  // --- RETURN PRINCIPAL (LE FIX EST ICI) ---
-  return (
-    <View style={styles.container}>
-      <StatusBar style="light" backgroundColor="#050505" />
-      
-      {/* GESTION DE L'AFFICHAGE DES VUES */}
-      {view === 'settings' ? (
-         <SettingsView onClose={() => setView(lastView)} />
-      ) : (
-        <>
-            {view === 'login' && renderLogin()}
-            {view === 'menu' && renderMenu()}
-            {(view === 'ops' || view === 'map') && renderDashboard()}
-        </>
-      )}
-
-      {/* --- MODALES & OVERLAYS GLOBAUX --- */}
-      {/* Ils sont placés ici pour fonctionner PAR-DESSUS toutes les vues (ex: Scanner dans le Menu) */}
+      {/* --- MODALES --- */}
 
       <Modal visible={showQRModal} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>MON IDENTITY TAG</Text>
-            <QRCode value={user.id || 'NO_ID'} size={200} />
+            <Text style={styles.modalTitle}>SESSION TACTIQUE</Text>
+            {/* Affiche l'ID de l'Hôte (pour que d'autres rejoignent le MEME réseau) ou Mon ID si je suis Hôte */}
+            <QRCode value={hostId || user.id || 'NO_ID'} size={200} />
             <TouchableOpacity onPress={copyToClipboard}>
-                <Text style={styles.qrId}>{user.id}</Text>
+                <Text style={styles.qrId}>{hostId || user.id}</Text>
             </TouchableOpacity>
+            <Text style={{color: '#71717a', fontSize: 10, marginTop: 10}}>Faites scanner ce code pour rejoindre le réseau</Text>
             <TouchableOpacity onPress={() => setShowQRModal(false)} style={styles.closeBtn}>
               <Text style={styles.closeBtnText}>FERMER</Text>
             </TouchableOpacity>
@@ -669,7 +664,6 @@ const App: React.FC = () => {
 
       <Modal visible={showScanner} animationType="slide">
         <View style={{flex: 1, backgroundColor: 'black'}}>
-          {/* FIX: Ensure we check permission before rendering CameraView */}
           {permission?.granted ? (
               <CameraView 
                 style={{flex: 1}} 
