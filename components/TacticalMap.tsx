@@ -32,7 +32,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
     <head>
       <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
       <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-      <!-- LEAFLET ROUTING MACHINE CSS -->
       <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.css" />
       
       <style>
@@ -43,20 +42,33 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         /* Markers Operateurs */
         .tac-marker-root { position: relative; display: flex; justify-content: center; align-items: center; width: 80px; height: 80px; }
         .tac-cone-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; transition: transform 0.1s linear; pointer-events: none; z-index: 1; }
-        .tac-circle-id { position: absolute; z-index: 10; width: 32px; height: 32px; border-radius: 50%; border: 2px solid white; display: flex; justify-content: center; align-items: center; box-shadow: 0 0 5px rgba(0,0,0,0.5); top: 50%; left: 50%; transform: translate(-50%, -50%); transition: all 0.3s ease; }
+        
+        .tac-circle-id { 
+            position: absolute; 
+            z-index: 10; 
+            width: 32px; height: 32px; 
+            border-radius: 50%; 
+            border: 2px solid white; 
+            display: flex; justify-content: center; align-items: center; 
+            box-shadow: 0 0 5px rgba(0,0,0,0.5); 
+            top: 50%; left: 50%; 
+            transform: translate(-50%, -50%); 
+            transition: all 0.3s ease; 
+        }
         .tac-circle-id span { color: white; font-family: monospace; font-size: 10px; font-weight: 900; text-shadow: 0 1px 2px black; }
         
-        /* ANIMATION HEARTBEAT (Mode CONTACT) - Modifié pour être moyennement lent (2s) */
+        /* ANIMATION HEARTBEAT (Mode CONTACT) - RENFORCÉ */
         @keyframes heartbeat {
             0% { transform: translate(-50%, -50%) scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
-            50% { transform: translate(-50%, -50%) scale(1.3); box-shadow: 0 0 25px 15px rgba(239, 68, 68, 0); }
+            50% { transform: translate(-50%, -50%) scale(1.4); box-shadow: 0 0 20px 10px rgba(239, 68, 68, 0); }
             100% { transform: translate(-50%, -50%) scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
         }
 
         .tac-marker-heartbeat .tac-circle-id {
-            animation: heartbeat 2s infinite ease-in-out; /* Changé à 2s */
-            border-color: #ef4444;
-            background-color: rgba(239, 68, 68, 0.3);
+            animation: heartbeat 1.5s infinite ease-in-out !important;
+            border-color: #ef4444 !important;
+            background-color: rgba(239, 68, 68, 0.8) !important;
+            z-index: 9999 !important;
         }
 
         /* Pings */
@@ -73,39 +85,15 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         .compass-e { right: 6px; top: 50%; transform: translateY(-50%); }
         .compass-w { left: 6px; top: 50%; transform: translateY(-50%); }
 
-        /* --- ROUTING PANEL CUSTOM --- */
-        .leaflet-routing-container {
-            background-color: #18181b !important;
-            color: white !important;
-            border: 1px solid #3f3f46 !important;
-            border-radius: 8px !important;
-            padding: 10px !important;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.5) !important;
-            display: none; /* On cache le panneau par défaut, on gère notre propre UI */
-        }
-
-        #nav-info-panel {
-            position: absolute;
-            bottom: 30px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(0,0,0,0.85);
-            border: 1px solid #06b6d4;
-            border-radius: 12px;
-            padding: 10px 20px;
-            z-index: 9000;
-            display: none;
-            flex-direction: column;
-            align-items: center;
-            backdrop-filter: blur(4px);
-        }
+        /* NAV UI */
+        .leaflet-routing-container { display: none; }
+        #nav-info-panel { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.85); border: 1px solid #06b6d4; border-radius: 12px; padding: 10px 20px; z-index: 9000; display: none; flex-direction: column; align-items: center; backdrop-filter: blur(4px); }
         #nav-info-title { color: #06b6d4; font-size: 10px; font-weight: bold; letter-spacing: 1px; margin-bottom: 2px; }
         #nav-info-data { color: white; font-size: 18px; font-weight: 900; font-family: monospace; }
         #nav-close { position: absolute; top: -10px; right: -10px; background: #ef4444; color: white; width: 20px; height: 20px; border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 12px; font-weight: bold; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.5); }
 
       </style>
       <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-      <!-- LEAFLET ROUTING MACHINE JS -->
       <script src="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.js"></script>
     </head>
     <body>
@@ -121,7 +109,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         </div>
       </div>
 
-      <!-- NAV UI -->
       <div id="nav-info-panel">
           <div id="nav-close" onclick="stopNav()">x</div>
           <span id="nav-info-title">RALLIEMENT</span>
@@ -142,11 +129,10 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         const pingLayer = L.layerGroup().addTo(map);
         let pings = {};
         let userArrowColor = '#3b82f6';
-        let hasInitiallyCentered = false; // Pour gérer le centrage forcé à l'ouverture
+        let hasInitiallyCentered = false;
         
-        // --- NAVIGATION VARS ---
         let routingControl = null;
-        let lastRouteStart = null; // Pour éviter le spam API
+        let lastRouteStart = null;
         let lastRouteEnd = null;
 
         function getStatusColor(status) {
@@ -173,67 +159,48 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                 updateMarkers(data.me, data.peers, data.showTrails);
                 updatePings(data.pings, data.showPings, data.isHost, data.me.callsign);
                 
-                // BOUSSOLE
                 if(data.me && data.me.head !== undefined) {
                     const rot = -data.me.head;
                     const el = document.getElementById('compass-rose');
                     if(el) el.style.transform = 'rotate(' + rot + 'deg)';
                 }
 
-                // GESTION NAVIGATION
                 if (data.navTargetId) {
                     handleNavigation(data.me, data.peers, data.navTargetId);
                 } else {
-                    clearNav(); // Utilisation de clearNav pour ne PAS spammer l'app
+                    clearNav();
                 }
             }
         }
 
-        // --- FONCTIONS DE NAVIGATION AVEC ANTI-SPAM ---
         function handleNavigation(me, peers, targetId) {
             const target = peers[targetId];
-            
-            // Sécurité : Si pas de cible, pas de moi, ou coordonnées à 0 (init), on ne fait rien
             if (!target || !me || me.lat === 0 || me.lng === 0 || target.lat === 0 || target.lng === 0) return;
 
             const start = L.latLng(me.lat, me.lng);
             const end = L.latLng(target.lat, target.lng);
 
-            // ANTI-SPAM: Si on a déjà une route, on vérifie si on a bougé de plus de 10m
             if (routingControl && lastRouteStart && lastRouteEnd) {
                 const distStart = start.distanceTo(lastRouteStart);
                 const distEnd = end.distanceTo(lastRouteEnd);
-                // Si on a bougé de moins de 10m, on ne recalcule PAS (économie API OSRM)
                 if (distStart < 10 && distEnd < 10) return;
             }
 
-            // Mise à jour des caches position
             lastRouteStart = start;
             lastRouteEnd = end;
 
-            // Création ou Mise à jour de la route
             if (!routingControl) {
                 routingControl = L.Routing.control({
                     waypoints: [start, end],
-                    router: L.Routing.osrmv1({
-                        serviceUrl: 'https://router.project-osrm.org/route/v1',
-                        profile: 'foot'
-                    }),
-                    lineOptions: {
-                        styles: [{color: '#06b6d4', opacity: 0.8, weight: 6, dashArray: '10,10'}]
-                    },
+                    router: L.Routing.osrmv1({ serviceUrl: 'https://router.project-osrm.org/route/v1', profile: 'foot' }),
+                    lineOptions: { styles: [{color: '#06b6d4', opacity: 0.8, weight: 6, dashArray: '10,10'}] },
                     createMarker: function() { return null; }, 
-                    addWaypoints: false,
-                    draggableWaypoints: false,
-                    fitSelectedRoutes: false,
-                    show: false 
+                    addWaypoints: false, draggableWaypoints: false, fitSelectedRoutes: false, show: false 
                 }).addTo(map);
 
-                // Écoute des résultats pour l'UI Custom
                 routingControl.on('routesfound', function(e) {
                     const routes = e.routes;
                     const summary = routes[0].summary;
-                    // Mettre à jour l'UI Custom
                     const timeMin = Math.round(summary.totalTime / 60);
                     const distM = Math.round(summary.totalDistance);
                     
@@ -242,33 +209,16 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                     panel.style.display = 'flex';
                     dataSpan.innerText = timeMin + ' min / ' + distM + ' m';
                 });
-
-                // Gestion des erreurs (ex: rate limit 429)
-                routingControl.on('routingerror', function(e) {
-                    console.log('Routing error:', e);
-                });
-
             } else {
-                // Mise à jour des points
                 routingControl.setWaypoints([start, end]);
             }
         }
 
-        // Fonction appelée par le clic utilisateur (Croix)
-        function stopNav() {
-            sendToApp({ type: 'NAV_STOP' });
-            clearNav();
-        }
+        function stopNav() { sendToApp({ type: 'NAV_STOP' }); clearNav(); }
         window.stopNav = stopNav; 
 
-        // Fonction locale de nettoyage (appelée par handleData ou stopNav)
         function clearNav() {
-            if (routingControl) {
-                map.removeControl(routingControl);
-                routingControl = null;
-                lastRouteStart = null;
-                lastRouteEnd = null;
-            }
+            if (routingControl) { map.removeControl(routingControl); routingControl = null; lastRouteStart = null; lastRouteEnd = null; }
             document.getElementById('nav-info-panel').style.display = 'none';
         }
 
@@ -286,14 +236,10 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
 
             all.forEach(u => {
                 let color = getStatusColor(u.status);
-                // Utilisation de la rotation envoyée (u.head)
                 const rot = u.head || 0;
-                
-                // Ajout de la classe heartbeat si statut CONTACT
                 const isContact = u.status === 'CONTACT';
                 const extraClass = isContact ? 'tac-marker-heartbeat' : '';
                 
-                // SVG Cone
                 const coneSvg = \`
                     <svg viewBox="0 0 100 100" width="80" height="80" style="overflow:visible;">
                          <path d="M50 50 L10 0 A60 60 0 0 1 90 0 Z" fill="\${color}" fill-opacity="0.3" stroke="\${color}" stroke-width="1" stroke-opacity="0.5" />
@@ -338,7 +284,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                 });
             });
 
-            // CENTRAGE FORCÉ À L'OUVERTURE
             if (me && me.lat && me.lat !== 0 && !hasInitiallyCentered) { 
                 map.setView([me.lat, me.lng], 16); 
                 hasInitiallyCentered = true;
@@ -375,7 +320,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
     if (webViewRef.current) {
       webViewRef.current.postMessage(JSON.stringify({
         type: 'UPDATE_MAP', me, peers, pings, mode: mapMode, showTrails, showPings, isHost,
-        userArrowColor, navTargetId // Envoi de l'ID cible
+        userArrowColor, navTargetId
       }));
     }
   }, [me, peers, pings, mapMode, showTrails, showPings, isHost, userArrowColor, navTargetId]);
@@ -386,10 +331,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
       if (data.type === 'MAP_CLICK' && pingMode) onPing({ lat: data.lat, lng: data.lng });
       if (data.type === 'PING_CLICK') onPingDelete(data.id); 
       if (data.type === 'PING_MOVE') onPingMove({ ...pings.find(p => p.id === data.id)!, lat: data.lat, lng: data.lng });
-      // GESTION NAV STOP : Appelé quand on clique sur la croix dans la Map
-      if (data.type === 'NAV_STOP') {
-          if (onNavStop) onNavStop(); // Appel callback parent pour reset state
-      }
+      if (data.type === 'NAV_STOP') { if (onNavStop) onNavStop(); }
     } catch(e) {}
   };
 
