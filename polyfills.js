@@ -15,11 +15,11 @@ if (typeof process === 'undefined') {
         version: '',
         nextTick: (cb) => setTimeout(cb, 0),
         browser: true,
-        platform: 'linux' // Simule un OS standard pour éviter certains checks
+        platform: 'linux' 
     };
 }
 
-// 2. NAVIGATOR POLYFILL
+// 2. NAVIGATOR POLYFILL (Fix PeerJS browser check)
 if (!global.navigator) {
     global.navigator = {
         userAgent: 'react-native',
@@ -29,12 +29,11 @@ if (!global.navigator) {
         onLine: true,
     };
 } else {
-    // Merge existing properties safely
     global.navigator.userAgent = 'react-native';
     if(global.navigator.onLine === undefined) global.navigator.onLine = true;
 }
 
-// 3. LOCATION POLYFILL (Crucial pour PeerJS Check)
+// 3. LOCATION POLYFILL (Fix PeerJS location check)
 if (!global.location) {
     global.location = {
         href: 'http://localhost/',
@@ -49,7 +48,7 @@ if (!global.location) {
     };
 }
 
-// 4. TEXT ENCODER / DECODER
+// 4. TEXT ENCODER / DECODER (Fix Hermes)
 if (typeof TextEncoder === 'undefined') {
     global.TextEncoder = class TextEncoder {
         encode(str) {
@@ -71,28 +70,20 @@ if (typeof TextDecoder === 'undefined') {
     };
 }
 
-// 5. TIMERS OVERRIDE (Fix pour certains environnements Hermes)
+// 5. TIMERS OVERRIDE
 const originalSetTimeout = setTimeout;
 global.setTimeout = (fn, ms, ...args) => {
     return originalSetTimeout(fn, ms || 0, ...args);
 };
 
-// 6. CRYPTO FALLBACK
+// 6. CRYPTO FALLBACK (Sécurité supplémentaire)
 if (typeof crypto === 'undefined') {
     global.crypto = {
         getRandomValues: (arr) => {
-             // Fallback minimaliste, react-native-get-random-values devrait prendre le relais
              for (let i = 0; i < arr.length; i++) {
                  arr[i] = Math.floor(Math.random() * 256);
              }
              return arr;
         }
-    };
-}
-
-// 7. PERFORMANCE
-if (typeof performance === 'undefined') {
-    global.performance = {
-        now: () => Date.now()
     };
 }
