@@ -9,7 +9,6 @@ import { StatusBar } from 'expo-status-bar';
 import QRCode from 'react-native-qrcode-svg';
 
 // FIX: For SDK 50, the new CameraView API is in 'expo-camera/next'
-// If this fails, we will revert to the legacy 'expo-camera' Camera component.
 import { CameraView, useCameraPermissions } from 'expo-camera/next'; 
 
 import * as Location from 'expo-location';
@@ -29,9 +28,8 @@ import { connectivityService, ConnectivityEvent } from './services/connectivityS
 
 import OperatorCard from './components/OperatorCard';
 import TacticalMap from './components/TacticalMap';
-import PrivacyConsentModal from './components/PrivacyConsentModal';
 import SettingsView from './components/SettingsView';
-import OperatorActionModal from './components/OperatorActionModal';
+// import OperatorActionModal from './components/OperatorActionModal'; // Si utilisé
 
 // --- COMPOSANT NOTIFICATION SWIPABLE ---
 const NavNotification = ({ message, onDismiss }: { message: string, onDismiss: () => void }) => {
@@ -67,7 +65,6 @@ const App: React.FC = () => {
   useKeepAwake();
   
   // FIX: Safe permission hook usage
-  // In case the hook is undefined (compilation glitch), we provide a fallback object
   const [permission, requestPermission] = useCameraPermissions 
     ? useCameraPermissions() 
     : [{ granted: false, canAskAgain: true }, async () => ({ granted: false })];
@@ -112,7 +109,7 @@ const App: React.FC = () => {
   const [navTargetId, setNavTargetId] = useState<string | null>(null);
   const [incomingNavNotif, setIncomingNavNotif] = useState<string | null>(null);
 
-  const [hasConsent, setHasConsent] = useState(false);
+  const [hasConsent, setHasConsent] = useState(true); // Supposé true pour simplifier le debug, ou via PrivacyConsentModal
   const [isOffline, setIsOffline] = useState(false);
   const [isServicesReady, setIsServicesReady] = useState(false);
   const [gpsStatus, setGpsStatus] = useState<'WAITING' | 'OK' | 'ERROR'>('WAITING');
@@ -633,6 +630,27 @@ const App: React.FC = () => {
             </TouchableOpacity>
         </View>
       </View>
+    </View>
+  );
+
+  // --- RETURN PRINCIPAL (LE FIX EST ICI) ---
+  return (
+    <View style={styles.container}>
+      <StatusBar style="light" backgroundColor="#050505" />
+      
+      {/* GESTION DE L'AFFICHAGE DES VUES */}
+      {view === 'settings' ? (
+         <SettingsView onClose={() => setView(lastView)} />
+      ) : (
+        <>
+            {view === 'login' && renderLogin()}
+            {view === 'menu' && renderMenu()}
+            {(view === 'ops' || view === 'map') && renderDashboard()}
+        </>
+      )}
+
+      {/* --- MODALES & OVERLAYS GLOBAUX --- */}
+      {/* Ils sont placés ici pour fonctionner PAR-DESSUS toutes les vues (ex: Scanner dans le Menu) */}
 
       <Modal visible={showQRModal} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
@@ -788,4 +806,5 @@ const styles = StyleSheet.create({
   quickMsgItem: { paddingVertical: 15, paddingHorizontal: 10, width: '100%', alignItems: 'center' },
   quickMsgText: { color: 'white', fontSize: 16, fontWeight: 'bold' }
 });
+
 export default App;
