@@ -1,0 +1,79 @@
+name: Build & Release ComTac (Debug)
+
+on:
+  workflow_dispatch:
+
+# ⚠️ Permission requise pour créer la Release
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout du code
+        uses: actions/checkout@v4
+
+      - name: Configuration de Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: ''
+
+      - name: Configuration de Java (JDK 17)
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Installation des dépendances
+        run: |
+          npm cache clean --force
+          npm install --legacy-peer-deps
+          npx expo install --fix
+
+      - name: Expo Prebuild
+        run: npx expo prebuild --platform android --clean
+
+      # --- ETAPE CRITIQUE : GÉNÉRATION DU BUNDLE JS ---
+      - name: Force Bundle JS
+        run: |
+          mkdir -p android/app/src/main/assets
+          npx react-native bundle \
+            --platform android \
+            --dev false \
+            --entry-file index.tsx \
+            --bundle-output android/app/src/main/assets/index.android.bundle \
+            --assets-dest android/app/src/main/res
+
+      # FIX: Use Gradle 8.6 instead of 8.7 (Better compatibility with RN 0.74)
+      - name: Fix Gradle Wrapper (Force 8.6-bin)
+        run: |
+          cd android/gradle/wrapper
+          sed -i 's/distributionUrl=.*$/distributionUrl=https\:\/\/services.gradle.org\/distributions\/gradle-8.6-bin.zip/g' gradle-wrapper.properties
+
+      - name: Build Android APK
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug -Dorg.gradle.jvmargs="-Xmx4608m -XX:MaxMetaspaceSize=1024m" --no-daemon --stacktrace
+
+      # --- 1. RENOMMAGE DU FICHIER ---
+      - name: Renommer l'APK en ComTac.apk
+        run: |
+          mv android/app/build/outputs/apk/debug/app-debug.apk ComTac.apk
+
+      # --- 2. MISE A JOUR DE LA RELEASE 'latest' ---
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: latest            # Tag fixe
+          name: "ComTac - Dernière Build"
+          files: ComTac.apk           # Fichier renommé
+          draft: false
+          prerelease: false
+          overwrite: true             # Écrase l'ancienne version
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
