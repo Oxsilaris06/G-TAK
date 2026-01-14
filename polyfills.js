@@ -1,63 +1,55 @@
 import 'react-native-get-random-values';
 
-// WebRTC polyfills have been removed as part of the Pure SA transition.
-// PeerJS for DataConnection might still need standard fetch/WebSocket 
-// which React Native provides natively.
-
-// If you encounter specific crypto errors with PeerJS, ensure 
-// react-native-get-random-values is imported first (as above).
-
-// 2. Simulation Environnement Navigateur COMPLET pour Hermes
-
-// A. Self & Window (CRITIQUE : Le fix pour l'erreur "Property 'S'")
+// 1. GLOBAL ENVIRONMENT SETUP
 if (typeof window === 'undefined') {
     global.window = global;
 }
+
 if (typeof self === 'undefined') {
     global.self = global;
 }
 
-// B. Process (Manquant dans Hermes)
 if (typeof process === 'undefined') {
     global.process = {
         env: { NODE_ENV: __DEV__ ? 'development' : 'production' },
+        version: '',
         nextTick: (cb) => setTimeout(cb, 0),
-        browser: true
+        browser: true,
+        platform: 'linux' // Simule un OS standard pour éviter certains checks
     };
 }
 
-// C. Location (Requis par PeerJS)
-if (!global.window.location) {
-    global.window.location = {
-        protocol: 'https:',
+// 2. NAVIGATOR POLYFILL
+if (!global.navigator) {
+    global.navigator = {
+        userAgent: 'react-native',
+        product: 'ReactNative',
+        platform: 'Linux armv81',
+        appVersion: '1.0.0',
+        onLine: true,
+    };
+} else {
+    // Merge existing properties safely
+    global.navigator.userAgent = 'react-native';
+    if(global.navigator.onLine === undefined) global.navigator.onLine = true;
+}
+
+// 3. LOCATION POLYFILL (Crucial pour PeerJS Check)
+if (!global.location) {
+    global.location = {
+        href: 'http://localhost/',
+        protocol: 'http:',
         host: 'localhost',
         hostname: 'localhost',
-        hash: '',
-        href: 'https://localhost',
         port: '80',
+        pathname: '/',
         search: '',
-        pathname: '/'
+        hash: '',
+        origin: 'http://localhost'
     };
 }
 
-// D. Navigator
-if (!global.navigator) {
-    global.navigator = {};
-}
-if (!global.navigator.userAgent) {
-    global.navigator.userAgent = 'react-native';
-}
-if (global.navigator.onLine === undefined) {
-    global.navigator.onLine = true;
-}
-
-// E. Timers
-const originalSetTimeout = setTimeout;
-global.setTimeout = (fn, ms, ...args) => {
-    return originalSetTimeout(fn, ms || 0, ...args);
-};
-
-// F. TextEncoder (CRITIQUE pour PeerJS + Hermes)
+// 4. TEXT ENCODER / DECODER
 if (typeof TextEncoder === 'undefined') {
     global.TextEncoder = class TextEncoder {
         encode(str) {
@@ -79,15 +71,28 @@ if (typeof TextDecoder === 'undefined') {
     };
 }
 
-// G. Crypto Fallback (Sécurité ultime anti-crash)
+// 5. TIMERS OVERRIDE (Fix pour certains environnements Hermes)
+const originalSetTimeout = setTimeout;
+global.setTimeout = (fn, ms, ...args) => {
+    return originalSetTimeout(fn, ms || 0, ...args);
+};
+
+// 6. CRYPTO FALLBACK
 if (typeof crypto === 'undefined') {
     global.crypto = {
         getRandomValues: (arr) => {
-             console.warn("Crypto Fallback Used");
+             // Fallback minimaliste, react-native-get-random-values devrait prendre le relais
              for (let i = 0; i < arr.length; i++) {
                  arr[i] = Math.floor(Math.random() * 256);
              }
              return arr;
         }
+    };
+}
+
+// 7. PERFORMANCE
+if (typeof performance === 'undefined') {
+    global.performance = {
+        now: () => Date.now()
     };
 }
