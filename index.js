@@ -1,5 +1,6 @@
-import { registerRootComponent } from 'expo';
+import './polyfills'; // FIX: Polyfills importés EN PREMIER pour garantir le support PeerJS
 
+import { registerRootComponent } from 'expo';
 import App from './App';
 
 // registerRootComponent calls AppRegistry.registerComponent('main', () => App);
