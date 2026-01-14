@@ -18,7 +18,7 @@
     "expo-location": "~16.5.5",
     "expo-camera": "~14.1.1",
     "expo-sensors": "~12.9.1",
-    "expo-battery": "~8.1.1",
+    "expo-battery": "~8.0.0",
     "expo-haptics": "~12.8.1",
     "expo-keep-awake": "~12.8.2",
     "expo-file-system": "~16.0.8",
