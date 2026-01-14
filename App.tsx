@@ -7,7 +7,8 @@ import {
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import QRCode from 'react-native-qrcode-svg';
-import { CameraView, useCameraPermissions } from 'expo-camera';
+// FIX: Ensure correct import for SDK 50
+import { CameraView, useCameraPermissions } from 'expo-camera'; 
 import * as Location from 'expo-location';
 import { useKeepAwake } from 'expo-keep-awake';
 import * as Battery from 'expo-battery';
@@ -20,7 +21,6 @@ import NetInfo from '@react-native-community/netinfo';
 
 import { UserData, OperatorStatus, OperatorRole, ViewType, PingData, AppSettings, DEFAULT_SETTINGS } from './types';
 import { CONFIG, STATUS_COLORS } from './constants';
-// Suppression explicite de audioService et tacticalNativeService
 import { configService } from './services/configService';
 import { connectivityService, ConnectivityEvent } from './services/connectivityService'; 
 
@@ -62,6 +62,7 @@ const NavNotification = ({ message, onDismiss }: { message: string, onDismiss: (
 
 const App: React.FC = () => {
   useKeepAwake();
+  // FIX: Safe destructuring with fallback
   const [permission, requestPermission] = useCameraPermissions();
 
   // --- CONFIGURATION ---
@@ -69,7 +70,7 @@ const App: React.FC = () => {
 
   const [user, setUser] = useState<UserData>({
     id: '', callsign: '', role: OperatorRole.OPR,
-    status: OperatorStatus.CLEAR, isTx: false,
+    status: OperatorStatus.CLEAR,
     joinedAt: Date.now(), bat: 100, head: 0,
     lat: 0, lng: 0 
   });
@@ -85,7 +86,6 @@ const App: React.FC = () => {
   const [hostInput, setHostInput] = useState('');
   const [pingMsgInput, setPingMsgInput] = useState('');
 
-  // Mode Carte par défaut "Satellite" pour le visuel tactique
   const [mapMode, setMapMode] = useState<'dark' | 'light' | 'satellite'>('satellite');
   const [showTrails, setShowTrails] = useState(true);
   const [showPings, setShowPings] = useState(true);
@@ -100,7 +100,6 @@ const App: React.FC = () => {
   const [selectedOperatorId, setSelectedOperatorId] = useState<string | null>(null);
   const [tempPingLoc, setTempPingLoc] = useState<any>(null);
 
-  // Private Mode sert maintenant uniquement pour le filtrage visuel sur la carte
   const [privatePeerId, setPrivatePeerId] = useState<string | null>(null);
 
   const [navTargetId, setNavTargetId] = useState<string | null>(null);
@@ -119,7 +118,6 @@ const App: React.FC = () => {
 
   // --- INIT GLOBAL & SERVICES ---
   useEffect(() => {
-      // 1. Config Init
       configService.init().then(s => {
           setSettings(s);
           setQuickMessagesList(s.quickMessages || DEFAULT_SETTINGS.quickMessages);
@@ -129,10 +127,8 @@ const App: React.FC = () => {
           }
       });
 
-      // 2. Config Subscription
       const unsubConfig = configService.subscribe((newSettings) => {
           setSettings(newSettings);
-          // applySettings(newSettings); // Audio retiré
           if (newSettings.quickMessages) setQuickMessagesList(newSettings.quickMessages);
           if (newSettings.username && newSettings.username !== user.callsign) {
               connectivityService.updateUser({ callsign: newSettings.username });
@@ -141,7 +137,6 @@ const App: React.FC = () => {
           if (gpsSubscription.current) startGpsTracking(newSettings.gpsUpdateInterval);
       });
 
-      // 3. Connectivity Subscription
       const unsubConn = connectivityService.subscribe(handleConnectivityEvent);
 
       return () => {
@@ -269,7 +264,6 @@ const App: React.FC = () => {
       if (showScanner) { setShowScanner(false); return true; } 
       if (navTargetId) { setNavTargetId(null); showToast("Navigation arrêtée"); return true; }
       if (view === 'ops') { setView('menu'); return true; } 
-      // Si on est sur la map et que c'est la vue principale, retour menu
       if (view === 'map') { setView('menu'); return true; }
       return false; 
   }; const backHandler = BackHandler.addEventListener("hardwareBackPress", backAction); return () => backHandler.remove(); }, [view, selectedOperatorId, showQRModal, showScanner, lastView, navTargetId, showQuickMsgModal]);
@@ -312,7 +306,6 @@ const App: React.FC = () => {
 
   const enterPrivateMode = (targetId: string) => {
       setPrivatePeerId(targetId);
-      // On ne change plus le statut opérateur pour éviter la confusion avec "Occupé au téléphone"
       showToast("Focus sur la cible (Map)");
   };
 
@@ -328,7 +321,6 @@ const App: React.FC = () => {
   };
 
   const handleRequestPrivate = (targetId: string) => {
-      // Juste un focus carte maintenant
       enterPrivateMode(targetId);
       setSelectedOperatorId(null);
   };
@@ -336,7 +328,6 @@ const App: React.FC = () => {
   const handleStartNavigation = (targetId: string) => {
       setSelectedOperatorId(null);
       setNavTargetId(targetId); 
-      // On s'assure d'être sur la map
       if (view !== 'map') setView('map');
       connectivityService.sendTo(targetId, { type: 'NAV_NOTIFY', callsign: user.callsign });
       showToast("Guidage Tactique Activé");
@@ -356,7 +347,6 @@ const App: React.FC = () => {
     if (!isServicesReady) await startServices();
     setUser(prev => ({ ...prev, role: OperatorRole.OPR }));
     connectivityService.init({ ...user, role: OperatorRole.OPR }, OperatorRole.OPR, finalId);
-    // On va direct sur la map
     setView('map');
   };
 
@@ -364,7 +354,6 @@ const App: React.FC = () => {
       if (!isServicesReady) await startServices();
       setUser(prev => ({ ...prev, role: OperatorRole.HOST }));
       connectivityService.init({ ...user, role: OperatorRole.HOST }, OperatorRole.HOST);
-      // On va direct sur la map
       setView('map');
   };
 
@@ -381,7 +370,6 @@ const App: React.FC = () => {
         { accuracy: Location.Accuracy.High, timeInterval: interval, distanceInterval: 5 },
         (loc) => {
             const { latitude, longitude, speed, heading, accuracy } = loc.coords;
-            // Filtrage moins agressif pour la map
             if (accuracy && accuracy > 100) return;
 
             setGpsStatus('OK');
@@ -408,7 +396,6 @@ const App: React.FC = () => {
                 PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION,
             ];
             if (Platform.Version >= 33) permsToRequest.push(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
-            // Bluetooth potentiellement utile pour des périphériques futurs, mais pas critique ici
             
             await PermissionsAndroid.requestMultiple(permsToRequest);
         } catch (err) { console.warn("Permissions Error", err); }
@@ -420,8 +407,6 @@ const App: React.FC = () => {
     try {
         await checkAllPermissions();
         
-        // Plus de init Audio ici
-
         const locationStatus = await Location.getForegroundPermissionsAsync();
         if (locationStatus.granted) {
             try {
@@ -436,7 +421,12 @@ const App: React.FC = () => {
              setGpsStatus('ERROR');
              showToast("GPS non disponible", "error");
         }
-        if (!permission?.granted) requestPermission();
+        
+        // FIX: Request camera permission if not already granted
+        if (!permission?.granted) {
+            requestPermission();
+        }
+        
         setIsServicesReady(true);
     } catch (e) { showToast("Erreur critique services", "error"); }
   };
@@ -571,7 +561,7 @@ const App: React.FC = () => {
                     key={p.id} 
                     onLongPress={() => setSelectedOperatorId(p.id)} 
                     activeOpacity={0.8}
-                    style={{ width: '100%', marginBottom: 10 }} // Pleine largeur pour la liste
+                    style={{ width: '100%', marginBottom: 10 }}
                  >
                     <OperatorCard user={p} me={user} style={{ width: '100%' }} />
                  </TouchableOpacity>
@@ -616,7 +606,6 @@ const App: React.FC = () => {
         )}
       </View>
 
-      {/* Footer simplifié : Juste Statut et Actions Rapides */}
       <View style={styles.footer}>
         <View style={styles.statusRow}>
             {[OperatorStatus.PROGRESSION, OperatorStatus.CONTACT, OperatorStatus.CLEAR].map(s => (
@@ -637,8 +626,100 @@ const App: React.FC = () => {
                 <MaterialIcons name="qr-code-2" size={16} color="#d4d4d8" />
             </TouchableOpacity>
         </View>
-        {/* Plus de controles PTT ici */}
       </View>
+
+      <Modal visible={showQRModal} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>MON IDENTITY TAG</Text>
+            <QRCode value={user.id || 'NO_ID'} size={200} />
+            <TouchableOpacity onPress={copyToClipboard}>
+                <Text style={styles.qrId}>{user.id}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setShowQRModal(false)} style={styles.closeBtn}>
+              <Text style={styles.closeBtnText}>FERMER</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={showScanner} animationType="slide">
+        <View style={{flex: 1, backgroundColor: 'black'}}>
+          {/* FIX: Ensure we check permission before rendering CameraView */}
+          {permission?.granted ? (
+              <CameraView 
+                style={{flex: 1}} 
+                onBarcodeScanned={handleScannerBarCodeScanned} 
+                barcodeScannerSettings={{barcodeTypes: ["qr"]}} 
+              />
+          ) : (
+              <View style={{flex: 1, justifyContent: 'center', alignItems: 'center'}}>
+                  <Text style={{color: 'white', textAlign: 'center'}}>Permission caméra requise</Text>
+                  <TouchableOpacity onPress={requestPermission} style={[styles.modalBtn, {backgroundColor: '#3b82f6', marginTop: 20}]}>
+                      <Text style={{color: 'white'}}>Autoriser</Text>
+                  </TouchableOpacity>
+              </View>
+          )}
+          
+          <TouchableOpacity onPress={() => setShowScanner(false)} style={styles.scannerClose}>
+            <MaterialIcons name="close" size={30} color="white" />
+          </TouchableOpacity>
+          <View style={{position: 'absolute', bottom: 50, alignSelf: 'center'}}>
+              <Text style={{color: 'white', backgroundColor: 'rgba(0,0,0,0.5)', padding: 10}}>Scannez le QR Code de l'Hôte</Text>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={showPingModal} animationType="fade" transparent>
+         <View style={styles.modalOverlay}>
+            <View style={[styles.modalContent, {backgroundColor: '#18181b', borderWidth: 1, borderColor: '#333'}]}>
+               <Text style={[styles.modalTitle, {color: 'white'}]}>ENVOYER PING</Text>
+               <TextInput style={styles.pingInput} placeholder="Message (ex: ENNEMI)" placeholderTextColor="#71717a" onChangeText={setPingMsgInput} autoFocus />
+               <View style={{flexDirection: 'row', gap: 10}}>
+                   <TouchableOpacity onPress={() => setShowPingModal(false)} style={[styles.modalBtn, {backgroundColor: '#27272a'}]}>
+                       <Text style={{color: 'white', fontWeight: 'bold'}}>ANNULER</Text>
+                   </TouchableOpacity>
+                   <TouchableOpacity onPress={() => { if(tempPingLoc && pingMsgInput) { const newPing: PingData = { id: Math.random().toString(36).substr(2, 9), lat: tempPingLoc.lat, lng: tempPingLoc.lng, msg: pingMsgInput, sender: user.callsign, timestamp: Date.now() }; setPings(prev => [...prev, newPing]); connectivityService.broadcast({ type: 'PING', ping: newPing }); setShowPingModal(false); setPingMsgInput(''); setIsPingMode(false); } }} style={[styles.modalBtn, {backgroundColor: '#ef4444'}]}>
+                       <Text style={{color: 'white', fontWeight: 'bold'}}>ENVOYER</Text>
+                   </TouchableOpacity>
+               </View>
+            </View>
+         </View>
+      </Modal>
+
+      <Modal visible={showQuickMsgModal} animationType="fade" transparent>
+          <View style={styles.modalOverlay}>
+              <View style={[styles.modalContent, {backgroundColor: '#18181b', borderWidth: 1, borderColor: '#333', maxHeight: '80%'}]}>
+                  <Text style={[styles.modalTitle, {color: '#06b6d4', marginBottom: 15}]}>MESSAGE RAPIDE</Text>
+                  <FlatList 
+                      data={quickMessagesList} 
+                      keyExtractor={(item, index) => index.toString()}
+                      renderItem={({item}) => (
+                          <TouchableOpacity onPress={() => sendQuickMessage(item)} style={styles.quickMsgItem}>
+                              <Text style={styles.quickMsgText}>{item}</Text>
+                          </TouchableOpacity>
+                      )}
+                      ItemSeparatorComponent={() => <View style={{height: 1, backgroundColor: '#27272a'}} />}
+                  />
+                  <TouchableOpacity onPress={() => setShowQuickMsgModal(false)} style={[styles.closeBtn, {backgroundColor: '#27272a', marginTop: 15}]}>
+                      <Text style={{color: '#a1a1aa'}}>ANNULER</Text>
+                  </TouchableOpacity>
+              </View>
+          </View>
+      </Modal>
+
+      {incomingNavNotif && (
+          <NavNotification 
+            message={incomingNavNotif} 
+            onDismiss={() => setIncomingNavNotif(null)} 
+          />
+      )}
+
+      {toast && (
+        <View style={[styles.toast, toast.type === 'error' && {backgroundColor: '#ef4444'}]}>
+           <Text style={styles.toastText}>{toast.msg}</Text>
+        </View>
+      )}
     </View>
   );
 };
@@ -673,11 +754,10 @@ const styles = StyleSheet.create({
   silenceText: { color: 'white', fontWeight: 'bold', fontSize: 12, letterSpacing: 1 },
   mainContent: { flex: 1 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', padding: 16, gap: 12 },
-  footer: { backgroundColor: '#050505', borderTopWidth: 1, borderTopColor: '#27272a', paddingBottom: 20 }, // Padding réduit car moins de controles
+  footer: { backgroundColor: '#050505', borderTopWidth: 1, borderTopColor: '#27272a', paddingBottom: 20 },
   statusRow: { flexDirection: 'row', padding: 12, gap: 8, flexWrap: 'wrap', justifyContent: 'center' },
   statusBtn: { paddingHorizontal: 16, paddingVertical: 12, borderRadius: 8, backgroundColor: '#18181b', borderWidth: 1, borderColor: '#27272a' },
   statusBtnText: { color: '#71717a', fontSize: 12, fontWeight: 'bold' },
-  // controlsRow SUPPRIMÉ
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center', alignItems: 'center', padding: 30 },
   modalContent: { width: '100%', backgroundColor: 'white', padding: 24, borderRadius: 24, alignItems: 'center' },
   modalTitle: { fontSize: 18, fontWeight: '900', marginBottom: 20 },
