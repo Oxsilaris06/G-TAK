@@ -1,9 +1,11 @@
-
 import 'react-native-get-random-values';
-import { registerGlobals } from 'react-native-webrtc';
 
-// 1. Activation WebRTC
-registerGlobals();
+// WebRTC polyfills have been removed as part of the Pure SA transition.
+// PeerJS for DataConnection might still need standard fetch/WebSocket 
+// which React Native provides natively.
+
+// If you encounter specific crypto errors with PeerJS, ensure 
+// react-native-get-random-values is imported first (as above).
 
 // 2. Simulation Environnement Navigateur COMPLET pour Hermes
 
