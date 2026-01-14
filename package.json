@@ -33,7 +33,10 @@
     "react-native-qrcode-svg": "^6.3.0",
     "peerjs": "^1.5.2",
     "react-native-get-random-values": "~1.8.0",
-    "react-native-webview": "13.8.6"
+    "react-native-webview": "13.8.6",
+    "expo-notifications": "~0.27.6",
+    "expo-document-picker": "~11.10.1",
+    "@expo/vector-icons": "^14.0.0"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",
