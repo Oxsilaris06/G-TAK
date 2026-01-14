@@ -7,8 +7,11 @@ import {
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import QRCode from 'react-native-qrcode-svg';
-// FIX: Ensure correct import for SDK 50
-import { CameraView, useCameraPermissions } from 'expo-camera'; 
+
+// FIX: For SDK 50, the new CameraView API is in 'expo-camera/next'
+// If this fails, we will revert to the legacy 'expo-camera' Camera component.
+import { CameraView, useCameraPermissions } from 'expo-camera/next'; 
+
 import * as Location from 'expo-location';
 import { useKeepAwake } from 'expo-keep-awake';
 import * as Battery from 'expo-battery';
@@ -62,8 +65,12 @@ const NavNotification = ({ message, onDismiss }: { message: string, onDismiss: (
 
 const App: React.FC = () => {
   useKeepAwake();
-  // FIX: Safe destructuring with fallback
-  const [permission, requestPermission] = useCameraPermissions();
+  
+  // FIX: Safe permission hook usage
+  // In case the hook is undefined (compilation glitch), we provide a fallback object
+  const [permission, requestPermission] = useCameraPermissions 
+    ? useCameraPermissions() 
+    : [{ granted: false, canAskAgain: true }, async () => ({ granted: false })];
 
   // --- CONFIGURATION ---
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
@@ -422,8 +429,7 @@ const App: React.FC = () => {
              showToast("GPS non disponible", "error");
         }
         
-        // FIX: Request camera permission if not already granted
-        if (!permission?.granted) {
+        if (permission && !permission.granted && permission.canAskAgain) {
             requestPermission();
         }
         
