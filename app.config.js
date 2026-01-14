@@ -31,6 +31,7 @@ export default {
         backgroundColor: "#000000"
       },
       package: "com.comtac.sa",
+      // Permissions strictes pour SA (Situational Awareness) - Pas de RECORD_AUDIO
       permissions: [
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
@@ -42,9 +43,7 @@ export default {
         "VIBRATE",
         "INTERNET",
         "ACCESS_NETWORK_STATE",
-        "ACCESS_WIFI_STATE",
-        "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE"
+        "ACCESS_WIFI_STATE"
       ]
     },
     web: {
@@ -54,13 +53,24 @@ export default {
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "Allow ComTac to use your location."
+          "locationAlwaysAndWhenInUsePermission": "Allow ComTac to use your location for team awareness."
         }
       ],
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow ComTac to access your camera."
+          "cameraPermission": "Allow ComTac to access your camera for QR scanning."
+        }
+      ],
+      // Ce plugin remplace la modification manuelle de build.gradle
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "compileSdkVersion": 34,
+            "targetSdkVersion": 34,
+            "buildToolsVersion": "34.0.0"
+          }
         }
       ]
     ],
