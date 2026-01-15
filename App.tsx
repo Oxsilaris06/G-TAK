@@ -143,41 +143,49 @@ const App: React.FC = () => {
   }, []);
 
   const copyToClipboard = async () => {
-    // Copie l'ID de session (HostID) si je suis client, ou Mon ID si je suis Host
+    // Si connecté : Host ID. Si non connecté : Mon User ID (PeerJS)
     const idToCopy = hostId || user.id;
     if (idToCopy) {
         await Clipboard.setStringAsync(idToCopy);
-        showToast(`ID Session copié : ${idToCopy}`);
+        showToast(`ID copié : ${idToCopy}`);
     } else {
-        showToast("Aucun ID disponible", "error");
+        showToast("ID non disponible", "error");
     }
   };
 
   const bootstrapPermissions = async () => {
+    console.log("Bootstrapping Permissions...");
     try {
         if (Platform.OS === 'android') {
             await PermissionsAndroid.requestMultiple([
                 PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
                 PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION,
-            ]);
+            ]).catch(() => console.log("Loc Perm Error"));
         }
-        const { status: existingStatus } = await Notifications.getPermissionsAsync();
-        if (existingStatus !== 'granted') await Notifications.requestPermissionsAsync();
+
+        try {
+            const { status: existingStatus } = await Notifications.getPermissionsAsync();
+            if (existingStatus !== 'granted') await Notifications.requestPermissionsAsync();
+        } catch(e) { console.log("Notif Perm Error"); }
         
-        const locRes = await Location.requestForegroundPermissionsAsync();
+        const locRes = await Location.requestForegroundPermissionsAsync().catch(() => ({status: 'denied'}));
         if (locRes.status !== 'granted') {
-            showToast("GPS Refusé", "error");
             setGpsStatus('ERROR');
         } else {
             setGpsStatus('OK');
         }
-        if (!cameraPermission?.granted) await requestCameraPermission();
-    } catch (e) {}
+
+        if (!cameraPermission?.granted) {
+            await requestCameraPermission().catch(() => {});
+        }
+    } catch (e) {
+        console.warn("Permission Error (Global):", e);
+    }
   };
 
   const startGpsTracking = useCallback(async (interval: number) => {
       if (gpsSubscription.current) gpsSubscription.current.remove();
-      const hasPerm = await Location.getForegroundPermissionsAsync();
+      const hasPerm = await Location.getForegroundPermissionsAsync().catch(() => ({granted: false}));
       if (!hasPerm.granted) return;
 
       gpsSubscription.current = await Location.watchPositionAsync(
@@ -293,9 +301,15 @@ const App: React.FC = () => {
               setSettings(s);
               setQuickMessagesList(msgs || DEFAULT_SETTINGS.quickMessages);
               if (s.username) { setUser(prev => ({ ...prev, callsign: s.username })); setLoginInput(s.username); }
-          } catch (e) { } finally { setIsAppReady(true); }
+          } catch (e) {
+              console.warn("Init Error", e);
+          } finally { 
+              setIsAppReady(true); 
+          }
       };
+      
       initApp();
+
       const unsubConfig = configService.subscribe((newSettings) => {
           setSettings(newSettings);
           if (newSettings.quickMessages) setQuickMessagesList(newSettings.quickMessages);
@@ -468,6 +482,14 @@ const App: React.FC = () => {
                 <TextInput style={styles.inputBox} placeholder="ID GROUPE..." placeholderTextColor="#52525b" value={hostInput} onChangeText={setHostInput} autoCapitalize="characters" />
                 <TouchableOpacity onPress={() => joinSession()} style={styles.joinBtn}>
                     <Text style={styles.joinBtnText}>REJOINDRE</Text>
+                </TouchableOpacity>
+                
+                {/* NOUVEAU: BOUTON QR CODE AUSSI EN MODE NON-CONNECTÉ (Pour préparer) */}
+                <TouchableOpacity onPress={() => setShowQRModal(true)} style={[styles.joinBtn, {backgroundColor: '#18181b', borderWidth:1, borderColor:'#333', marginTop: 15}]}>
+                    <View style={{flexDirection:'row', alignItems:'center', justifyContent: 'center', gap: 10}}>
+                        <MaterialIcons name="qr-code" size={20} color="#71717a" />
+                        <Text style={[styles.joinBtnText, {color: '#71717a'}]}>MON QR CODE</Text>
+                    </View>
                 </TouchableOpacity>
             </>
         )}
