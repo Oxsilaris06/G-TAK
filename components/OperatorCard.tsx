@@ -1,21 +1,20 @@
 import React from 'react';
-import { View, Text, StyleSheet, Animated } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { UserData, OperatorStatus } from '../types';
+import { UserData } from '../types';
 import { STATUS_COLORS } from '../constants';
 
 interface Props {
     user: UserData;
     isMe?: boolean;
-    me?: UserData; // Pour calculer la distance
+    me?: UserData;
     style?: any;
 }
 
 const OperatorCard: React.FC<Props> = ({ user, isMe, me, style }) => {
-    // Calcul de distance simple (Haversine approximatif pour la performance UI)
     const getDistance = () => {
         if (!me || !user.lat || !me.lat) return '';
-        const R = 6371e3; // metres
+        const R = 6371e3; 
         const φ1 = me.lat * Math.PI/180;
         const φ2 = user.lat * Math.PI/180;
         const Δφ = (user.lat-me.lat) * Math.PI/180;
@@ -28,6 +27,7 @@ const OperatorCard: React.FC<Props> = ({ user, isMe, me, style }) => {
 
     const statusColor = STATUS_COLORS[user.status] || '#71717a';
 
+    // THEME COMTAC STRICT : Fond noir #18181b, Bordure subtile #27272a, Texte clair
     return (
         <View style={[styles.card, { borderColor: statusColor }, style]}>
             <View style={styles.header}>
@@ -55,7 +55,7 @@ const OperatorCard: React.FC<Props> = ({ user, isMe, me, style }) => {
                 )}
             </View>
 
-            {/* Zonne de Message - S'affiche uniquement si un message existe */}
+            {/* Zonne de Message */}
             {user.lastMsg ? (
                 <View style={styles.messageBox}>
                     <MaterialIcons name="chat-bubble" size={14} color="#000" style={{marginRight: 5}} />
@@ -68,7 +68,7 @@ const OperatorCard: React.FC<Props> = ({ user, isMe, me, style }) => {
 
 const styles = StyleSheet.create({
     card: {
-        backgroundColor: '#18181b',
+        backgroundColor: '#18181b', // Fond foncé strict
         borderRadius: 12,
         padding: 12,
         borderWidth: 1,
@@ -93,7 +93,7 @@ const styles = StyleSheet.create({
         fontWeight: 'bold'
     },
     callsign: {
-        color: 'white',
+        color: '#f4f4f5', // Blanc cassé pour lisibilité
         fontWeight: 'bold',
         fontSize: 16,
         flex: 1,
@@ -123,13 +123,13 @@ const styles = StyleSheet.create({
         fontWeight: 'bold'
     },
     distText: {
-        color: '#71717a',
+        color: '#a1a1aa',
         fontSize: 12,
         fontFamily: 'monospace'
     },
     messageBox: {
         marginTop: 10,
-        backgroundColor: '#fbbf24', // Ambre / Jaune pour visibilité
+        backgroundColor: '#fbbf24', // Jaune ambre pour contraste max sur fond noir
         padding: 8,
         borderRadius: 6,
         flexDirection: 'row',
@@ -137,7 +137,7 @@ const styles = StyleSheet.create({
         justifyContent: 'center'
     },
     messageText: {
-        color: '#000',
+        color: '#000', // Texte noir sur fond jaune
         fontWeight: 'bold',
         fontSize: 12
     }
