@@ -49,14 +49,16 @@ export interface PingData {
 export interface AppSettings {
     username: string;
     gpsUpdateInterval: number;
+    orientationUpdateInterval: number; // NOUVEAU PARAMETRE
     userArrowColor: string;
     quickMessages: string[];
-    disableBackgroundNotifications?: boolean; // Nouvelle option
+    disableBackgroundNotifications?: boolean;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
     username: '',
     gpsUpdateInterval: 2000,
+    orientationUpdateInterval: 500, // Par défaut 500ms
     userArrowColor: '#3b82f6',
     quickMessages: [
         "RAS / Effacer",
