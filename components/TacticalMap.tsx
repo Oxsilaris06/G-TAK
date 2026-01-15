@@ -15,7 +15,7 @@ interface TacticalMapProps {
   navTargetId?: string | null;
   onPing: (loc: { lat: number; lng: number }) => void;
   onPingMove: (ping: PingData) => void;
-  onPingClick: (id: string) => void; // NOUVEAU
+  onPingClick: (id: string) => void; 
   onNavStop: () => void;
 }
 
@@ -30,7 +30,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
     <html>
     <head>
       <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-      <!-- FORCE CACHE -->
       <meta http-equiv="Cache-Control" content="public, max-age=31536000">
       <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
       <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.css" />
@@ -40,10 +39,8 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         #map { width: 100vw; height: 100vh; }
         .leaflet-control-attribution { display: none; }
         
-        /* Markers Operateurs */
         .tac-marker-root { position: relative; display: flex; justify-content: center; align-items: center; width: 80px; height: 80px; }
         .tac-cone-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; transition: transform 0.1s linear; pointer-events: none; z-index: 1; }
-        
         .tac-circle-id { 
             position: absolute; z-index: 10; width: 32px; height: 32px; border-radius: 50%; border: 2px solid white; 
             display: flex; justify-content: center; align-items: center; box-shadow: 0 0 5px rgba(0,0,0,0.5); 
@@ -58,23 +55,18 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         }
         .tac-marker-heartbeat .tac-circle-id { animation: heartbeat 1.5s infinite ease-in-out !important; border-color: #ef4444 !important; background-color: rgba(239, 68, 68, 0.8) !important; z-index: 9999 !important; }
 
-        /* NOUVEAUX PINGS */
         .ping-marker-box { display: flex; flex-direction: column; align-items: center; width: 100px; }
         .ping-icon { font-size: 24px; filter: drop-shadow(0px 2px 2px rgba(0,0,0,0.8)); transition: transform 0.2s; }
         .ping-icon:active { transform: scale(1.2); }
-        
-        /* Libellé Permanent */
         .ping-label { 
             background: rgba(0,0,0,0.7); color: white; padding: 2px 6px; border-radius: 4px; 
             font-size: 11px; font-weight: bold; margin-bottom: 2px; border: 1px solid rgba(255,255,255,0.3);
             white-space: nowrap; max-width: 150px; overflow: hidden; text-overflow: ellipsis;
         }
 
-        /* Tooltip (Détails Hostile) */
-        .ping-details-popup { text-align: left; }
-        .ping-details-popup b { color: #ef4444; }
+        .ping-details-popup { text-align: left; min-width: 150px; }
+        .ping-details-popup b { color: #ef4444; display: block; margin-bottom: 5px; border-bottom: 1px solid #333; }
 
-        /* Boussole */
         #compass { position: absolute; top: 20px; left: 20px; width: 60px; height: 60px; z-index: 9999; background: rgba(0,0,0,0.6); border-radius: 50%; border: 2px solid rgba(255,255,255,0.2); display: flex; justify-content: center; align-items: center; backdrop-filter: blur(2px); pointer-events: none; }
         #compass-indicator { position: absolute; top: -5px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 8px solid #ef4444; z-index: 20; }
         #compass-rose { position: relative; width: 100%; height: 100%; transition: transform 0.1s linear; }
@@ -84,7 +76,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         .compass-e { right: 6px; top: 50%; transform: translateY(-50%); }
         .compass-w { left: 6px; top: 50%; transform: translateY(-50%); }
 
-        /* NAV UI */
         .leaflet-routing-container { display: none; }
         #nav-info-panel { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.85); border: 1px solid #06b6d4; border-radius: 12px; padding: 10px 20px; z-index: 9000; display: none; flex-direction: column; align-items: center; backdrop-filter: blur(4px); }
         #nav-info-title { color: #06b6d4; font-size: 10px; font-weight: bold; letter-spacing: 1px; margin-bottom: 2px; }
@@ -145,7 +136,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         }
         
         function getPingIcon(type) {
-            if(type === 'HOSTILE') return '🔴'; // Ou icone SVG personnalisée
+            if(type === 'HOSTILE') return '🔴';
             if(type === 'FRIEND') return '🔵';
             if(type === 'INTEL') return '👁️';
             return '📍';
@@ -181,7 +172,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
             }
         }
 
-        // ... [Navigation Logic Same as Before] ...
         function handleNavigation(me, peers, targetId) {
             const target = peers[targetId];
             if (!target || !me || me.lat === 0 || me.lng === 0 || target.lat === 0 || target.lng === 0) return;
@@ -226,7 +216,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         }
 
         function updateMarkers(me, peers, showTrails) {
-             // ... [Marker logic preserved from previous version] ...
             const validPeers = Object.values(peers).filter(p => p.id !== me.id);
             const all = [me, ...validPeers].filter(u => u && u.lat);
             const activeIds = all.map(u => u.id);
@@ -246,7 +235,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                 if (markers[u.id]) { markers[u.id].setLatLng([u.lat, u.lng]); markers[u.id].setIcon(icon); markers[u.id].setZIndexOffset(u.id === me.id ? 1000 : 500); } 
                 else { markers[u.id] = L.marker([u.lat, u.lng], { icon: icon, zIndexOffset: u.id === me.id ? 1000 : 500 }).addTo(map); }
                 
-                // Trails logic ...
                 if (!trails[u.id]) trails[u.id] = { segments: [] };
                 const userTrail = trails[u.id];
                 let currentSegment = userTrail.segments.length > 0 ? userTrail.segments[userTrail.segments.length - 1] : null;
@@ -279,7 +267,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                 const iconChar = getPingIcon(p.type || 'FRIEND');
                 const color = getPingColor(p.type || 'FRIEND');
                 
-                // Construction HTML Label Permanent + Icone
                 const html = \`
                     <div class="ping-marker-box">
                         <div class="ping-label" style="border-color: \${color}">\${p.msg}</div>
@@ -289,23 +276,23 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
 
                 if (pings[p.id]) {
                     pings[p.id].setLatLng([p.lat, p.lng]);
-                    // Update content si changé
                     if(pings[p.id]._icon) pings[p.id]._icon.innerHTML = html;
                     if(pings[p.id].dragging) { canDrag ? pings[p.id].dragging.enable() : pings[p.id].dragging.disable(); }
                 } else {
                     const icon = L.divIcon({ className: 'custom-div-icon', html: html, iconSize: [100, 60], iconAnchor: [50, 50] });
                     const m = L.marker([p.lat, p.lng], { icon: icon, draggable: canDrag, zIndexOffset: 2000 });
                     
-                    // Bind Popup pour détails HOSTILE
                     if (p.type === 'HOSTILE' && p.details) {
                         const d = p.details;
                         const popupContent = \`
                             <div class="ping-details-popup">
-                                <b>HOSTILE DÉTECTÉ</b><br/>
-                                Attitude: \${d.attitude || '?'}<br/>
-                                Volume: \${d.volume || '?'}<br/>
+                                <b>HOSTILE DÉTECTÉ</b>
+                                Position: \${d.position || '-'}<br/>
+                                Nature: \${d.nature || '-'}<br/>
+                                Attitude: \${d.attitude || '-'}<br/>
+                                Volume: \${d.volume || '-'}<br/>
                                 Armes: \${d.armes || 'Néant'}<br/>
-                                Autres: \${d.substances || '-'}
+                                Substances: \${d.substances || '-'}
                             </div>
                         \`;
                         m.bindPopup(popupContent, { closeButton: false, offset: [0, -30] });
@@ -358,7 +345,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         javaScriptEnabled={true}
         domStorageEnabled={true}
         startInLoadingState={true}
-        // Force Cache
         cacheEnabled={true}
         cacheMode="LOAD_CACHE_ELSE_NETWORK"
         renderLoading={() => <ActivityIndicator size="large" color="#3b82f6" style={styles.loader} />}
