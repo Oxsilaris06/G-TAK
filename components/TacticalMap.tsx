@@ -13,12 +13,11 @@ interface TacticalMapProps {
   isHost: boolean;
   userArrowColor: string;
   navTargetId?: string | null;
-  pingMode?: boolean; // Si vrai, on attend un clic pour poser un ping
+  pingMode?: boolean; 
   onPing: (loc: { lat: number; lng: number }) => void;
   onPingMove: (ping: PingData) => void;
   onPingClick: (id: string) => void; 
   onNavStop: () => void;
-  onPingDelete?: (id: string) => void;
 }
 
 const TacticalMap: React.FC<TacticalMapProps> = ({
@@ -35,6 +34,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
       <meta http-equiv="Cache-Control" content="public, max-age=31536000">
       <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
       <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.css" />
+      
       <style>
         body { margin: 0; padding: 0; background: #000; font-family: sans-serif; }
         #map { width: 100vw; height: 100vh; }
@@ -42,24 +42,37 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         
         .tac-marker-root { position: relative; display: flex; justify-content: center; align-items: center; width: 80px; height: 80px; }
         .tac-cone-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; transition: transform 0.1s linear; pointer-events: none; z-index: 1; }
-        .tac-circle-id { position: absolute; z-index: 10; width: 32px; height: 32px; border-radius: 50%; border: 2px solid white; display: flex; justify-content: center; align-items: center; box-shadow: 0 0 5px rgba(0,0,0,0.5); top: 50%; left: 50%; transform: translate(-50%, -50%); transition: all 0.3s ease; }
+        .tac-circle-id { 
+            position: absolute; z-index: 10; width: 32px; height: 32px; border-radius: 50%; border: 2px solid white; 
+            display: flex; justify-content: center; align-items: center; box-shadow: 0 0 5px rgba(0,0,0,0.5); 
+            top: 50%; left: 50%; transform: translate(-50%, -50%); transition: all 0.3s ease; 
+        }
         .tac-circle-id span { color: white; font-family: monospace; font-size: 10px; font-weight: 900; text-shadow: 0 1px 2px black; }
-        @keyframes heartbeat { 0% { transform: translate(-50%, -50%) scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); } 50% { transform: translate(-50%, -50%) scale(1.4); box-shadow: 0 0 20px 10px rgba(239, 68, 68, 0); } 100% { transform: translate(-50%, -50%) scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
+        
+        @keyframes heartbeat {
+            0% { transform: translate(-50%, -50%) scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+            50% { transform: translate(-50%, -50%) scale(1.4); box-shadow: 0 0 20px 10px rgba(239, 68, 68, 0); }
+            100% { transform: translate(-50%, -50%) scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
         .tac-marker-heartbeat .tac-circle-id { animation: heartbeat 1.5s infinite ease-in-out !important; border-color: #ef4444 !important; background-color: rgba(239, 68, 68, 0.8) !important; z-index: 9999 !important; }
 
         .ping-marker-box { display: flex; flex-direction: column; align-items: center; width: 100px; cursor: pointer; }
         .ping-icon { font-size: 24px; filter: drop-shadow(0px 2px 2px rgba(0,0,0,0.8)); transition: transform 0.2s; }
         .ping-icon:active { transform: scale(1.2); }
-        .ping-label { background: rgba(0,0,0,0.7); color: white; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: bold; margin-bottom: 2px; border: 1px solid rgba(255,255,255,0.3); white-space: nowrap; max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
+        .ping-label { 
+            background: rgba(0,0,0,0.7); color: white; padding: 2px 6px; border-radius: 4px; 
+            font-size: 11px; font-weight: bold; margin-bottom: 2px; border: 1px solid rgba(255,255,255,0.3);
+            white-space: nowrap; max-width: 150px; overflow: hidden; text-overflow: ellipsis;
+        }
 
-        /* Popup amélioré pour Hostile */
+        /* Styles Popup Hostile */
         .ping-details-popup .leaflet-popup-content-wrapper { background: rgba(24, 24, 27, 0.95); border: 1px solid #ef4444; border-radius: 8px; color: white; }
         .ping-details-popup .leaflet-popup-tip { background: #ef4444; }
         .ping-details-popup .leaflet-popup-close-button { color: white; }
         .hostile-info b { color: #ef4444; display: block; border-bottom: 1px solid #333; margin-bottom: 5px; padding-bottom: 2px; }
         .hostile-row { font-size: 12px; margin-bottom: 2px; }
         .hostile-label { color: #a1a1aa; font-weight: bold; }
-        
+
         #compass { position: absolute; top: 20px; left: 20px; width: 60px; height: 60px; z-index: 9999; background: rgba(0,0,0,0.6); border-radius: 50%; border: 2px solid rgba(255,255,255,0.2); display: flex; justify-content: center; align-items: center; backdrop-filter: blur(2px); pointer-events: none; }
         #compass-indicator { position: absolute; top: -5px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 8px solid #ef4444; z-index: 20; }
         #compass-rose { position: relative; width: 100%; height: 100%; transition: transform 0.1s linear; }
@@ -99,23 +112,46 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         let userArrowColor = '#3b82f6';
         let pingMode = false;
         
-        // --- LOGIQUE CLICK & LONG PRESS ---
         let pressTimer;
+
+        function getStatusColor(status) {
+             switch(status) {
+                 case 'CONTACT': return '#ef4444'; 
+                 case 'CLEAR': return '#22c55e';   
+                 case 'APPUI': return '#eab308';   
+                 case 'BUSY': return '#a855f7';    
+                 case 'PROGRESSION': return userArrowColor;
+                 default: return userArrowColor;
+             }
+        }
         
+        function getPingIcon(type) {
+            if(type === 'HOSTILE') return '🔴';
+            if(type === 'FRIEND') return '🔵';
+            if(type === 'INTEL') return '👁️';
+            return '📍';
+        }
+
+        function getPingColor(type) {
+            if(type === 'HOSTILE') return '#ef4444'; 
+            if(type === 'FRIEND') return '#22c55e';
+            if(type === 'INTEL') return '#eab308';
+            return 'white';
+        }
+
         function sendToApp(data) { window.ReactNativeWebView.postMessage(JSON.stringify(data)); }
+        
         document.addEventListener('message', (event) => handleData(JSON.parse(event.data)));
         window.addEventListener('message', (event) => handleData(JSON.parse(event.data)));
 
-        // Double Click sur la carte -> Créer Ping
+        // Double Click -> Toujours Ping
         map.on('dblclick', function(e) {
-             sendToApp({ type: 'MAP_PING', lat: e.latlng.lat, lng: e.latlng.lng });
+             sendToApp({ type: 'MAP_CLICK', lat: e.latlng.lat, lng: e.latlng.lng }); // MAP_CLICK déclenche le menu Ping
         });
 
-        // Simple Click Carte -> Si mode Ping activé par bouton
+        // Simple Click -> Dépend du mode
         map.on('click', (e) => {
             if (pingMode) {
-                sendToApp({ type: 'MAP_PING', lat: e.latlng.lat, lng: e.latlng.lng });
-            } else {
                 sendToApp({ type: 'MAP_CLICK', lat: e.latlng.lat, lng: e.latlng.lng });
             }
         });
@@ -123,24 +159,60 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         function handleData(data) {
             if (data.type === 'UPDATE_MAP') {
                 if(data.userArrowColor) userArrowColor = data.userArrowColor;
-                pingMode = data.pingMode;
+                pingMode = data.pingMode; // Reçu de l'app si bouton cliqué
                 updateMapMode(data.mode);
                 updateMarkers(data.me, data.peers, data.showTrails);
                 updatePings(data.pings, data.showPings, data.isHost, data.me.callsign);
+                
                 if(data.me && data.me.head !== undefined) {
                     const rot = -data.me.head;
                     const el = document.getElementById('compass-rose');
                     if(el) el.style.transform = 'rotate(' + rot + 'deg)';
                 }
+
                 if (data.navTargetId) handleNavigation(data.me, data.peers, data.navTargetId);
                 else clearNav();
             }
         }
 
-        // ... (Navigation & Markers logic identical to prev versions) ...
         let routingControl = null;
         let lastRouteStart = null;
         let lastRouteEnd = null;
+
+        function handleNavigation(me, peers, targetId) {
+            const target = peers[targetId];
+            if (!target || !me || me.lat === 0 || me.lng === 0 || target.lat === 0 || target.lng === 0) return;
+            const start = L.latLng(me.lat, me.lng);
+            const end = L.latLng(target.lat, target.lng);
+
+            if (routingControl && lastRouteStart && lastRouteEnd) {
+                const distStart = start.distanceTo(lastRouteStart);
+                const distEnd = end.distanceTo(lastRouteEnd);
+                if (distStart < 10 && distEnd < 10) return;
+            }
+
+            lastRouteStart = start; lastRouteEnd = end;
+
+            if (!routingControl) {
+                routingControl = L.Routing.control({
+                    waypoints: [start, end],
+                    router: L.Routing.osrmv1({ serviceUrl: 'https://router.project-osrm.org/route/v1', profile: 'foot' }),
+                    lineOptions: { styles: [{color: '#06b6d4', opacity: 0.8, weight: 6, dashArray: '10,10'}] },
+                    createMarker: function() { return null; }, 
+                    addWaypoints: false, draggableWaypoints: false, fitSelectedRoutes: false, show: false 
+                }).addTo(map);
+
+                routingControl.on('routesfound', function(e) {
+                    const routes = e.routes;
+                    const summary = routes[0].summary;
+                    const timeMin = Math.round(summary.totalTime / 60);
+                    const distM = Math.round(summary.totalDistance);
+                    document.getElementById('nav-info-panel').style.display = 'flex';
+                    document.getElementById('nav-info-data').innerText = timeMin + ' min / ' + distM + ' m';
+                });
+            } else { routingControl.setWaypoints([start, end]); }
+        }
+
         function stopNav() { sendToApp({ type: 'NAV_STOP' }); clearNav(); }
         window.stopNav = stopNav; 
         function clearNav() { if (routingControl) { map.removeControl(routingControl); routingControl = null; } document.getElementById('nav-info-panel').style.display = 'none'; }
@@ -151,42 +223,66 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         }
 
         function updateMarkers(me, peers, showTrails) {
-            // ... (Code des marqueurs opérateurs inchangé pour brièveté) ...
             const validPeers = Object.values(peers).filter(p => p.id !== me.id);
             const all = [me, ...validPeers].filter(u => u && u.lat);
             const activeIds = all.map(u => u.id);
             Object.keys(markers).forEach(id => { if(!activeIds.includes(id)) { map.removeLayer(markers[id]); delete markers[id]; } });
 
             all.forEach(u => {
-                let color = (u.status === 'CONTACT') ? '#ef4444' : (u.status === 'CLEAR') ? '#22c55e' : (u.status === 'APPUI') ? '#eab308' : (u.status === 'BUSY') ? '#a855f7' : userArrowColor;
+                let color = getStatusColor(u.status);
                 const rot = u.head || 0;
-                const extraClass = (u.status === 'CONTACT') ? 'tac-marker-heartbeat' : '';
+                const isContact = u.status === 'CONTACT';
+                const extraClass = isContact ? 'tac-marker-heartbeat' : '';
+                
                 const coneSvg = \`<svg viewBox="0 0 100 100" width="80" height="80" style="overflow:visible;"><path d="M50 50 L10 0 A60 60 0 0 1 90 0 Z" fill="\${color}" fill-opacity="0.3" stroke="\${color}" stroke-width="1" stroke-opacity="0.5" /></svg>\`;
                 const iconHtml = \`<div class="tac-marker-root \${extraClass}"><div class="tac-cone-container" style="transform: rotate(\${rot}deg);">\${coneSvg}</div><div class="tac-circle-id" style="background-color: \${color};"><span>\${u.callsign ? u.callsign.substring(0,3) : 'UNK'}</span></div></div>\`;
+                
                 const icon = L.divIcon({ className: 'custom-div-icon', html: iconHtml, iconSize: [80, 80], iconAnchor: [40, 40] });
                 
                 if (markers[u.id]) { markers[u.id].setLatLng([u.lat, u.lng]); markers[u.id].setIcon(icon); markers[u.id].setZIndexOffset(u.id === me.id ? 1000 : 500); } 
                 else { markers[u.id] = L.marker([u.lat, u.lng], { icon: icon, zIndexOffset: u.id === me.id ? 1000 : 500 }).addTo(map); }
+                
+                // Trail logic
+                if (!trails[u.id]) trails[u.id] = { segments: [] };
+                const userTrail = trails[u.id];
+                let currentSegment = userTrail.segments.length > 0 ? userTrail.segments[userTrail.segments.length - 1] : null;
+                const lastPoint = currentSegment ? currentSegment.line.getLatLngs().slice(-1)[0] : null;
+                if (!lastPoint || Math.abs(lastPoint.lat - u.lat) > 0.00005 || Math.abs(lastPoint.lng - u.lng) > 0.00005) {
+                    if (!currentSegment || currentSegment.status !== u.status) {
+                        const newColor = getStatusColor(u.status);
+                        const pts = lastPoint ? [lastPoint, [u.lat, u.lng]] : [[u.lat, u.lng]];
+                        const newLine = L.polyline(pts, {color: newColor, weight: 2, dashArray: '4,4', opacity: 0.6});
+                        if(showTrails) newLine.addTo(map);
+                        userTrail.segments.push({ line: newLine, status: u.status });
+                        currentSegment = newLine;
+                    } else { currentSegment.line.addLatLng([u.lat, u.lng]); }
+                    if (userTrail.segments.length > 50) { const removed = userTrail.segments.shift(); map.removeLayer(removed.line); }
+                }
+                userTrail.segments.forEach(seg => { if (showTrails && !map.hasLayer(seg.line)) map.addLayer(seg.line); if (!showTrails && map.hasLayer(seg.line)) map.removeLayer(seg.line); });
             });
-            // (Trails logic removed for brevity but assumed present)
-        }
-        
-        function handleNavigation(me, peers, targetId) {
-             // (Logic identique navigation)
+            if (me && me.lat && me.lat !== 0 && !hasInitiallyCentered) { map.setView([me.lat, me.lng], 16); hasInitiallyCentered = true; }
         }
 
-        function getPingIcon(type) {
-            if(type === 'HOSTILE') return '🔴';
-            if(type === 'FRIEND') return '🔵';
-            if(type === 'INTEL') return '👁️';
-            return '📍';
+        // --- GESTION CLICK / LONG PRESS ---
+        window.startPress = function(id) {
+            pressTimer = setTimeout(() => {
+                pressTimer = null;
+                sendToApp({ type: 'PING_CLICK', id: id }); // Long press = Edit
+            }, 600); 
         }
-        
-        function getPingColor(type) {
-            if(type === 'HOSTILE') return '#ef4444';
-            if(type === 'FRIEND') return '#22c55e';
-            if(type === 'INTEL') return '#eab308';
-            return 'white';
+
+        window.endPress = function(id) {
+            if (pressTimer) {
+                clearTimeout(pressTimer);
+                pressTimer = null;
+                // Clic court
+                // Si ce n'est pas un Hostile (qui a un popup), on édite aussi
+                // Si Hostile, le popup s'ouvre nativement
+                const el = document.getElementById('ping-' + id);
+                if (el && el.getAttribute('data-type') !== 'HOSTILE') {
+                     sendToApp({ type: 'PING_CLICK', id: id });
+                }
+            }
         }
 
         function updatePings(serverPings, showPings, isHost, myCallsign) {
@@ -202,87 +298,50 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                 const color = getPingColor(p.type || 'FRIEND');
                 
                 const html = \`
-                    <div class="ping-marker-box" 
-                         onmousedown="startPress('${p.id}')" ontouchstart="startPress('${p.id}')" 
-                         onmouseup="endPress('${p.id}')" ontouchend="endPress('${p.id}')">
+                    <div id="ping-\${p.id}" data-type="\${p.type}" class="ping-marker-box"
+                         onmousedown="startPress('\${p.id}')" ontouchstart="startPress('\${p.id}')" 
+                         onmouseup="endPress('\${p.id}')" ontouchend="endPress('\${p.id}')">
                         <div class="ping-label" style="border-color: \${color}">\${p.msg}</div>
                         <div class="ping-icon">\${iconChar}</div>
                     </div>
                 \`;
 
-                let m = pings[p.id];
-                if (!m) {
+                if (pings[p.id]) {
+                    pings[p.id].setLatLng([p.lat, p.lng]);
+                    if(pings[p.id]._icon) pings[p.id]._icon.innerHTML = html;
+                    if(pings[p.id].dragging) { canDrag ? pings[p.id].dragging.enable() : pings[p.id].dragging.disable(); }
+                } else {
                     const icon = L.divIcon({ className: 'custom-div-icon', html: html, iconSize: [100, 60], iconAnchor: [50, 50] });
-                    m = L.marker([p.lat, p.lng], { icon: icon, draggable: canDrag, zIndexOffset: 2000 });
+                    const m = L.marker([p.lat, p.lng], { icon: icon, draggable: canDrag, zIndexOffset: 2000 });
                     
                     if (p.type === 'HOSTILE') {
-                         // Popup pour info Hostile
-                         const d = p.details || {};
-                         const hasInfo = d.position || d.nature || d.attitude || d.volume || d.armes || d.substances;
-                         
-                         if(hasInfo) {
-                             const popupContent = \`
-                                <div class="ping-details-popup hostile-info">
-                                    <b>ENNEMI IDENTIFIÉ</b>
-                                    <div class="hostile-row"><span class="hostile-label">POS:</span> \${d.position || '-'}</div>
-                                    <div class="hostile-row"><span class="hostile-label">NAT:</span> \${d.nature || '-'}</div>
-                                    <div class="hostile-row"><span class="hostile-label">ATT:</span> \${d.attitude || '-'}</div>
-                                    <div class="hostile-row"><span class="hostile-label">VOL:</span> \${d.volume || '-'}</div>
-                                    <div class="hostile-row"><span class="hostile-label">ARM:</span> \${d.armes || '-'}</div>
-                                    <div class="hostile-row"><span class="hostile-label">DIV:</span> \${d.substances || '-'}</div>
-                                </div>
-                            \`;
-                            m.bindPopup(popupContent, { closeButton: false, offset: [0, -30], className: 'ping-details-popup' });
-                         }
+                        const d = p.details || {};
+                        const popupContent = \`
+                            <div class="ping-details-popup hostile-info">
+                                <b>ENNEMI IDENTIFIÉ</b>
+                                <div class="hostile-row"><span class="hostile-label">POS:</span> \${d.position || '-'}</div>
+                                <div class="hostile-row"><span class="hostile-label">NAT:</span> \${d.nature || '-'}</div>
+                                <div class="hostile-row"><span class="hostile-label">ATT:</span> \${d.attitude || '-'}</div>
+                                <div class="hostile-row"><span class="hostile-label">VOL:</span> \${d.volume || '-'}</div>
+                                <div class="hostile-row"><span class="hostile-label">ARM:</span> \${d.armes || '-'}</div>
+                                <div class="hostile-row"><span class="hostile-label">DIV:</span> \${d.substances || '-'}</div>
+                            </div>
+                        \`;
+                        m.bindPopup(popupContent, { closeButton: false, offset: [0, -30], className: 'ping-details-popup' });
                     }
 
-                    // Drag Events
                     m.on('dragend', (e) => sendToApp({ type: 'PING_MOVE', id: p.id, lat: e.target.getLatLng().lat, lng: e.target.getLatLng().lng }));
-                    
                     pings[p.id] = m;
                     pingLayer.addLayer(m);
-                } else {
-                    m.setLatLng([p.lat, p.lng]);
-                    if(m._icon) m._icon.innerHTML = html;
                 }
             });
         }
-
-        // --- GESTION CLICK vs LONG PRESS ---
-        window.startPress = function(id) {
-            pressTimer = setTimeout(() => {
-                pressTimer = null;
-                // Long Click détecté -> Edit/Delete
-                sendToApp({ type: 'PING_CLICK', id: id }); 
-            }, 600); // 600ms = Long Press
-        }
-
-        window.endPress = function(id) {
-            if (pressTimer) {
-                clearTimeout(pressTimer);
-                pressTimer = null;
-                // Clic court -> Comportement normal (Popup si hostile, rien si Ami)
-                // Le popup Hostile est géré nativement par Leaflet au click/tap
-                // Pour Ami/Rens, si on veut éditer au clic court :
-                const p = window.getPingType(id);
-                if (p !== 'HOSTILE') {
-                    sendToApp({ type: 'PING_CLICK', id: id });
-                }
-            }
-        }
-        
-        // Helper pour récupérer le type depuis le DOM ou JS (simplifié ici par callback vers RN)
-        // Note: Ici on triche un peu, on envoie le click, et c'est RN qui va décider quoi faire
-        // selon le type du ping stocké dans son state.
-        // MAIS pour différencier Hostile (popup) des autres, on doit savoir.
-        // Simplification : On laisse Leaflet ouvrir le popup si bindé.
+        map.on('click', (e) => sendToApp({ type: 'MAP_CLICK', lat: e.latlng.lat, lng: e.latlng.lng }));
       </script>
     </body>
     </html>
   `;
-  // Petit hack: On injecte une fonction JS pour récupérer le type côté JS si besoin, 
-  // ou on laisse RN gérer la logique "Si Hostile && Short Click -> Ignore (laisse popup)"
-  
+
   useEffect(() => {
     if (webViewRef.current) {
       webViewRef.current.postMessage(JSON.stringify({
@@ -295,7 +354,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
   const handleMessage = (event: any) => {
     try {
       const data = JSON.parse(event.nativeEvent.data);
-      if (data.type === 'MAP_PING') onPing({ lat: data.lat, lng: data.lng });
+      if (data.type === 'MAP_CLICK') onPing({ lat: data.lat, lng: data.lng }); // Changement ici : le click carte envoie au parent pour décider (Menu Ping ou rien)
       if (data.type === 'PING_CLICK') onPingClick(data.id); 
       if (data.type === 'PING_MOVE') onPingMove({ ...pings.find(p => p.id === data.id)!, lat: data.lat, lng: data.lng });
       if (data.type === 'NAV_STOP') { if (onNavStop) onNavStop(); }
@@ -327,5 +386,3 @@ const styles = StyleSheet.create({
 });
 
 export default TacticalMap;
-
-
