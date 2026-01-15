@@ -31,7 +31,6 @@ export default {
         backgroundColor: "#000000"
       },
       package: "com.comtac.sa",
-      // Permissions strictes pour SA (Situational Awareness) - Pas de RECORD_AUDIO
       permissions: [
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
@@ -43,7 +42,8 @@ export default {
         "VIBRATE",
         "INTERNET",
         "ACCESS_NETWORK_STATE",
-        "ACCESS_WIFI_STATE"
+        "ACCESS_WIFI_STATE",
+        "POST_NOTIFICATIONS" 
       ]
     },
     web: {
@@ -62,7 +62,7 @@ export default {
           "cameraPermission": "Allow ComTac to access your camera for QR scanning."
         }
       ],
-      // Ce plugin remplace la modification manuelle de build.gradle
+      "expo-notifications",
       [
         "expo-build-properties",
         {
