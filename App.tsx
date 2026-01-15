@@ -1,4 +1,4 @@
-import './polyfills'; 
+import './polyfills'; // IMPORTANT: Toujours en premier
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { 
   StyleSheet, View, Text, TextInput, TouchableOpacity, 
@@ -28,13 +28,18 @@ import OperatorCard from './components/OperatorCard';
 import TacticalMap from './components/TacticalMap';
 import SettingsView from './components/SettingsView';
 
-// Empêcher le splash screen de disparaître automatiquement
+// INIT SPLASH
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
-// Import JSON sécurisé
+// INIT NOTIFS
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({ shouldShowAlert: true, shouldPlaySound: true, shouldSetBadge: false }),
+});
+
 let DEFAULT_MSG_JSON: string[] = [];
 try { DEFAULT_MSG_JSON = require('./msg.json'); } catch (e) { }
 
+// COMPOSANT UI
 const NavNotification = ({ message, onDismiss }: { message: string, onDismiss: () => void }) => {
     const pan = useRef(new Animated.ValueXY()).current;
     const panResponder = useRef(
@@ -135,8 +140,8 @@ const App: React.FC = () => {
     }
   };
 
-  // --- LOGIC PERMISSIONS ---
   const bootstrapPermissions = async () => {
+    console.log("Bootstrapping Permissions...");
     try {
         if (Platform.OS === 'android') {
             await PermissionsAndroid.requestMultiple([
@@ -145,23 +150,22 @@ const App: React.FC = () => {
             ]).catch(() => {});
         }
 
-        const { status: existingStatus } = await Notifications.getPermissionsAsync();
-        if (existingStatus !== 'granted') {
-            await Notifications.requestPermissionsAsync().catch(() => {});
-        }
+        try {
+            const { status } = await Notifications.getPermissionsAsync();
+            if (status !== 'granted') await Notifications.requestPermissionsAsync();
+        } catch(e) {}
         
-        const locRes = await Location.requestForegroundPermissionsAsync().catch(() => ({status: 'denied'}));
-        if (locRes.status !== 'granted') {
-            setGpsStatus('ERROR');
-        } else {
-            setGpsStatus('OK');
-        }
+        try {
+            const locRes = await Location.requestForegroundPermissionsAsync();
+            if (locRes.status !== 'granted') setGpsStatus('ERROR');
+            else setGpsStatus('OK');
+        } catch(e) { setGpsStatus('ERROR'); }
 
         if (!cameraPermission?.granted) {
             await requestCameraPermission().catch(() => {});
         }
     } catch (e) {
-        console.warn("Perms Error", e);
+        console.warn("Global Perm Error:", e);
     }
   };
 
@@ -199,54 +203,7 @@ const App: React.FC = () => {
       setUser(prev => ({...prev, id: '', role: OperatorRole.OPR, status: OperatorStatus.CLEAR, lastMsg: '' }));
   }, []);
 
-  // --- INIT GLOBAL ---
-  useEffect(() => {
-      const initApp = async () => {
-          try {
-              // 1. Config Notifications
-              Notifications.setNotificationHandler({
-                  handleNotification: async () => ({ shouldShowAlert: true, shouldPlaySound: true, shouldSetBadge: false }),
-              });
-
-              // 2. Permissions (avec Timeout)
-              await Promise.race([
-                  bootstrapPermissions(),
-                  new Promise(resolve => setTimeout(resolve, 3000))
-              ]);
-
-              // 3. Config App
-              const s = await configService.init();
-              let msgs = s.quickMessages;
-              if ((!msgs || msgs.length === 0) && Array.isArray(DEFAULT_MSG_JSON)) { msgs = DEFAULT_MSG_JSON; }
-              setSettings(s);
-              setQuickMessagesList(msgs || DEFAULT_SETTINGS.quickMessages);
-              
-              if (s.username) { setUser(prev => ({ ...prev, callsign: s.username })); setLoginInput(s.username); }
-
-          } catch (e) {
-              console.warn("Init Failed", e);
-          } finally {
-              setIsAppReady(true);
-              await SplashScreen.hideAsync().catch(() => {});
-          }
-      };
-      
-      initApp();
-
-      const unsubConfig = configService.subscribe((newSettings) => {
-          setSettings(newSettings);
-          if (newSettings.quickMessages) setQuickMessagesList(newSettings.quickMessages);
-          if (newSettings.username && newSettings.username !== user.callsign) {
-              connectivityService.updateUser({ callsign: newSettings.username });
-              setUser(prev => ({ ...prev, callsign: newSettings.username }));
-          }
-          if (gpsSubscription.current) startGpsTracking(newSettings.gpsUpdateInterval);
-      });
-      const unsubConn = connectivityService.subscribe(handleConnectivityEvent);
-      return () => { unsubConfig(); unsubConn(); };
-  }, []); // Run once
-
-  // --- LOGIC VIBRATION ---
+  // --- LOGIC VIBRATION CONTACT ---
   useEffect(() => {
       const newPeers = peers;
       const oldPeers = prevPeersRef.current;
@@ -263,32 +220,6 @@ const App: React.FC = () => {
       });
       prevPeersRef.current = newPeers;
   }, [peers, user.id]);
-
-  useEffect(() => { 
-      Battery.getBatteryLevelAsync().then(l => setUser(u => ({ ...u, bat: Math.floor(l * 100) }))); 
-      const sub = Battery.addBatteryLevelListener(({ batteryLevel }) => setUser(u => ({ ...u, bat: Math.floor(batteryLevel * 100) }))); 
-      return () => sub && sub.remove(); 
-  }, []);
-  
-  useEffect(() => { 
-      Magnetometer.setUpdateInterval(100); 
-      const sub = Magnetometer.addListener((data) => { 
-          let angle = Math.atan2(data.y, data.x) * (180 / Math.PI) - 90; 
-          if (angle < 0) angle += 360; 
-          setUser(prev => { 
-              if (Math.abs(prev.head - angle) > 3) {
-                  const now = Date.now();
-                  if (now - lastHeadBroadcast.current > 500 && hostId) {
-                      connectivityService.updateUserPosition(prev.lat, prev.lng, Math.floor(angle));
-                      lastHeadBroadcast.current = now;
-                  }
-                  return { ...prev, head: Math.floor(angle) }; 
-              }
-              return prev; 
-          }); 
-      }); 
-      return () => sub && sub.remove(); 
-  }, [hostId]);
 
   const handleConnectivityEvent = useCallback((event: ConnectivityEvent) => {
       switch (event.type) {
@@ -338,6 +269,71 @@ const App: React.FC = () => {
             break;
       }
   };
+
+  // --- INIT SAFE & TIMEOUT ---
+  useEffect(() => {
+      const load = async () => {
+          try {
+              // On force le passage après 4 secondes max, même si les perms bloquent
+              await Promise.race([
+                  bootstrapPermissions(),
+                  new Promise(resolve => setTimeout(resolve, 4000))
+              ]);
+
+              const s = await configService.init();
+              let msgs = s.quickMessages;
+              if ((!msgs || msgs.length === 0) && Array.isArray(DEFAULT_MSG_JSON)) { msgs = DEFAULT_MSG_JSON; }
+              setSettings(s);
+              setQuickMessagesList(msgs || DEFAULT_SETTINGS.quickMessages);
+              
+              if (s.username) { setUser(prev => ({ ...prev, callsign: s.username })); setLoginInput(s.username); }
+          } catch (e) {
+              console.warn("Init Error", e);
+          } finally {
+              setIsAppReady(true);
+              await SplashScreen.hideAsync().catch(() => {});
+          }
+      };
+      load();
+
+      const unsubConfig = configService.subscribe((newSettings) => {
+          setSettings(newSettings);
+          if (newSettings.quickMessages) setQuickMessagesList(newSettings.quickMessages);
+          if (newSettings.username && newSettings.username !== user.callsign) {
+              connectivityService.updateUser({ callsign: newSettings.username });
+              setUser(prev => ({ ...prev, callsign: newSettings.username }));
+          }
+          if (gpsSubscription.current) startGpsTracking(newSettings.gpsUpdateInterval);
+      });
+      const unsubConn = connectivityService.subscribe(handleConnectivityEvent);
+      return () => { unsubConfig(); unsubConn(); };
+  }, []); 
+
+  useEffect(() => { 
+      Battery.getBatteryLevelAsync().then(l => setUser(u => ({ ...u, bat: Math.floor(l * 100) }))); 
+      const sub = Battery.addBatteryLevelListener(({ batteryLevel }) => setUser(u => ({ ...u, bat: Math.floor(batteryLevel * 100) }))); 
+      return () => sub && sub.remove(); 
+  }, []);
+  
+  useEffect(() => { 
+      Magnetometer.setUpdateInterval(100); 
+      const sub = Magnetometer.addListener((data) => { 
+          let angle = Math.atan2(data.y, data.x) * (180 / Math.PI) - 90; 
+          if (angle < 0) angle += 360; 
+          setUser(prev => { 
+              if (Math.abs(prev.head - angle) > 3) {
+                  const now = Date.now();
+                  if (now - lastHeadBroadcast.current > 500 && hostId) {
+                      connectivityService.updateUserPosition(prev.lat, prev.lng, Math.floor(angle));
+                      lastHeadBroadcast.current = now;
+                  }
+                  return { ...prev, head: Math.floor(angle) }; 
+              }
+              return prev; 
+          }); 
+      }); 
+      return () => sub && sub.remove(); 
+  }, [hostId]);
 
   const startPingCreation = (loc: { lat: number, lng: number }) => { setTempPingLoc(loc); setShowPingMenu(true); };
   const selectPingType = (type: PingType) => { setCurrentPingType(type); setShowPingMenu(false); setPingMsgInput(''); setHostileDetails({}); setShowPingForm(true); };
@@ -420,6 +416,60 @@ const App: React.FC = () => {
     </View>
   );
 
+  const renderMenu = () => {
+    const isSessionActive = !!hostId;
+    return (
+    <SafeAreaView style={styles.safeArea}>
+      <View style={styles.menuContainer}>
+        <View style={{flexDirection: 'row', justifyContent:'space-between', alignItems:'center', marginBottom: 20}}>
+            <Text style={styles.sectionTitle}>DÉPLOIEMENT</Text>
+            <View style={{flexDirection: 'row', gap: 15}}>
+                <TouchableOpacity onPress={openSettings} style={{padding: 5}}><MaterialIcons name="settings" size={24} color="#a1a1aa" /></TouchableOpacity>
+                <TouchableOpacity onPress={() => Alert.alert("Déconnexion", "Se déconnecter totalement ?", [{text:"Non"}, {text:"Oui", onPress:handleLogout}])} style={{padding: 5}}><MaterialIcons name="power-settings-new" size={24} color="#ef4444" /></TouchableOpacity>
+            </View>
+        </View>
+        <View style={{flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 20, backgroundColor: '#18181b', padding: 10, borderRadius: 8}}>
+                {isServicesReady ? (<MaterialIcons name="check-circle" size={16} color="#22c55e" />) : (<ActivityIndicator size="small" color="#3b82f6" />)}
+                <Text style={{color: '#71717a', fontSize: 10, marginRight: 10}}>SYS</Text>
+                {gpsStatus === 'OK' ? <MaterialIcons name="gps-fixed" size={16} color="#22c55e" /> : <MaterialIcons name="gps-off" size={16} color="#ef4444" />}
+                <Text style={{color: '#71717a', fontSize: 10}}>GPS</Text>
+        </View>
+        
+        {isSessionActive ? (
+            <View>
+                <TouchableOpacity onPress={() => setView('map')} style={[styles.menuCard, {borderColor: '#22c55e', backgroundColor: 'rgba(34, 197, 94, 0.1)'}]}>
+                  <MaterialIcons name="map" size={40} color="#22c55e" />
+                  <View style={{marginLeft: 20}}><Text style={[styles.menuCardTitle, {color: '#22c55e'}]}>CARTE TACTIQUE</Text><Text style={styles.menuCardSubtitle}>Réseau: {hostId}</Text></View>
+                </TouchableOpacity>
+                <View style={styles.divider} />
+                <TouchableOpacity onPress={() => setShowQRModal(true)} style={[styles.menuCard, {borderColor: '#d4d4d8', padding: 15, marginBottom: 15}]}>
+                    <MaterialIcons name="qr-code" size={30} color="#d4d4d8" />
+                    <View style={{marginLeft: 20}}><Text style={[styles.menuCardTitle, {color: '#d4d4d8', fontSize: 16}]}>AFFICHER QR CODE</Text><Text style={styles.menuCardSubtitle}>Partager ID Session</Text></View>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => Alert.alert("Fin de Mission", "Voulez-vous vraiment quitter le canal ?", [{text:"Non"}, {text:"Oui", onPress:handleLogout}])} style={[styles.menuCard, {borderColor: '#ef4444', padding: 15}]}>
+                  <MaterialIcons name="logout" size={30} color="#ef4444" />
+                  <View style={{marginLeft: 20}}><Text style={[styles.menuCardTitle, {color: '#ef4444', fontSize: 16}]}>QUITTER RÉSEAU</Text></View>
+                </TouchableOpacity>
+            </View>
+        ) : (
+            <>
+                <TouchableOpacity onPress={createSession} style={styles.menuCard}>
+                  <MaterialIcons name="add-location-alt" size={40} color="#3b82f6" />
+                  <View style={{marginLeft: 20}}><Text style={styles.menuCardTitle}>Ouvrir Carte</Text><Text style={styles.menuCardSubtitle}>Hôte (Chef de groupe)</Text></View>
+                </TouchableOpacity>
+                <View style={styles.divider} />
+                <View style={styles.joinHeader}><Text style={styles.sectionTitle}>REJOINDRE</Text><TouchableOpacity onPress={() => setShowScanner(true)} style={styles.scanBtn}><MaterialIcons name="qr-code-scanner" size={16} color="#3b82f6" /><Text style={styles.scanBtnText}>SCANNER</Text></TouchableOpacity></View>
+                <TextInput style={styles.inputBox} placeholder="ID GROUPE..." placeholderTextColor="#52525b" value={hostInput} onChangeText={setHostInput} autoCapitalize="characters" />
+                <TouchableOpacity onPress={() => joinSession()} style={styles.joinBtn}><Text style={styles.joinBtnText}>REJOINDRE</Text></TouchableOpacity>
+                <TouchableOpacity onPress={() => setShowQRModal(true)} style={[styles.joinBtn, {backgroundColor: '#18181b', borderWidth:1, borderColor:'#333', marginTop: 15}]}>
+                    <View style={{flexDirection:'row', alignItems:'center', justifyContent: 'center', gap: 10}}><MaterialIcons name="qr-code" size={20} color="#71717a" /><Text style={[styles.joinBtnText, {color: '#71717a'}]}>MON QR CODE</Text></View>
+                </TouchableOpacity>
+            </>
+        )}
+      </View>
+    </SafeAreaView>
+  )};
+
   return (
     <View style={styles.container}>
       <StatusBar style="light" backgroundColor="#050505" />
@@ -427,56 +477,8 @@ const App: React.FC = () => {
       {view === 'settings' ? ( <SettingsView onClose={() => setView(lastView)} /> ) : (
         <View style={{flex: 1}}>
             {view === 'login' ? renderLogin() : 
-             view === 'menu' ? (
-                <SafeAreaView style={styles.safeArea}>
-                  <View style={styles.menuContainer}>
-                    <View style={{flexDirection: 'row', justifyContent:'space-between', alignItems:'center', marginBottom: 20}}>
-                        <Text style={styles.sectionTitle}>DÉPLOIEMENT</Text>
-                        <View style={{flexDirection: 'row', gap: 15}}>
-                            <TouchableOpacity onPress={openSettings} style={{padding: 5}}><MaterialIcons name="settings" size={24} color="#a1a1aa" /></TouchableOpacity>
-                            <TouchableOpacity onPress={() => Alert.alert("Déconnexion", "Se déconnecter totalement ?", [{text:"Non"}, {text:"Oui", onPress:handleLogout}])} style={{padding: 5}}><MaterialIcons name="power-settings-new" size={24} color="#ef4444" /></TouchableOpacity>
-                        </View>
-                    </View>
-                    <View style={{flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 20, backgroundColor: '#18181b', padding: 10, borderRadius: 8}}>
-                            {isServicesReady ? (<MaterialIcons name="check-circle" size={16} color="#22c55e" />) : (<ActivityIndicator size="small" color="#3b82f6" />)}
-                            <Text style={{color: '#71717a', fontSize: 10, marginRight: 10}}>SYS</Text>
-                            {gpsStatus === 'OK' ? <MaterialIcons name="gps-fixed" size={16} color="#22c55e" /> : <MaterialIcons name="gps-off" size={16} color="#ef4444" />}
-                            <Text style={{color: '#71717a', fontSize: 10}}>GPS</Text>
-                    </View>
-                    {!!hostId ? (
-                        <View>
-                            <TouchableOpacity onPress={() => setView('map')} style={[styles.menuCard, {borderColor: '#22c55e', backgroundColor: 'rgba(34, 197, 94, 0.1)'}]}>
-                              <MaterialIcons name="map" size={40} color="#22c55e" />
-                              <View style={{marginLeft: 20}}><Text style={[styles.menuCardTitle, {color: '#22c55e'}]}>CARTE TACTIQUE</Text><Text style={styles.menuCardSubtitle}>Réseau: {hostId}</Text></View>
-                            </TouchableOpacity>
-                            <View style={styles.divider} />
-                            <TouchableOpacity onPress={() => setShowQRModal(true)} style={[styles.menuCard, {borderColor: '#d4d4d8', padding: 15, marginBottom: 15}]}>
-                                <MaterialIcons name="qr-code" size={30} color="#d4d4d8" />
-                                <View style={{marginLeft: 20}}><Text style={[styles.menuCardTitle, {color: '#d4d4d8', fontSize: 16}]}>AFFICHER QR CODE</Text><Text style={styles.menuCardSubtitle}>Partager ID Session</Text></View>
-                            </TouchableOpacity>
-                            <TouchableOpacity onPress={() => Alert.alert("Fin de Mission", "Voulez-vous vraiment quitter le canal ?", [{text:"Non"}, {text:"Oui", onPress:handleLogout}])} style={[styles.menuCard, {borderColor: '#ef4444', padding: 15}]}>
-                              <MaterialIcons name="logout" size={30} color="#ef4444" />
-                              <View style={{marginLeft: 20}}><Text style={[styles.menuCardTitle, {color: '#ef4444', fontSize: 16}]}>QUITTER RÉSEAU</Text></View>
-                            </TouchableOpacity>
-                        </View>
-                    ) : (
-                        <>
-                            <TouchableOpacity onPress={createSession} style={styles.menuCard}>
-                              <MaterialIcons name="add-location-alt" size={40} color="#3b82f6" />
-                              <View style={{marginLeft: 20}}><Text style={styles.menuCardTitle}>Ouvrir Carte</Text><Text style={styles.menuCardSubtitle}>Hôte (Chef de groupe)</Text></View>
-                            </TouchableOpacity>
-                            <View style={styles.divider} />
-                            <View style={styles.joinHeader}><Text style={styles.sectionTitle}>REJOINDRE</Text><TouchableOpacity onPress={() => setShowScanner(true)} style={styles.scanBtn}><MaterialIcons name="qr-code-scanner" size={16} color="#3b82f6" /><Text style={styles.scanBtnText}>SCANNER</Text></TouchableOpacity></View>
-                            <TextInput style={styles.inputBox} placeholder="ID GROUPE..." placeholderTextColor="#52525b" value={hostInput} onChangeText={setHostInput} autoCapitalize="characters" />
-                            <TouchableOpacity onPress={() => joinSession()} style={styles.joinBtn}><Text style={styles.joinBtnText}>REJOINDRE</Text></TouchableOpacity>
-                            <TouchableOpacity onPress={() => setShowQRModal(true)} style={[styles.joinBtn, {backgroundColor: '#18181b', borderWidth:1, borderColor:'#333', marginTop: 15}]}>
-                                <View style={{flexDirection:'row', alignItems:'center', justifyContent: 'center', gap: 10}}><MaterialIcons name="qr-code" size={20} color="#71717a" /><Text style={[styles.joinBtnText, {color: '#71717a'}]}>MON QR CODE</Text></View>
-                            </TouchableOpacity>
-                        </>
-                    )}
-                  </View>
-                </SafeAreaView>
-             ) : (
+             view === 'menu' ? renderMenu() : 
+             (view === 'ops' || view === 'map') ? (
                  <View style={{flex: 1}}>
                      <View style={{backgroundColor: '#09090b'}}>
                         <SafeAreaView style={styles.header}>
