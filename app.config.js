@@ -1,7 +1,7 @@
 export default {
   expo: {
-    name: "ComTac SA",
-    slug: "comtac-sa",
+    name: "TacSuite",
+    slug: "tacsuite",
     version: "3.0.0",
     orientation: "portrait",
     icon: "./assets/icon.png",
@@ -16,7 +16,7 @@ export default {
     ],
     ios: {
       supportsTablet: true,
-      bundleIdentifier: "com.comtac.sa",
+      bundleIdentifier: "com.tacsuite.app",
       infoPlist: {
         UIBackgroundModes: ["location", "fetch", "voip"],
         NSLocationAlwaysAndWhenInUseUsageDescription: "Suivi tactique de l'équipe.",
@@ -30,7 +30,7 @@ export default {
         foregroundImage: "./assets/adaptive-icon.png",
         backgroundColor: "#000000"
       },
-      package: "com.comtac.sa",
+      package: "com.tacsuite.app",
       permissions: [
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
@@ -52,13 +52,13 @@ export default {
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "Allow ComTac to use your location for team awareness."
+          "locationAlwaysAndWhenInUsePermission": "Allow TacSuite to use your location for team awareness."
         }
       ],
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow ComTac to access your camera for QR scanning."
+          "cameraPermission": "Allow TacSuite to access your camera for QR scanning."
         }
       ],
       "expo-notifications",
