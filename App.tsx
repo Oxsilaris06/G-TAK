@@ -3,7 +3,7 @@ import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { 
   StyleSheet, View, Text, TextInput, TouchableOpacity, 
   SafeAreaView, Platform, Modal, StatusBar as RNStatusBar, Alert, ScrollView, ActivityIndicator,
-  PermissionsAndroid, Animated, PanResponder, FlatList, KeyboardAvoidingView, Vibration
+  PermissionsAndroid, Animated, PanResponder, FlatList, KeyboardAvoidingView, AppState
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import QRCode from 'react-native-qrcode-svg';
@@ -29,17 +29,20 @@ import OperatorCard from './components/OperatorCard';
 import TacticalMap from './components/TacticalMap';
 import SettingsView from './components/SettingsView';
 
-// --- INITIALISATION SPLASH ---
 try { SplashScreen.preventAutoHideAsync().catch(() => {}); } catch (e) {}
 
+// CONFIGURATION DES NOTIFICATIONS
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({ shouldShowAlert: true, shouldPlaySound: true, shouldSetBadge: false }),
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+  }),
 });
 
 let DEFAULT_MSG_JSON: string[] = [];
 try { DEFAULT_MSG_JSON = require('./msg.json'); } catch (e) {}
 
-// --- COMPOSANT NOTIF ---
 const NavNotification = ({ message, onDismiss }: { message: string, onDismiss: () => void }) => {
     const pan = useRef(new Animated.ValueXY()).current;
     const panResponder = useRef(
@@ -57,7 +60,7 @@ const NavNotification = ({ message, onDismiss }: { message: string, onDismiss: (
     ).current;
     return (
       <Animated.View style={[styles.navNotif, { transform: [{ translateX: pan.x }] }]} {...panResponder.panHandlers}>
-          <MaterialIcons name="directions-run" size={24} color="#06b6d4" />
+          <MaterialIcons name="notifications-active" size={24} color="#06b6d4" />
           <Text style={styles.navNotifText}>{message}</Text>
           <MaterialIcons name="chevron-right" size={20} color="#52525b" />
       </Animated.View>
@@ -67,9 +70,9 @@ const NavNotification = ({ message, onDismiss }: { message: string, onDismiss: (
 const App: React.FC = () => {
   useKeepAwake();
   
-  // --- STATES ---
   const [isAppReady, setIsAppReady] = useState(false);
   const [toast, setToast] = useState<{ msg: string; type: 'info' | 'error' } | null>(null);
+  const [navNotif, setNavNotif] = useState<string | null>(null);
 
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [user, setUser] = useState<UserData>({
@@ -101,7 +104,6 @@ const App: React.FC = () => {
   const [showQuickMsgModal, setShowQuickMsgModal] = useState(false);
   const [quickMessagesList, setQuickMessagesList] = useState<string[]>([]);
   
-  // NOUVEAU WORKFLOW PING
   const [showPingMenu, setShowPingMenu] = useState(false);
   const [showPingForm, setShowPingForm] = useState(false);
   const [tempPingLoc, setTempPingLoc] = useState<any>(null);
@@ -112,7 +114,6 @@ const App: React.FC = () => {
   });
   
   const [editingPing, setEditingPing] = useState<PingData | null>(null);
-
   const [selectedOperatorId, setSelectedOperatorId] = useState<string | null>(null);
   const [navTargetId, setNavTargetId] = useState<string | null>(null);
 
@@ -121,22 +122,33 @@ const App: React.FC = () => {
 
   const lastLocationRef = useRef<any>(null);
   const gpsSubscription = useRef<Location.LocationSubscription | null>(null);
+  const appState = useRef(AppState.currentState);
 
-  // --- HELPERS ---
   const showToast = useCallback((msg: string, type: 'info' | 'error' = 'info') => {
     setToast({ msg, type });
     if (type === 'error') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     setTimeout(() => setToast(null), 3000);
   }, []);
 
+  const sendPushNotification = async (title: string, body: string) => {
+      await Notifications.scheduleNotificationAsync({
+          content: { title, body, sound: true },
+          trigger: null, // Immédiat
+      });
+  };
+
   const copyToClipboard = async () => {
     await Clipboard.setStringAsync(hostId || user.id || '');
     showToast("ID Copié");
   };
 
-  // --- INIT APPLICATION ROBUSTE ---
   useEffect(() => {
       let mounted = true;
+
+      // Gestion AppState pour maintenir en arrière-plan
+      const subscription = AppState.addEventListener('change', nextAppState => {
+          appState.current = nextAppState;
+      });
 
       const initApp = async () => {
           try {
@@ -169,6 +181,10 @@ const App: React.FC = () => {
 
       const unsubConfig = configService.subscribe((newSettings) => {
           setSettings(newSettings);
+          // MISE A JOUR DYNAMIQUE DE LA LISTE DES MESSAGES
+          if (newSettings.quickMessages) {
+              setQuickMessagesList(newSettings.quickMessages);
+          }
           if (newSettings.username && newSettings.username !== user.callsign) {
               connectivityService.updateUser({ callsign: newSettings.username });
               setUser(prev => ({ ...prev, callsign: newSettings.username }));
@@ -177,7 +193,7 @@ const App: React.FC = () => {
       });
       const unsubConn = connectivityService.subscribe(handleConnectivityEvent);
 
-      return () => { mounted = false; unsubConfig(); unsubConn(); };
+      return () => { mounted = false; unsubConfig(); unsubConn(); subscription.remove(); };
   }, []);
 
   const bootstrapPermissionsAsync = async () => {
@@ -186,6 +202,7 @@ const App: React.FC = () => {
              await PermissionsAndroid.requestMultiple([
                 PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
                 PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION,
+                PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS
              ]).catch(() => {});
           }
           const { status } = await Location.getForegroundPermissionsAsync();
@@ -272,14 +289,33 @@ const App: React.FC = () => {
       if (data.type === 'PING') {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             setPings(prev => [...prev, data.ping]);
-            showToast(`ALERTE: ${data.ping.type}`);
+            
+            // NOTIFICATION PING
+            const p = data.ping;
+            let title = `ALERTE ${p.type}`;
+            let body = `${p.sender}: ${p.msg}`;
+            if (p.type === 'HOSTILE') {
+                title = "⚠️ CONTACT ENNEMI";
+                body = `${p.sender} signale HOSTILE. ${p.msg}`;
+            }
+            sendPushNotification(title, body);
+            setNavNotif(title + " - " + p.msg);
+      }
+      else if (data.type === 'UPDATE' && data.user && data.user.lastMsg) {
+          // NOTIFICATION MESSAGE RAPIDE
+          const u = data.user;
+          // Vérifier si c'est un nouveau message (différent de l'ancien état connu)
+          if (peers[u.id]?.lastMsg !== u.lastMsg) {
+              const msg = `MSG ${u.callsign}: ${u.lastMsg}`;
+              sendPushNotification("Message Tactique", msg);
+              setNavNotif(msg);
+          }
       }
       else if (data.type === 'PING_MOVE') setPings(prev => prev.map(p => p.id === data.id ? { ...p, lat: data.lat, lng: data.lng } : p));
       else if (data.type === 'PING_DELETE') setPings(prev => prev.filter(p => p.id !== data.id));
       else if (data.type === 'PING_UPDATE') setPings(prev => prev.map(p => p.id === data.id ? { ...p, msg: data.msg, details: data.details } : p));
   };
 
-  // --- ACTIONS UI ---
   const joinSession = async (id?: string) => {
       const finalId = id || hostInput.toUpperCase();
       if (!finalId) return;
@@ -313,8 +349,6 @@ const App: React.FC = () => {
   const handlePingClick = (id: string) => {
       const p = pings.find(ping => ping.id === id);
       if (!p) return;
-      // Autoriser édition pour tout le monde en local (pour test) ou selon règles
-      // Ici on suit la demande : Hôte ou Propriétaire
       if (user.role === OperatorRole.HOST || p.sender === user.callsign) {
           setEditingPing(p); setPingMsgInput(p.msg);
           if (p.details) setHostileDetails(p.details);
@@ -333,10 +367,9 @@ const App: React.FC = () => {
       connectivityService.updateUserStatus(s);
   };
 
-  // --- ACTIONS MENUS ---
   const handleMapPing = (loc: {lat: number, lng: number}) => {
       setTempPingLoc(loc);
-      setShowPingMenu(true); // Ouvre le menu choix type
+      setShowPingMenu(true); 
   };
 
   const selectPingType = (type: PingType) => { 
@@ -378,15 +411,12 @@ const App: React.FC = () => {
       setEditingPing(null);
   };
 
-  // --- RENDU SECURISE ---
   if (!isAppReady) {
       return <View style={{flex: 1, backgroundColor: '#000000'}}><StatusBar style="light" /></View>;
   }
 
-  // --- VUES ---
   const renderLogin = () => (
     <View style={styles.centerContainer}>
-      {/* ICÔNE LOGIN DEMANDÉE */}
       <MaterialIcons name="login" size={80} color="#3b82f6" style={{opacity: 0.8, marginBottom: 30}} />
       <Text style={styles.title}>Tac<Text style={{color: '#3b82f6'}}>Suite</Text></Text>
       <TextInput style={styles.input} placeholder="TRIGRAMME" placeholderTextColor="#52525b" maxLength={6} value={loginInput} onChangeText={setLoginInput} autoCapitalize="characters" />
@@ -451,7 +481,10 @@ const App: React.FC = () => {
                     <View style={styles.headerContent}>
                         <TouchableOpacity onPress={() => setView('menu')}><MaterialIcons name="arrow-back" size={24} color="white" /></TouchableOpacity>
                         <Text style={styles.headerTitle}>TacSuite</Text>
-                        <TouchableOpacity onPress={() => setView(view === 'map' ? 'ops' : 'map')}><MaterialIcons name={view === 'map' ? 'list' : 'map'} size={24} color="white" /></TouchableOpacity>
+                        <View style={{flexDirection: 'row', gap: 15}}>
+                            <TouchableOpacity onPress={() => setView('settings')}><MaterialIcons name="settings" size={24} color="white" /></TouchableOpacity>
+                            <TouchableOpacity onPress={() => setView(view === 'map' ? 'ops' : 'map')}><MaterialIcons name={view === 'map' ? 'list' : 'map'} size={24} color="white" /></TouchableOpacity>
+                        </View>
                     </View>
                 </SafeAreaView>
                 <View style={{flex: 1, position: 'relative'}}>
@@ -468,7 +501,7 @@ const App: React.FC = () => {
                                 me={user} peers={peers} pings={pings} mapMode={mapMode} showTrails={showTrails} showPings={showPings} 
                                 isHost={user.role === OperatorRole.HOST} userArrowColor={settings.userArrowColor} 
                                 pingMode={isPingMode}
-                                onPing={handleMapPing} // Nouveau handler pour le choix du type
+                                onPing={handleMapPing}
                                 onPingMove={(p) => {}} onPingClick={handlePingClick} onNavStop={() => {}} 
                             />
                             
@@ -557,27 +590,23 @@ const App: React.FC = () => {
           </View>
       </Modal>
 
-      {/* MODAL FORMULAIRE DE PING */}
       <Modal visible={showPingForm} transparent animationType="slide">
           <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
               <View style={[styles.modalContent, {width: '90%', maxHeight: '80%'}]}>
                   <Text style={[styles.modalTitle, {color: currentPingType === 'HOSTILE' ? '#ef4444' : currentPingType === 'FRIEND' ? '#22c55e' : '#eab308'}]}>{currentPingType === 'HOSTILE' ? 'ADVERSAIRE' : currentPingType === 'FRIEND' ? 'AMI' : 'RENS'}</Text>
-                  
                   <Text style={styles.label}>Message / Description</Text>
                   <TextInput style={styles.pingInput} placeholder="Intitulé" placeholderTextColor="#52525b" value={pingMsgInput} onChangeText={setPingMsgInput} autoFocus={currentPingType !== 'HOSTILE'} />
-                  
                   {currentPingType === 'HOSTILE' && (
                       <ScrollView style={{width: '100%', maxHeight: 300, marginBottom: 10}}>
                           <Text style={[styles.label, {color: '#ef4444', marginTop: 10}]}>Détails Tactiques (Caneva)</Text>
-                          <TextInput style={styles.detailInput} placeholder="Position (Coord/Lieu)" placeholderTextColor="#52525b" value={hostileDetails.position} onChangeText={t => setHostileDetails({...hostileDetails, position: t})} />
-                          <TextInput style={styles.detailInput} placeholder="Nature (Type d'ennemi)" placeholderTextColor="#52525b" value={hostileDetails.nature} onChangeText={t => setHostileDetails({...hostileDetails, nature: t})} />
-                          <TextInput style={styles.detailInput} placeholder="Attitude (Statique/Mobile)" placeholderTextColor="#52525b" value={hostileDetails.attitude} onChangeText={t => setHostileDetails({...hostileDetails, attitude: t})} />
-                          <TextInput style={styles.detailInput} placeholder="Volume (Nombre)" placeholderTextColor="#52525b" value={hostileDetails.volume} onChangeText={t => setHostileDetails({...hostileDetails, volume: t})} />
+                          <TextInput style={styles.detailInput} placeholder="Position" placeholderTextColor="#52525b" value={hostileDetails.position} onChangeText={t => setHostileDetails({...hostileDetails, position: t})} />
+                          <TextInput style={styles.detailInput} placeholder="Nature" placeholderTextColor="#52525b" value={hostileDetails.nature} onChangeText={t => setHostileDetails({...hostileDetails, nature: t})} />
+                          <TextInput style={styles.detailInput} placeholder="Attitude" placeholderTextColor="#52525b" value={hostileDetails.attitude} onChangeText={t => setHostileDetails({...hostileDetails, attitude: t})} />
+                          <TextInput style={styles.detailInput} placeholder="Volume" placeholderTextColor="#52525b" value={hostileDetails.volume} onChangeText={t => setHostileDetails({...hostileDetails, volume: t})} />
                           <TextInput style={styles.detailInput} placeholder="Armement" placeholderTextColor="#52525b" value={hostileDetails.armes} onChangeText={t => setHostileDetails({...hostileDetails, armes: t})} />
                           <TextInput style={styles.detailInput} placeholder="Substances / Tenue" placeholderTextColor="#52525b" value={hostileDetails.substances} onChangeText={t => setHostileDetails({...hostileDetails, substances: t})} />
                       </ScrollView>
                   )}
-                  
                   <View style={{flexDirection: 'row', gap: 10, marginTop: 10}}>
                       <TouchableOpacity onPress={() => setShowPingForm(false)} style={[styles.modalBtn, {backgroundColor: '#27272a'}]}><Text style={{color: 'white'}}>ANNULER</Text></TouchableOpacity>
                       <TouchableOpacity onPress={submitPing} style={[styles.modalBtn, {backgroundColor: '#3b82f6'}]}><Text style={{color: 'white', fontWeight: 'bold'}}>VALIDER</Text></TouchableOpacity>
@@ -586,7 +615,6 @@ const App: React.FC = () => {
           </KeyboardAvoidingView>
       </Modal>
 
-      {/* MODAL EDIT PING (ICONES SEULEMENT) */}
       <Modal visible={!!editingPing} transparent animationType="slide">
           <View style={styles.modalOverlay}>
               <View style={[styles.modalContent, {width: '90%'}]}>
@@ -602,28 +630,16 @@ const App: React.FC = () => {
                            <TextInput style={styles.detailInput} placeholder="Substances" value={hostileDetails.substances} onChangeText={t => setHostileDetails({...hostileDetails, substances: t})} />
                       </ScrollView>
                   )}
-                  
-                  {/* BOUTONS ICONES UNIQUEMENT */}
                   <View style={{flexDirection: 'row', justifyContent: 'space-around', width: '100%', marginTop: 20}}>
-                      {/* BOUTON SUPPRIMER (ROUGE) */}
-                      <TouchableOpacity onPress={deletePing} style={styles.iconBtnDanger}>
-                          <MaterialIcons name="delete" size={28} color="white" />
-                      </TouchableOpacity>
-
-                      {/* BOUTON ANNULER (GRIS) */}
-                      <TouchableOpacity onPress={() => setEditingPing(null)} style={styles.iconBtnSecondary}>
-                          <MaterialIcons name="close" size={28} color="white" />
-                      </TouchableOpacity>
-
-                      {/* BOUTON SAUVER (VERT) */}
-                      <TouchableOpacity onPress={savePingEdit} style={styles.iconBtnSuccess}>
-                          <MaterialIcons name="check" size={28} color="white" />
-                      </TouchableOpacity>
+                      <TouchableOpacity onPress={deletePing} style={styles.iconBtnDanger}><MaterialIcons name="delete" size={28} color="white" /></TouchableOpacity>
+                      <TouchableOpacity onPress={() => setEditingPing(null)} style={styles.iconBtnSecondary}><MaterialIcons name="close" size={28} color="white" /></TouchableOpacity>
+                      <TouchableOpacity onPress={savePingEdit} style={styles.iconBtnSuccess}><MaterialIcons name="check" size={28} color="white" /></TouchableOpacity>
                   </View>
               </View>
           </View>
       </Modal>
 
+      {navNotif && <NavNotification message={navNotif} onDismiss={() => setNavNotif(null)} />}
       {toast && ( <View style={[styles.toast, toast.type === 'error' && {backgroundColor: '#ef4444'}]}><Text style={styles.toastText}>{toast.msg}</Text></View> )}
     </View>
   );
@@ -655,27 +671,12 @@ const styles = StyleSheet.create({
   toastText: { color: 'white', fontWeight: 'bold', fontSize: 12 },
   navNotif: { position: 'absolute', top: 100, left: 20, right: 20, backgroundColor: '#18181b', borderRadius: 12, borderWidth: 1, borderColor: '#06b6d4', padding: 15, flexDirection: 'row', alignItems: 'center', gap: 15, zIndex: 10000, elevation: 10000 },
   navNotifText: { color: 'white', fontWeight: 'bold', flex: 1, fontSize: 14 },
-  mapControls: { 
-      position: 'absolute', 
-      top: 16, 
-      right: 16, 
-      gap: 12, 
-      zIndex: 2000,
-      elevation: 2000 
-  },
+  mapControls: { position: 'absolute', top: 16, right: 16, gap: 12, zIndex: 2000, elevation: 2000 },
   mapBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#18181b', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
-  footer: { 
-      backgroundColor: '#050505', 
-      borderTopWidth: 1, 
-      borderTopColor: '#27272a', 
-      paddingBottom: 20,
-      zIndex: 2000, 
-      elevation: 2000 
-  },
+  footer: { backgroundColor: '#050505', borderTopWidth: 1, borderTopColor: '#27272a', paddingBottom: 20, zIndex: 2000, elevation: 2000 },
   statusRow: { flexDirection: 'row', padding: 12, gap: 8, flexWrap: 'wrap', justifyContent: 'center' },
   statusBtn: { paddingHorizontal: 16, paddingVertical: 12, borderRadius: 8, backgroundColor: '#18181b', borderWidth: 1, borderColor: '#27272a' },
   statusBtnText: { color: '#71717a', fontSize: 12, fontWeight: 'bold' },
-
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center', alignItems: 'center', padding: 30 },
   modalContent: { width: '100%', backgroundColor: 'white', padding: 24, borderRadius: 24, alignItems: 'center' },
   modalTitle: { fontSize: 18, fontWeight: '900', marginBottom: 20 },
@@ -690,11 +691,11 @@ const styles = StyleSheet.create({
   pingTypeBtn: { width: 80, height: 80, borderRadius: 12, justifyContent: 'center', alignItems: 'center', borderWidth: 2 },
   label: { color: '#a1a1aa', fontSize: 12, alignSelf: 'flex-start', marginBottom: 5, marginLeft: 5 },
   detailInput: { width: '100%', backgroundColor: '#000', color: 'white', padding: 12, borderRadius: 8, marginBottom: 10, borderWidth: 1, borderColor: '#333' },
-  
-  // STYLES ICONES EDITION
   iconBtnDanger: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#ef4444', justifyContent: 'center', alignItems: 'center', elevation: 5 },
   iconBtnSecondary: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#52525b', justifyContent: 'center', alignItems: 'center', elevation: 5 },
   iconBtnSuccess: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#22c55e', justifyContent: 'center', alignItems: 'center', elevation: 5 }
 });
 
 export default App;
+
+
