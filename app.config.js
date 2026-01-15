@@ -2,8 +2,8 @@ export default {
   expo: {
     name: "TacSuite",
     slug: "tacsuite",
-    version: "3.2.1",
-    orientation: "default", // Autorise Portrait et Paysage sans plugin externe
+    version: "3.2.2",
+    orientation: "default", // Suffisant pour autoriser la rotation sans plugin
     icon: "./assets/icon.png",
     userInterfaceStyle: "dark",
     splash: {
@@ -59,7 +59,6 @@ export default {
         }
       ],
       "expo-notifications"
-      // Retrait de expo-screen-orientation qui posait problème
     ],
     extra: {
       eas: {
