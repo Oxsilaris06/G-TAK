@@ -1,12 +1,11 @@
 import { OperatorStatus } from './types';
 
 export const CONFIG = {
-  // Clés de stockage (Mise à jour v18 selon instructions)
-  SESSION_STORAGE_KEY: 'comtac_v18_session',
-  TRIGRAM_STORAGE_KEY: 'comtac_v18_trigram',
+  // Clés de stockage mises à jour pour TacSuite
+  SESSION_STORAGE_KEY: 'tacsuite_v1_session',
+  TRIGRAM_STORAGE_KEY: 'tacsuite_v1_trigram',
   
-  // Configuration PeerJS
-  // Utilise les serveurs STUN de Google (Ports 19302 et 443) pour traverser le NAT sans serveur TURN
+  // Configuration PeerJS (Serveurs STUN Google gratuits)
   PEER_CONFIG: {
     debug: 1,
     config: {
@@ -17,16 +16,12 @@ export const CONFIG = {
         { urls: 'stun:stun1.l.google.com:443' },
       ],
     },
-  },
-  
-  // Seuil de détection vocale
-  VAD_THRESHOLD: 0.02,
+  }
 };
 
 export const STATUS_COLORS = {
   [OperatorStatus.CLEAR]: '#22c55e',
   [OperatorStatus.CONTACT]: '#ef4444',
-  [OperatorStatus.BUSY]: '#a855f7',
-  [OperatorStatus.APPUI]: '#eab308',
-  [OperatorStatus.PROGRESSION]: '#3b82f6'
+  [OperatorStatus.BUSY]: '#a855f7', // Violet
+  [OperatorStatus.PROGRESSION]: '#3b82f6' // Bleu
 };
