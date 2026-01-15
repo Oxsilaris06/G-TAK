@@ -3,7 +3,7 @@ import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { 
   StyleSheet, View, Text, TextInput, TouchableOpacity, 
   SafeAreaView, Platform, Modal, StatusBar as RNStatusBar, Alert, ScrollView, ActivityIndicator,
-  PermissionsAndroid, Animated, PanResponder, FlatList, KeyboardAvoidingView, AppState
+  PermissionsAndroid, Animated, PanResponder, FlatList, KeyboardAvoidingView, AppState, Dimensions
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import QRCode from 'react-native-qrcode-svg';
@@ -19,6 +19,7 @@ import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Magnetometer } from 'expo-sensors';
 import * as SplashScreen from 'expo-splash-screen';
+import * as ScreenOrientation from 'expo-screen-orientation'; // Pour gérer l'orientation
 
 import { UserData, OperatorStatus, OperatorRole, ViewType, PingData, AppSettings, DEFAULT_SETTINGS, PingType, HostileDetails } from './types';
 import { CONFIG, STATUS_COLORS } from './constants';
@@ -34,7 +35,7 @@ try { SplashScreen.preventAutoHideAsync().catch(() => {}); } catch (e) {}
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowAlert: true,
+    shouldShowAlert: false, // Pas d'alerte système si app ouverte (on utilise le Toast custom)
     shouldPlaySound: false,
     shouldSetBadge: false,
   }),
@@ -43,18 +44,60 @@ Notifications.setNotificationHandler({
 let DEFAULT_MSG_JSON: string[] = [];
 try { DEFAULT_MSG_JSON = require('./msg.json'); } catch (e) {}
 
-const NavNotification = ({ message, onDismiss }: { message: string, onDismiss: () => void }) => {
+// --- TOAST NOTIFICATION INTELLIGENT ---
+// Affiche une notification swipable en haut de l'écran.
+// Rouge + Heartbeat si CONTACT, Noir si normal. 
+// Supporte le mode Night Ops.
+const NavNotification = ({ message, type, isNightOps, onDismiss }: { message: string, type: 'alert' | 'info', isNightOps: boolean, onDismiss: () => void }) => {
     const pan = useRef(new Animated.ValueXY()).current;
+    
+    // Animation Heartbeat pour alerte rouge
+    const scaleAnim = useRef(new Animated.Value(1)).current;
     useEffect(() => {
-        const timer = setTimeout(onDismiss, 5000);
-        return () => clearTimeout(timer);
-    }, [message]);
+        let anim: Animated.CompositeAnimation | null = null;
+        if (type === 'alert') {
+            anim = Animated.loop(
+                Animated.sequence([
+                    Animated.timing(scaleAnim, { toValue: 1.05, duration: 200, useNativeDriver: true }),
+                    Animated.timing(scaleAnim, { toValue: 1, duration: 200, useNativeDriver: true }),
+                    Animated.delay(500)
+                ])
+            );
+            anim.start();
+        } else {
+            // Auto dismiss pour info seulement
+            const timer = setTimeout(onDismiss, 5000);
+            return () => clearTimeout(timer);
+        }
+        return () => anim?.stop();
+    }, [type, message]);
+
+    const panResponder = useRef(
+      PanResponder.create({
+        onMoveShouldSetPanResponder: () => true,
+        onPanResponderMove: Animated.event([null, { dx: pan.x }], { useNativeDriver: false }),
+        onPanResponderRelease: (_, gesture) => {
+          if (Math.abs(gesture.dx) > 100) {
+              Animated.timing(pan, { toValue: { x: gesture.dx > 0 ? 500 : -500, y: 0 }, useNativeDriver: false, duration: 200 }).start(onDismiss);
+          } else {
+              Animated.spring(pan, { toValue: { x: 0, y: 0 }, useNativeDriver: false }).start();
+          }
+        }
+      })
+    ).current;
+
+    const bgColor = isNightOps ? '#000' : (type === 'alert' ? '#7f1d1d' : '#18181b'); // Rouge foncé ou Noir
+    const borderColor = isNightOps ? '#ef4444' : (type === 'alert' ? '#ef4444' : '#06b6d4');
+    const textColor = isNightOps ? '#ef4444' : 'white';
 
     return (
-      <Animated.View style={[styles.navNotif, { transform: [{ translateX: pan.x }] }]}>
-          <MaterialIcons name="notifications-active" size={24} color="#06b6d4" />
-          <Text style={styles.navNotifText}>{message}</Text>
-          <TouchableOpacity onPress={onDismiss}><MaterialIcons name="close" size={20} color="#52525b" /></TouchableOpacity>
+      <Animated.View style={[
+          styles.navNotif, 
+          { transform: [{ translateX: pan.x }, { scale: scaleAnim }], backgroundColor: bgColor, borderColor: borderColor }
+      ]} {...panResponder.panHandlers}>
+          <MaterialIcons name={type === 'alert' ? "warning" : "notifications-active"} size={24} color={isNightOps ? '#ef4444' : (type === 'alert' ? 'white' : '#06b6d4')} />
+          <Text style={[styles.navNotifText, {color: textColor}]}>{message}</Text>
+          <MaterialIcons name="chevron-right" size={20} color={isNightOps ? '#7f1d1d' : "#52525b"} />
       </Animated.View>
     );
 };
@@ -64,7 +107,9 @@ const App: React.FC = () => {
   
   const [isAppReady, setIsAppReady] = useState(false);
   const [toast, setToast] = useState<{ msg: string; type: 'info' | 'error' } | null>(null);
-  const [navNotif, setNavNotif] = useState<string | null>(null);
+  
+  // Notification persistante (State pour afficher le composant custom)
+  const [activeNotif, setActiveNotif] = useState<{ id: string, msg: string, type: 'alert' | 'info' } | null>(null);
 
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [user, setUser] = useState<UserData>({
@@ -75,7 +120,7 @@ const App: React.FC = () => {
 
   const [view, setView] = useState<ViewType>('login');
   const [lastView, setLastView] = useState<ViewType>('menu'); 
-  const [lastOpsView, setLastOpsView] = useState<ViewType>('map'); // Pour se souvenir si on était map ou liste
+  const [lastOpsView, setLastOpsView] = useState<ViewType>('map');
 
   const [peers, setPeers] = useState<Record<string, UserData>>({});
   const [bannedPeers, setBannedPeers] = useState<string[]>([]);
@@ -90,13 +135,14 @@ const App: React.FC = () => {
   const [showTrails, setShowTrails] = useState(true);
   const [showPings, setShowPings] = useState(true);
   const [isPingMode, setIsPingMode] = useState(false);
+  const [nightOpsMode, setNightOpsMode] = useState(false); // Mode Nuit
   
   const [showQRModal, setShowQRModal] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
   const [hasCameraPermission, setHasCameraPermission] = useState(false);
   
   const [showQuickMsgModal, setShowQuickMsgModal] = useState(false);
-  const [freeMsgInput, setFreeMsgInput] = useState(''); // Pour message libre
+  const [freeMsgInput, setFreeMsgInput] = useState(''); 
   const [quickMessagesList, setQuickMessagesList] = useState<string[]>([]);
   
   const [showPingMenu, setShowPingMenu] = useState(false);
@@ -119,24 +165,41 @@ const App: React.FC = () => {
   const gpsSubscription = useRef<Location.LocationSubscription | null>(null);
   const appState = useRef(AppState.currentState);
 
+  // --- ORIENTATION HANDLING ---
+  useEffect(() => {
+      // Déverrouiller toutes les orientations au montage
+      ScreenOrientation.unlockAsync();
+  }, []);
+
   const showToast = useCallback((msg: string, type: 'info' | 'error' = 'info') => {
     setToast({ msg, type });
     if (type === 'error') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     setTimeout(() => setToast(null), 3000);
   }, []);
 
-  const lastNotifId = useRef<string | null>(null);
+  // --- NOTIFICATION PUSH SYSTEME (HORS APP) ---
+  const lastSysNotifId = useRef<string | null>(null);
 
-  const sendPushNotification = async (title: string, body: string, isAlert = false) => {
-      if (lastNotifId.current) {
-          await Notifications.dismissNotificationAsync(lastNotifId.current);
+  const sendSystemNotification = async (title: string, body: string) => {
+      if (settings.disableBackgroundNotifications) return;
+      if (appState.current === 'active') return; // Pas de notif système si app ouverte
+
+      // Remplacement intelligent : on annule la précédente
+      if (lastSysNotifId.current) {
+          await Notifications.dismissNotificationAsync(lastSysNotifId.current);
       }
       const id = await Notifications.scheduleNotificationAsync({
-          content: { title, body, sound: isAlert },
+          content: { title, body, sound: true },
           trigger: null,
       });
-      lastNotifId.current = id;
-      if (isAlert) {
+      lastSysNotifId.current = id;
+  };
+
+  // --- TOAST IN-APP INTELLIGENT ---
+  const triggerAppNotification = (id: string, msg: string, type: 'alert' | 'info') => {
+      // Remplace la notification existante du même membre (ID) ou écrase tout court
+      setActiveNotif({ id, msg, type });
+      if (type === 'alert') {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       }
   };
@@ -146,7 +209,6 @@ const App: React.FC = () => {
     showToast("ID Copié");
   };
 
-  // --- RETOUR ARRIERE AVEC CONFIRMATION DECONNEXION ---
   const handleBackPress = () => {
       if (view === 'settings') { setView(lastView); return; }
       if (view === 'ops' || view === 'map') {
@@ -220,11 +282,16 @@ const App: React.FC = () => {
              await PermissionsAndroid.requestMultiple([
                 PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
                 PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION,
+                PermissionsAndroid.PERMISSIONS.ACCESS_BACKGROUND_LOCATION, // DEMANDE EXPLICITE BACKGROUND
                 PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS
              ]).catch(() => {});
           }
           const { status } = await Location.getForegroundPermissionsAsync();
-          if (status === 'granted') setGpsStatus('OK');
+          if (status === 'granted') {
+              // Tentative Background (optionnel mais recommandé pour éviter coupures)
+              await Location.requestBackgroundPermissionsAsync().catch(() => {});
+              setGpsStatus('OK');
+          }
           
           const camStatus = await Camera.getCameraPermissionsAsync();
           setHasCameraPermission(camStatus.status === 'granted');
@@ -325,15 +392,15 @@ const App: React.FC = () => {
             let title = isHostile ? "⚠️ CONTACT" : "Info Tactique";
             let body = `${p.sender}: ${p.msg}`;
             
-            sendPushNotification(title, body, isHostile);
-            setNavNotif(title + " - " + p.msg);
+            triggerAppNotification(p.sender, body, isHostile ? 'alert' : 'info');
+            sendSystemNotification(title, body);
       }
       else if (data.type === 'UPDATE' && data.user && data.user.lastMsg) {
           const u = data.user;
           if (peers[u.id]?.lastMsg !== u.lastMsg) {
               const msg = `MSG ${u.callsign}: ${u.lastMsg}`;
-              sendPushNotification("Message Tactique", msg, false);
-              setNavNotif(msg);
+              triggerAppNotification(u.callsign, msg, 'info');
+              sendSystemNotification("Message Tactique", msg);
           }
       }
       else if (data.type === 'PING_MOVE') setPings(prev => prev.map(p => p.id === data.id ? { ...p, lat: data.lat, lng: data.lng } : p));
@@ -527,8 +594,11 @@ const App: React.FC = () => {
                         <TouchableOpacity onPress={handleBackPress}><MaterialIcons name="arrow-back" size={24} color="white" /></TouchableOpacity>
                         <Text style={styles.headerTitle}>TacSuite</Text>
                         <View style={{flexDirection: 'row', gap: 15}}>
+                            {/* BOUTON NIGHT OPS */}
+                            <TouchableOpacity onPress={() => setNightOpsMode(!nightOpsMode)}>
+                                <MaterialIcons name="nightlight-round" size={24} color={nightOpsMode ? "#ef4444" : "white"} />
+                            </TouchableOpacity>
                             <TouchableOpacity onPress={() => setView('settings')}><MaterialIcons name="settings" size={24} color="white" /></TouchableOpacity>
-                            {/* BOUTON TOGGLE MAP/LISTE AVEC MEMOIRE */}
                             <TouchableOpacity onPress={() => { 
                                 const nextView = view === 'map' ? 'ops' : 'map';
                                 setView(nextView);
@@ -593,13 +663,10 @@ const App: React.FC = () => {
           onNavigate={handleOperatorActionNavigate}
       />
 
-      {/* MODALE MESSAGE */}
       <Modal visible={showQuickMsgModal} animationType="fade" transparent>
           <KeyboardAvoidingView behavior="padding" style={styles.modalOverlay}>
               <View style={[styles.modalContent, {backgroundColor: '#18181b', borderWidth: 1, borderColor: '#333', maxHeight: '80%'}]}>
                   <Text style={[styles.modalTitle, {color: '#06b6d4', marginBottom: 15}]}>MESSAGE RAPIDE</Text>
-                  
-                  {/* ZONE MESSAGE LIBRE */}
                   <View style={{flexDirection: 'row', marginBottom: 15, width: '100%'}}>
                       <TextInput 
                           style={[styles.pingInput, {flex: 1, marginBottom: 0, textAlign: 'left'}]}
@@ -612,7 +679,6 @@ const App: React.FC = () => {
                           <MaterialIcons name="send" size={20} color="white" />
                       </TouchableOpacity>
                   </View>
-
                   <FlatList 
                     data={quickMessagesList} 
                     keyExtractor={(item, index) => index.toString()} 
@@ -628,7 +694,7 @@ const App: React.FC = () => {
           </KeyboardAvoidingView>
       </Modal>
 
-      {/* Autres modales inchangées ... */}
+      {/* Autres Modales identiques ... */}
       <Modal visible={showQRModal} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -717,7 +783,11 @@ const App: React.FC = () => {
           </View>
       </Modal>
 
-      {navNotif && <NavNotification message={navNotif} onDismiss={() => setNavNotif(null)} />}
+      {activeNotif && <NavNotification message={`${activeNotif.id}: ${activeNotif.msg}`} type={activeNotif.type} isNightOps={nightOpsMode} onDismiss={() => setActiveNotif(null)} />}
+      
+      {/* FILTRE NIGHT OPS (OVERLAY ROUGE TRANSPARENT) */}
+      {nightOpsMode && <View style={styles.nightOpsOverlay} pointerEvents="none" />}
+      
       {toast && ( <View style={[styles.toast, toast.type === 'error' && {backgroundColor: '#ef4444'}]}><Text style={styles.toastText}>{toast.msg}</Text></View> )}
     </View>
   );
@@ -747,7 +817,7 @@ const styles = StyleSheet.create({
   scannerClose: { position: 'absolute', top: 50, right: 20, padding: 10, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 20 },
   toast: { position: 'absolute', top: 50, alignSelf: 'center', backgroundColor: '#1e3a8a', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 20, zIndex: 9999, elevation: 9999 },
   toastText: { color: 'white', fontWeight: 'bold', fontSize: 12 },
-  navNotif: { position: 'absolute', top: 100, left: 20, right: 20, backgroundColor: '#18181b', borderRadius: 12, borderWidth: 1, borderColor: '#06b6d4', padding: 15, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 15, zIndex: 10000, elevation: 10000 },
+  navNotif: { position: 'absolute', top: 100, left: 20, right: 20, borderRadius: 12, borderWidth: 1, padding: 15, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 15, zIndex: 10000, elevation: 10000 },
   navNotifText: { color: 'white', fontWeight: 'bold', flex: 1, fontSize: 14 },
   mapControls: { position: 'absolute', top: 16, right: 16, gap: 12, zIndex: 2000, elevation: 2000 },
   mapBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#18181b', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
@@ -771,7 +841,10 @@ const styles = StyleSheet.create({
   detailInput: { width: '100%', backgroundColor: '#000', color: 'white', padding: 12, borderRadius: 8, marginBottom: 10, borderWidth: 1, borderColor: '#333' },
   iconBtnDanger: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#ef4444', justifyContent: 'center', alignItems: 'center', elevation: 5 },
   iconBtnSecondary: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#52525b', justifyContent: 'center', alignItems: 'center', elevation: 5 },
-  iconBtnSuccess: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#22c55e', justifyContent: 'center', alignItems: 'center', elevation: 5 }
+  iconBtnSuccess: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#22c55e', justifyContent: 'center', alignItems: 'center', elevation: 5 },
+  
+  // OVERLAY NIGHT OPS
+  nightOpsOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(255, 0, 0, 0.15)', zIndex: 99999, pointerEvents: 'none' }
 });
 
 export default App;
