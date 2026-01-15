@@ -1,4 +1,4 @@
-import './polyfills'; 
+import './polyfills'; // TRES IMPORTANT : EN PREMIER
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { 
   StyleSheet, View, Text, TextInput, TouchableOpacity, 
@@ -18,6 +18,7 @@ import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Magnetometer } from 'expo-sensors';
 import * as SplashScreen from 'expo-splash-screen';
+import NetInfo from '@react-native-community/netinfo';
 
 import { UserData, OperatorStatus, OperatorRole, ViewType, PingData, AppSettings, DEFAULT_SETTINGS, PingType, HostileDetails } from './types';
 import { CONFIG, STATUS_COLORS } from './constants';
@@ -28,8 +29,11 @@ import OperatorCard from './components/OperatorCard';
 import TacticalMap from './components/TacticalMap';
 import SettingsView from './components/SettingsView';
 
+// --- INITIALISATION ---
+// Garder le splash screen visible pendant le chargement
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
+// Config Notifications
 Notifications.setNotificationHandler({
   handleNotification: async () => ({ shouldShowAlert: true, shouldPlaySound: true, shouldSetBadge: false }),
 });
@@ -37,6 +41,7 @@ Notifications.setNotificationHandler({
 let DEFAULT_MSG_JSON: string[] = [];
 try { DEFAULT_MSG_JSON = require('./msg.json'); } catch (e) { }
 
+// --- COMPOSANT NOTIFICATION ---
 const NavNotification = ({ message, onDismiss }: { message: string, onDismiss: () => void }) => {
     const pan = useRef(new Animated.ValueXY()).current;
     const panResponder = useRef(
@@ -68,6 +73,7 @@ const App: React.FC = () => {
     ? useCameraPermissions() 
     : [{ granted: false, canAskAgain: true }, async () => ({ granted: false, canAskAgain: true, status: 'denied', expires: 'never' })];
 
+  // --- STATES ---
   const [isAppReady, setIsAppReady] = useState(false);
   const [toast, setToast] = useState<{ msg: string; type: 'info' | 'error' } | null>(null);
 
@@ -81,7 +87,7 @@ const App: React.FC = () => {
   const [view, setView] = useState<ViewType>('login');
   const [lastView, setLastView] = useState<ViewType>('menu'); 
   const [peers, setPeers] = useState<Record<string, UserData>>({});
-  const prevPeersRef = useRef<Record<string, UserData>>({});
+  const prevPeersRef = useRef<Record<string, UserData>>({}); // Pour détecter les changements de statut (vibration)
 
   const [pings, setPings] = useState<PingData[]>([]);
   const [hostId, setHostId] = useState<string>('');
@@ -118,8 +124,10 @@ const App: React.FC = () => {
   const [isOffline, setIsOffline] = useState(false);
 
   const lastLocationRef = useRef<any>(null);
+  const lastHeadBroadcast = useRef<number>(0);
   const gpsSubscription = useRef<Location.LocationSubscription | null>(null);
 
+  // --- HELPERS ---
   const showToast = useCallback((msg: string, type: 'info' | 'error' = 'info') => {
     setToast({ msg, type });
     if (type === 'error') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -127,6 +135,7 @@ const App: React.FC = () => {
   }, []);
 
   const copyToClipboard = async () => {
+    // Si connecté : Host ID. Si non connecté : Mon User ID
     const idToCopy = hostId || user.id;
     if (idToCopy) {
         await Clipboard.setStringAsync(idToCopy);
@@ -136,25 +145,41 @@ const App: React.FC = () => {
     }
   };
 
+  // --- BOOTSTRAP PERMISSIONS (SAFE) ---
   const bootstrapPermissions = async () => {
+    console.log("Bootstrapping Permissions...");
     try {
         if (Platform.OS === 'android') {
             await PermissionsAndroid.requestMultiple([
                 PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
                 PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION,
-            ]).catch(() => {});
+            ]).catch(e => console.warn("Loc Perm Error", e));
+            
+            // Android 13+ Notifs
+            if (Platform.Version >= 33) {
+               await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS).catch(() => {});
+            }
         }
-        try {
-            const { status } = await Notifications.getPermissionsAsync();
-            if (status !== 'granted') await Notifications.requestPermissionsAsync();
-        } catch(e) {}
-        try {
-            const locRes = await Location.requestForegroundPermissionsAsync();
-            if (locRes.status !== 'granted') setGpsStatus('ERROR');
-            else setGpsStatus('OK');
-        } catch(e) { setGpsStatus('ERROR'); }
-        if (!cameraPermission?.granted) await requestCameraPermission().catch(() => {});
-    } catch (e) {}
+
+        // Expo Notifs
+        const { status: notifStatus } = await Notifications.getPermissionsAsync();
+        if (notifStatus !== 'granted') await Notifications.requestPermissionsAsync().catch(() => {});
+        
+        // Expo Loc
+        const locRes = await Location.requestForegroundPermissionsAsync().catch(() => ({status: 'denied'}));
+        if (locRes.status !== 'granted') {
+            setGpsStatus('ERROR');
+        } else {
+            setGpsStatus('OK');
+        }
+
+        // Camera
+        if (!cameraPermission?.granted) {
+            await requestCameraPermission().catch(() => {});
+        }
+    } catch (e) {
+        console.warn("Global Perm Error:", e);
+    }
   };
 
   const startGpsTracking = useCallback(async (interval: number) => {
@@ -162,14 +187,17 @@ const App: React.FC = () => {
       try {
         const hasPerm = await Location.getForegroundPermissionsAsync();
         if (!hasPerm.granted) return;
+
         gpsSubscription.current = await Location.watchPositionAsync(
             { accuracy: Location.Accuracy.High, timeInterval: interval, distanceInterval: 5 },
             (loc) => {
                 const { latitude, longitude, speed, heading, accuracy } = loc.coords;
                 if (accuracy && accuracy > 100) return;
                 setGpsStatus('OK');
+                
                 setUser(prev => {
                     const gpsHead = (speed && speed > 1 && heading !== null) ? heading : prev.head;
+                    // Transmission réseau gérée par connectivityService pour éviter le spam
                     if (!lastLocationRef.current || Math.abs(latitude - lastLocationRef.current.lat) > 0.0001 || Math.abs(longitude - lastLocationRef.current.lng) > 0.0001) {
                         connectivityService.updateUserPosition(latitude, longitude, gpsHead);
                         lastLocationRef.current = { lat: latitude, lng: longitude };
@@ -178,7 +206,7 @@ const App: React.FC = () => {
                 });
             }
         );
-      } catch(e) {}
+      } catch(e) { console.warn("GPS Start Error", e); }
   }, []);
 
   const finishLogout = useCallback(() => {
@@ -189,23 +217,72 @@ const App: React.FC = () => {
       setUser(prev => ({...prev, id: '', role: OperatorRole.OPR, status: OperatorStatus.CLEAR, lastMsg: '' }));
   }, []);
 
+  // --- LOGIC VIBRATION CONTACT ---
   useEffect(() => {
       const newPeers = peers;
       const oldPeers = prevPeersRef.current;
+
       Object.keys(newPeers).forEach(peerId => {
-          if (peerId === user.id) return; 
+          if (peerId === user.id) return; // Pas moi
+
           const newUser = newPeers[peerId];
           const oldUser = oldPeers[peerId];
+
+          // Si statut passe à CONTACT
           if (newUser.status === OperatorStatus.CONTACT) {
+              // Si c'est nouveau (pas dans l'ancien, ou ancien statut different)
               if (!oldUser || oldUser.status !== OperatorStatus.CONTACT) {
+                  // VIBRATION ALERTE
                   Vibration.vibrate([0, 500, 200, 500, 200, 500]); 
                   showToast(`ALERTE CONTACT : ${newUser.callsign}`, 'error');
               }
           }
       });
+
       prevPeersRef.current = newPeers;
   }, [peers, user.id]);
 
+  // --- INIT APPLICATION ---
+  useEffect(() => {
+      const loadResources = async () => {
+          try {
+              // Timeout de sécurité 5s pour les permissions
+              await Promise.race([
+                  bootstrapPermissions(),
+                  new Promise(resolve => setTimeout(resolve, 5000))
+              ]);
+
+              const s = await configService.init();
+              let msgs = s.quickMessages;
+              if ((!msgs || msgs.length === 0) && Array.isArray(DEFAULT_MSG_JSON)) { msgs = DEFAULT_MSG_JSON; }
+              setSettings(s);
+              setQuickMessagesList(msgs || DEFAULT_SETTINGS.quickMessages);
+              
+              if (s.username) { setUser(prev => ({ ...prev, callsign: s.username })); setLoginInput(s.username); }
+          } catch (e) {
+              console.warn("Init Failed", e);
+          } finally {
+              setIsAppReady(true);
+              await SplashScreen.hideAsync().catch(() => {});
+          }
+      };
+      
+      loadResources();
+
+      const unsubConfig = configService.subscribe((newSettings) => {
+          setSettings(newSettings);
+          if (newSettings.quickMessages) setQuickMessagesList(newSettings.quickMessages);
+          if (newSettings.username && newSettings.username !== user.callsign) {
+              connectivityService.updateUser({ callsign: newSettings.username });
+              setUser(prev => ({ ...prev, callsign: newSettings.username }));
+          }
+          if (gpsSubscription.current) startGpsTracking(newSettings.gpsUpdateInterval);
+      });
+      const unsubConn = connectivityService.subscribe(handleConnectivityEvent);
+      return () => { unsubConfig(); unsubConn(); };
+  }, []);
+
+  // --- CAPTEURS ---
   useEffect(() => { 
       Battery.getBatteryLevelAsync().then(l => setUser(u => ({ ...u, bat: Math.floor(l * 100) }))); 
       const sub = Battery.addBatteryLevelListener(({ batteryLevel }) => setUser(u => ({ ...u, bat: Math.floor(batteryLevel * 100) }))); 
@@ -219,11 +296,6 @@ const App: React.FC = () => {
           if (angle < 0) angle += 360; 
           setUser(prev => { 
               if (Math.abs(prev.head - angle) > 3) {
-                  const now = Date.now();
-                  if (now - lastHeadBroadcast.current > 500 && hostId) {
-                      connectivityService.updateUserPosition(prev.lat, prev.lng, Math.floor(angle));
-                      lastHeadBroadcast.current = now;
-                  }
                   return { ...prev, head: Math.floor(angle) }; 
               }
               return prev; 
@@ -232,13 +304,24 @@ const App: React.FC = () => {
       return () => sub && sub.remove(); 
   }, [hostId]);
 
+  // --- RESEAU ---
   const handleConnectivityEvent = useCallback((event: ConnectivityEvent) => {
       switch (event.type) {
-          case 'PEER_OPEN': setUser(prev => ({ ...prev, id: event.id })); break;
-          case 'PEERS_UPDATED': setPeers(event.peers); break;
-          case 'HOST_CONNECTED': setHostId(event.hostId); break;
-          case 'TOAST': showToast(event.msg, event.level as any); break;
-          case 'DATA_RECEIVED': handleProtocolData(event.data, event.from); break;
+          case 'PEER_OPEN':
+              setUser(prev => ({ ...prev, id: event.id }));
+              break;
+          case 'PEERS_UPDATED':
+              setPeers(event.peers);
+              break;
+          case 'HOST_CONNECTED':
+              setHostId(event.hostId);
+              break;
+          case 'TOAST':
+              showToast(event.msg, event.level as any);
+              break;
+          case 'DATA_RECEIVED':
+              handleProtocolData(event.data, event.from);
+              break;
           case 'DISCONNECTED':
               if (event.reason === 'KICKED') { Alert.alert("Exclu", "Banni par l'hôte."); finishLogout(); }
               else if (event.reason === 'NO_HOST') { showToast("Hôte perdu", "error"); finishLogout(); }
@@ -252,11 +335,20 @@ const App: React.FC = () => {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             setPings(prev => [...prev, data.ping]);
             showToast(`ALERTE: ${data.ping.type} - ${data.ping.msg}`);
-            Notifications.scheduleNotificationAsync({ content: { title: `TACTIQUE: ${data.ping.type}`, body: `${data.ping.sender} : ${data.ping.msg}`, sound: true }, trigger: null });
+            // PUSH NOTIF
+            Notifications.scheduleNotificationAsync({
+                content: { title: `TACTIQUE: ${data.ping.type}`, body: `${data.ping.sender} : ${data.ping.msg}`, sound: true }, trigger: null,
+            });
             break;
-        case 'PING_MOVE': setPings(prev => prev.map(p => p.id === data.id ? { ...p, lat: data.lat, lng: data.lng } : p)); break;
-        case 'PING_UPDATE': setPings(prev => prev.map(p => p.id === data.id ? { ...p, msg: data.msg, details: data.details } : p)); break;
-        case 'PING_DELETE': setPings(prev => prev.filter(p => p.id !== data.id)); break;
+        case 'PING_MOVE': 
+            setPings(prev => prev.map(p => p.id === data.id ? { ...p, lat: data.lat, lng: data.lng } : p));
+            break;
+        case 'PING_UPDATE':
+            setPings(prev => prev.map(p => p.id === data.id ? { ...p, msg: data.msg, details: data.details } : p));
+            break;
+        case 'PING_DELETE': 
+            setPings(prev => prev.filter(p => p.id !== data.id));
+            break;
         case 'NAV_NOTIFY':
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             setIncomingNavNotif(`${data.callsign} en route vers vous.`);
@@ -265,32 +357,7 @@ const App: React.FC = () => {
       }
   };
 
-  useEffect(() => {
-      const load = async () => {
-          try {
-              await Promise.race([ bootstrapPermissions(), new Promise(resolve => setTimeout(resolve, 4000)) ]);
-              const s = await configService.init();
-              let msgs = s.quickMessages;
-              if ((!msgs || msgs.length === 0) && Array.isArray(DEFAULT_MSG_JSON)) { msgs = DEFAULT_MSG_JSON; }
-              setSettings(s);
-              setQuickMessagesList(msgs || DEFAULT_SETTINGS.quickMessages);
-              if (s.username) { setUser(prev => ({ ...prev, callsign: s.username })); setLoginInput(s.username); }
-          } catch (e) { } finally { setIsAppReady(true); await SplashScreen.hideAsync().catch(() => {}); }
-      };
-      load();
-      const unsubConfig = configService.subscribe((newSettings) => {
-          setSettings(newSettings);
-          if (newSettings.quickMessages) setQuickMessagesList(newSettings.quickMessages);
-          if (newSettings.username && newSettings.username !== user.callsign) {
-              connectivityService.updateUser({ callsign: newSettings.username });
-              setUser(prev => ({ ...prev, callsign: newSettings.username }));
-          }
-          if (gpsSubscription.current) startGpsTracking(newSettings.gpsUpdateInterval);
-      });
-      const unsubConn = connectivityService.subscribe(handleConnectivityEvent);
-      return () => { unsubConfig(); unsubConn(); };
-  }, []); 
-
+  // --- ACTIONS METIER ---
   const startPingCreation = (loc: { lat: number, lng: number }) => { setTempPingLoc(loc); setShowPingMenu(true); };
   const selectPingType = (type: PingType) => { setCurrentPingType(type); setShowPingMenu(false); setPingMsgInput(''); setHostileDetails({}); setShowPingForm(true); };
   const submitPing = () => {
@@ -355,6 +422,8 @@ const App: React.FC = () => {
   };
   const openSettings = () => { setLastView(view); setView('settings'); };
 
+  // --- RENDER ---
+  
   if (!isAppReady) return (<View style={[styles.container, styles.centerContainer]}><ActivityIndicator size="large" color="#3b82f6" /><Text style={{color: 'white', marginTop: 20}}>Initialisation...</Text></View>);
 
   const renderLogin = () => (
@@ -429,6 +498,7 @@ const App: React.FC = () => {
   return (
     <View style={styles.container}>
       <StatusBar style="light" backgroundColor="#050505" />
+      
       {view === 'settings' ? ( <SettingsView onClose={() => setView(lastView)} /> ) : (
         <View style={{flex: 1}}>
             {view === 'login' ? renderLogin() : 
