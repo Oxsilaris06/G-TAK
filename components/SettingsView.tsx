@@ -103,7 +103,7 @@ const SettingsView: React.FC<Props> = ({ onClose }) => {
                     <View style={styles.row}>
                         <View>
                              <Text style={styles.label}>Intervalle GPS</Text>
-                             <Text style={styles.subLabel}>Plus court = Plus précis mais consomme plus</Text>
+                             <Text style={styles.subLabel}>Position (ms)</Text>
                         </View>
                         <View style={{flexDirection: 'row', alignItems: 'center'}}>
                             <TouchableOpacity onPress={() => setSettings(s => ({...s, gpsUpdateInterval: Math.max(1000, s.gpsUpdateInterval - 1000)}))} style={styles.miniBtn}><Text style={styles.miniBtnText}>-</Text></TouchableOpacity>
@@ -111,6 +111,20 @@ const SettingsView: React.FC<Props> = ({ onClose }) => {
                             <TouchableOpacity onPress={() => setSettings(s => ({...s, gpsUpdateInterval: s.gpsUpdateInterval + 1000}))} style={styles.miniBtn}><Text style={styles.miniBtnText}>+</Text></TouchableOpacity>
                         </View>
                     </View>
+                    
+                    {/* NOUVEAU CONTROLE ORIENTATION */}
+                    <View style={styles.row}>
+                        <View>
+                             <Text style={styles.label}>Fréquence Boussole</Text>
+                             <Text style={styles.subLabel}>Orientation (100-1000ms)</Text>
+                        </View>
+                        <View style={{flexDirection: 'row', alignItems: 'center'}}>
+                            <TouchableOpacity onPress={() => setSettings(s => ({...s, orientationUpdateInterval: Math.max(100, (s.orientationUpdateInterval || 500) - 100)}))} style={styles.miniBtn}><Text style={styles.miniBtnText}>-</Text></TouchableOpacity>
+                            <Text style={styles.valueText}>{settings.orientationUpdateInterval || 500}ms</Text>
+                            <TouchableOpacity onPress={() => setSettings(s => ({...s, orientationUpdateInterval: Math.min(1000, (s.orientationUpdateInterval || 500) + 100)}))} style={styles.miniBtn}><Text style={styles.miniBtnText}>+</Text></TouchableOpacity>
+                        </View>
+                    </View>
+
                     <View style={styles.row}>
                         <View>
                             <Text style={styles.label}>Notifications Hors-App</Text>
@@ -164,13 +178,13 @@ const styles = StyleSheet.create({
     sectionTitle: { color: '#71717a', fontSize: 12, fontWeight: 'bold', marginBottom: 15, letterSpacing: 1 },
     row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
     label: { color: 'white', fontSize: 16 },
-    subLabel: { color: '#52525b', fontSize: 10, maxWidth: 200 },
+    subLabel: { color: '#52525b', fontSize: 10, maxWidth: 150 },
     input: { backgroundColor: '#27272a', color: 'white', padding: 8, borderRadius: 8, minWidth: 100, textAlign: 'center' },
     colorDot: { width: 30, height: 30, borderRadius: 15 },
     colorSelected: { borderWidth: 2, borderColor: 'white' },
     miniBtn: { backgroundColor: '#27272a', width: 30, height: 30, justifyContent: 'center', alignItems: 'center', borderRadius: 15 },
     miniBtnText: { color: 'white', fontSize: 18 },
-    valueText: { color: 'white', marginHorizontal: 10, width: 30, textAlign: 'center' },
+    valueText: { color: 'white', marginHorizontal: 10, width: 50, textAlign: 'center' },
     addRow: { flexDirection: 'row', gap: 10, marginBottom: 15 },
     addBtn: { backgroundColor: '#2563eb', width: 44, justifyContent: 'center', alignItems: 'center', borderRadius: 8 },
     msgRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#27272a' },
