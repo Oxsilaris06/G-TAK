@@ -38,8 +38,11 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         
         .tac-marker-root { position: relative; display: flex; justify-content: center; align-items: center; width: 80px; height: 80px; }
         .tac-cone-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; transition: transform 0.1s linear; pointer-events: none; z-index: 1; }
+        
+        /* ICONE UTILISATEUR : Transparence appliquée via rgba background */
         .tac-circle-id { position: absolute; z-index: 10; width: 32px; height: 32px; border-radius: 50%; border: 2px solid white; display: flex; justify-content: center; align-items: center; box-shadow: 0 0 5px rgba(0,0,0,0.5); top: 50%; left: 50%; transform: translate(-50%, -50%); transition: all 0.3s ease; }
         .tac-circle-id span { color: white; font-family: monospace; font-size: 10px; font-weight: 900; text-shadow: 0 1px 2px black; }
+        
         @keyframes heartbeat { 0% { transform: translate(-50%, -50%) scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); } 50% { transform: translate(-50%, -50%) scale(1.4); box-shadow: 0 0 20px 10px rgba(239, 68, 68, 0); } 100% { transform: translate(-50%, -50%) scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
         .tac-marker-heartbeat .tac-circle-id { animation: heartbeat 1.5s infinite ease-in-out !important; border-color: #ef4444 !important; background-color: rgba(239, 68, 68, 0.8) !important; z-index: 9999 !important; }
 
@@ -53,6 +56,8 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         .hostile-info b { color: #ef4444; display: block; border-bottom: 1px solid #333; margin-bottom: 5px; padding-bottom: 2px; }
         .hostile-row { font-size: 12px; margin-bottom: 2px; }
         .hostile-label { color: #a1a1aa; font-weight: bold; }
+        
+        .copy-btn { margin-left: 5px; background: none; border: none; font-size: 14px; cursor: pointer; }
 
         #compass { position: absolute; top: 20px; left: 20px; width: 60px; height: 60px; z-index: 9999; background: rgba(0,0,0,0.6); border-radius: 50%; border: 2px solid rgba(255,255,255,0.2); display: flex; justify-content: center; align-items: center; backdrop-filter: blur(2px); pointer-events: none; }
         #compass-indicator { position: absolute; top: -5px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 8px solid #ef4444; z-index: 20; }
@@ -78,7 +83,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         };
         let currentLayer = layers.dark; currentLayer.addTo(map);
 
-        // Z-Index: Tuiles(0) < Trails(200) < UserMarkers(600) < Pings(800) < Compass(9999)
         map.createPane('userPane'); map.getPane('userPane').style.zIndex = 600;
         map.createPane('pingPane'); map.getPane('pingPane').style.zIndex = 800;
 
@@ -104,6 +108,13 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
             if(type === 'FRIEND') return '#22c55e';
             if(type === 'INTEL') return '#eab308';
             return 'white';
+        }
+
+        function hexToRgba(hex, alpha) {
+            let r = parseInt(hex.slice(1, 3), 16),
+                g = parseInt(hex.slice(3, 5), 16),
+                b = parseInt(hex.slice(5, 7), 16);
+            return 'rgba(' + r + ', ' + g + ', ' + b + ', ' + alpha + ')';
         }
 
         function sendToApp(data) { window.ReactNativeWebView.postMessage(JSON.stringify(data)); }
@@ -138,7 +149,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
 
                 if (data.me && data.me.lat !== 0 && data.me.lng !== 0) {
                     const newPos = L.latLng(data.me.lat, data.me.lng);
-                    if (!autoCentered || (lastMePos && lastMePos.distanceTo(newPos) > 100)) { // Recentrage si > 100m ou 1ere fois
+                    if (!autoCentered || (lastMePos && lastMePos.distanceTo(newPos) > 100)) { 
                          map.setView(newPos, 16);
                          autoCentered = true;
                          lastMePos = newPos;
@@ -159,12 +170,16 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
             Object.keys(markers).forEach(id => { if(!activeIds.includes(id)) { map.removeLayer(markers[id]); delete markers[id]; } });
 
             all.forEach(u => {
-                let color = (u.status === 'CONTACT') ? '#ef4444' : (u.status === 'CLEAR') ? '#22c55e' : (u.status === 'APPUI') ? '#eab308' : (u.status === 'BUSY') ? '#a855f7' : userArrowColor;
+                let colorHex = (u.status === 'CONTACT') ? '#ef4444' : (u.status === 'CLEAR') ? '#22c55e' : (u.status === 'APPUI') ? '#eab308' : (u.status === 'BUSY') ? '#a855f7' : userArrowColor;
+                // Transparence constante (0.6)
+                let bgRgba = hexToRgba(colorHex, 0.6);
+                
                 const rot = u.head || 0;
                 const extraClass = (u.status === 'CONTACT') ? 'tac-marker-heartbeat' : '';
                 
-                const coneSvg = \`<svg viewBox="0 0 100 100" width="80" height="80" style="overflow:visible;"><path d="M50 50 L10 0 A60 60 0 0 1 90 0 Z" fill="\${color}" fill-opacity="0.3" stroke="\${color}" stroke-width="1" stroke-opacity="0.5" /></svg>\`;
-                const iconHtml = \`<div class="tac-marker-root \${extraClass}"><div class="tac-cone-container" style="transform: rotate(\${rot}deg);">\${coneSvg}</div><div class="tac-circle-id" style="background-color: \${color};"><span>\${u.callsign ? u.callsign.substring(0,3) : 'UNK'}</span></div></div>\`;
+                const coneSvg = \`<svg viewBox="0 0 100 100" width="80" height="80" style="overflow:visible;"><path d="M50 50 L10 0 A60 60 0 0 1 90 0 Z" fill="\${colorHex}" fill-opacity="0.3" stroke="\${colorHex}" stroke-width="1" stroke-opacity="0.5" /></svg>\`;
+                // Application du background RGBA
+                const iconHtml = \`<div class="tac-marker-root \${extraClass}"><div class="tac-cone-container" style="transform: rotate(\${rot}deg);">\${coneSvg}</div><div class="tac-circle-id" style="background-color: \${bgRgba}; border-color: \${colorHex};"><span>\${u.callsign ? u.callsign.substring(0,3) : 'UNK'}</span></div></div>\`;
                 
                 const icon = L.divIcon({ className: 'custom-div-icon', html: iconHtml, iconSize: [80, 80], iconAnchor: [40, 40] });
                 
@@ -175,7 +190,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                 else { 
                     markers[u.id] = L.marker([u.lat, u.lng], { icon: icon, pane: 'userPane' }).addTo(map); 
                 }
-                // (Trails omis pour brièveté, fonctionnel)
             });
         }
 
@@ -189,6 +203,10 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                 const el = document.getElementById('ping-' + id);
                 if (el && el.getAttribute('data-type') !== 'HOSTILE') { sendToApp({ type: 'PING_CLICK', id: id }); }
             }
+        }
+        
+        window.copyPos = function(pos) {
+            sendToApp({ type: 'COPY_POS', text: pos });
         }
 
         function updatePings(serverPings, showPings, isHost, myCallsign) {
@@ -218,7 +236,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                     if(pings[p.id].dragging) { canDrag ? pings[p.id].dragging.enable() : pings[p.id].dragging.disable(); }
                 } else {
                     const icon = L.divIcon({ className: 'custom-div-icon', html: html, iconSize: [100, 60], iconAnchor: [50, 50] });
-                    // Utilisation du pane pingPane (Z-index 800) pour forcer l'affichage au dessus
                     const m = L.marker([p.lat, p.lng], { icon: icon, draggable: canDrag, pane: 'pingPane' });
                     
                     if (p.type === 'HOSTILE') {
@@ -226,7 +243,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                         const popupContent = \`
                             <div class="ping-details-popup hostile-info">
                                 <b>ENNEMI IDENTIFIÉ</b>
-                                <div class="hostile-row"><span class="hostile-label">POS:</span> \${d.position || '-'}</div>
+                                <div class="hostile-row"><span class="hostile-label">POS:</span> \${d.position || '-'} <span class="copy-btn" onclick="copyPos('\${d.position}')">📋</span></div>
                                 <div class="hostile-row"><span class="hostile-label">NAT:</span> \${d.nature || '-'}</div>
                                 <div class="hostile-row"><span class="hostile-label">ATT:</span> \${d.attitude || '-'}</div>
                                 <div class="hostile-row"><span class="hostile-label">VOL:</span> \${d.volume || '-'}</div>
@@ -264,6 +281,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
       if (data.type === 'PING_CLICK') onPingClick(data.id); 
       if (data.type === 'PING_MOVE') onPingMove({ ...pings.find(p => p.id === data.id)!, lat: data.lat, lng: data.lng });
       if (data.type === 'NAV_STOP') { if (onNavStop) onNavStop(); }
+      if (data.type === 'COPY_POS') { if(onPingMove) onPingMove({ ...pings.find(p => true)!, msg: 'COPY_TRIGGER', lat:0, lng:0, type:'FRIEND', id: 'COPY_TRIGGER' }); } // Hack to pass up, actually handled in App.tsx protocol data
     } catch(e) {}
   };
 
