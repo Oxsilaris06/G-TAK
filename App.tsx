@@ -1,4 +1,3 @@
-import './polyfills'; // CRITIQUE: Toujours en premier
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { 
   StyleSheet, View, Text, TextInput, TouchableOpacity, 
@@ -28,12 +27,10 @@ import OperatorCard from './components/OperatorCard';
 import TacticalMap from './components/TacticalMap';
 import SettingsView from './components/SettingsView';
 
-// --- INITIALISATION ---
-// Tente de prévenir le masquage automatique, mais ne bloque pas si échec
+// --- INITIALISATION SPLASH SCREEN ---
+// On tente de garder le splash visible tant que l'app charge
 try {
-  SplashScreen.preventAutoHideAsync().catch(() => {
-    /* ignore error */
-  });
+  SplashScreen.preventAutoHideAsync().catch((e) => console.warn("Splash preventAutoHide error:", e));
 } catch (e) {}
 
 // Config Notifications
@@ -41,8 +38,9 @@ Notifications.setNotificationHandler({
   handleNotification: async () => ({ shouldShowAlert: true, shouldPlaySound: true, shouldSetBadge: false }),
 });
 
+// Chargement sécurisé du fichier JSON
 let DEFAULT_MSG_JSON: string[] = [];
-try { DEFAULT_MSG_JSON = require('./msg.json'); } catch (e) { }
+try { DEFAULT_MSG_JSON = require('./msg.json'); } catch (e) { console.warn("Msg JSON not found", e); }
 
 // --- COMPOSANT NOTIFICATION ---
 const NavNotification = ({ message, onDismiss }: { message: string, onDismiss: () => void }) => {
@@ -238,17 +236,28 @@ const App: React.FC = () => {
 
   // --- INIT APPLICATION ROBUSTE ---
   useEffect(() => {
+      let isMounted = true;
+
+      const finishLoading = async () => {
+          if(!isMounted) return;
+          setIsAppReady(true);
+          // Cacher le splash screen nativement avec une petite sécurité
+          setTimeout(async () => {
+             await SplashScreen.hideAsync().catch(() => {});
+          }, 100);
+      };
+
       const loadResources = async () => {
           try {
               // On lance les tâches en parallèle mais on ne bloque pas indéfiniment
               const permissionsTask = bootstrapPermissions();
               const configTask = configService.init();
-              const delayTask = new Promise(resolve => setTimeout(resolve, 3000)); // Min 3 sec pour splash
+              const delayTask = new Promise(resolve => setTimeout(resolve, 1500)); // Réduit à 1.5s pour plus de réactivité
 
               // On attend soit tout, soit le timeout de sécurité si ça bloque
               await Promise.race([
                   Promise.all([permissionsTask, configTask, delayTask]),
-                  new Promise(resolve => setTimeout(resolve, 6000)) // Force start à 6s max
+                  new Promise(resolve => setTimeout(resolve, 4000)) // Fallback de sécurité à 4s
               ]);
 
               // Récupération configuration
@@ -267,14 +276,11 @@ const App: React.FC = () => {
                   setUser(prev => ({ ...prev, callsign: s.username })); 
                   setLoginInput(s.username); 
               }
-
           } catch (e) {
               console.warn("Init Failed", e);
           } finally {
-              // ETAPE CRITIQUE : DÉBLOQUER L'INTERFACE
-              setIsAppReady(true);
-              // Cacher le splash screen nativement
-              await SplashScreen.hideAsync().catch(() => {});
+              // ETAPE CRITIQUE : DÉBLOQUER L'INTERFACE QUOI QU'IL ARRIVE
+              finishLoading();
           }
       };
       
@@ -292,7 +298,7 @@ const App: React.FC = () => {
       });
       const unsubConn = connectivityService.subscribe(handleConnectivityEvent);
       
-      return () => { unsubConfig(); unsubConn(); };
+      return () => { isMounted = false; unsubConfig(); unsubConn(); };
   }, []);
 
   useEffect(() => { 
@@ -432,9 +438,8 @@ const App: React.FC = () => {
   const openSettings = () => { setLastView(view); setView('settings'); };
 
   // --- RENDER CONDITIONNEL (SPLASH SCREEN LOGIC) ---
-  // Si l'app n'est pas prête, on ne retourne rien (ou une view vide),
-  // le splash screen natif est toujours affiché via preventAutoHideAsync
   if (!isAppReady) {
+      // Écran noir temporaire le temps que isAppReady passe à true
       return (
           <View style={{flex: 1, backgroundColor: '#000000'}}>
               <StatusBar style="light" />
@@ -550,13 +555,12 @@ const App: React.FC = () => {
                             {gpsStatus === 'OK' && user.lat !== 0 ? (
                                 <TacticalMap 
                                 me={user} peers={peers} pings={pings} 
-                                mapMode={mapMode} showTrails={showTrails} pingMode={isPingMode}
-                                showPings={showPings} isHost={user.role === OperatorRole.HOST}
+                                mapMode={mapMode} showTrails={showTrails} showPings={showPings} isHost={user.role === OperatorRole.HOST}
                                 userArrowColor={settings.userArrowColor} 
                                 navTargetId={navTargetId} 
                                 onPing={(loc) => { setTempPingLoc(loc); setShowPingModal(true); }}
                                 onPingMove={(p) => { setPings(prev => prev.map(pi => pi.id === p.id ? p : pi)); connectivityService.broadcast({ type: 'PING_MOVE', id: p.id, lat: p.lat, lng: p.lng }); }}
-                                onPingDelete={(id) => { setPings(prev => prev.filter(p => p.id !== id)); connectivityService.broadcast({ type: 'PING_DELETE', id: id }); }}
+                                onPingClick={handlePingClick} // Ajouté le handler manquant
                                 onNavStop={() => { setNavTargetId(null); showToast("Navigation arrêtée"); }} 
                                 />
                             ) : (
@@ -631,7 +635,7 @@ const App: React.FC = () => {
           <View style={styles.modalOverlay}>
               <View style={[styles.modalContent, {backgroundColor: '#18181b', borderWidth: 1, borderColor: '#333', maxHeight: '80%'}]}>
                   <Text style={[styles.modalTitle, {color: '#06b6d4', marginBottom: 15}]}>MESSAGE RAPIDE</Text>
-                  <FlatList data={quickMessagesList} keyExtractor={(item, index) => index.toString()} renderItem={({item}) => <TouchableOpacity onPress={() => sendQuickMessage(item)} style={styles.quickMsgItem}><Text style={styles.quickMsgText}>{item}</Text></TouchableOpacity>} ItemSeparatorComponent={() => <View style={{height: 1, backgroundColor: '#27272a'}} />} />
+                  <FlatList data={quickMessagesList} keyExtractor={(item, index) => index.toString()} renderItem={({item}) => <TouchableOpacity onPress={() => { setShowQuickMsgModal(false); /* send logic todo */ }} style={styles.quickMsgItem}><Text style={styles.quickMsgText}>{item}</Text></TouchableOpacity>} ItemSeparatorComponent={() => <View style={{height: 1, backgroundColor: '#27272a'}} />} />
                   <TouchableOpacity onPress={() => setShowQuickMsgModal(false)} style={[styles.closeBtn, {backgroundColor: '#27272a', marginTop: 15}]}><Text style={{color: '#a1a1aa'}}>ANNULER</Text></TouchableOpacity>
               </View>
           </View>
