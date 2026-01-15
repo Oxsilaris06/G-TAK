@@ -38,13 +38,14 @@ jobs:
         run: npx expo prebuild --platform android --clean
 
       # --- ETAPE CRITIQUE : GÉNÉRATION DU BUNDLE JS ---
+      # Correction: Utilisation de index.js au lieu de index.tsx pour éviter le déphasage
       - name: Force Bundle JS
         run: |
           mkdir -p android/app/src/main/assets
           npx react-native bundle \
             --platform android \
             --dev false \
-            --entry-file index.tsx \
+            --entry-file index.js \
             --bundle-output android/app/src/main/assets/index.android.bundle \
             --assets-dest android/app/src/main/res
 
