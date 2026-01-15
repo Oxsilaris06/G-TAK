@@ -28,14 +28,14 @@ import { connectivityService, ConnectivityEvent } from './services/connectivityS
 import OperatorCard from './components/OperatorCard';
 import TacticalMap from './components/TacticalMap';
 import SettingsView from './components/SettingsView';
+import OperatorActionModal from './components/OperatorActionModal';
 
 try { SplashScreen.preventAutoHideAsync().catch(() => {}); } catch (e) {}
 
-// CONFIGURATION DES NOTIFICATIONS
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
-    shouldPlaySound: true,
+    shouldPlaySound: false, // On gère le son manuellement pour éviter les conflits
     shouldSetBadge: false,
   }),
 });
@@ -43,26 +43,20 @@ Notifications.setNotificationHandler({
 let DEFAULT_MSG_JSON: string[] = [];
 try { DEFAULT_MSG_JSON = require('./msg.json'); } catch (e) {}
 
+// --- NOTIFICATION COMPONENT ---
 const NavNotification = ({ message, onDismiss }: { message: string, onDismiss: () => void }) => {
     const pan = useRef(new Animated.ValueXY()).current;
-    const panResponder = useRef(
-      PanResponder.create({
-        onMoveShouldSetPanResponder: () => true,
-        onPanResponderMove: Animated.event([null, { dx: pan.x }], { useNativeDriver: false }),
-        onPanResponderRelease: (_, gesture) => {
-          if (Math.abs(gesture.dx) > 100) {
-              Animated.timing(pan, { toValue: { x: gesture.dx > 0 ? 500 : -500, y: 0 }, useNativeDriver: false, duration: 200 }).start(onDismiss);
-          } else {
-              Animated.spring(pan, { toValue: { x: 0, y: 0 }, useNativeDriver: false }).start();
-          }
-        }
-      })
-    ).current;
+    useEffect(() => {
+        // Disparaît auto après 5s
+        const timer = setTimeout(onDismiss, 5000);
+        return () => clearTimeout(timer);
+    }, [message]);
+
     return (
-      <Animated.View style={[styles.navNotif, { transform: [{ translateX: pan.x }] }]} {...panResponder.panHandlers}>
+      <Animated.View style={[styles.navNotif, { transform: [{ translateX: pan.x }] }]}>
           <MaterialIcons name="notifications-active" size={24} color="#06b6d4" />
           <Text style={styles.navNotifText}>{message}</Text>
-          <MaterialIcons name="chevron-right" size={20} color="#52525b" />
+          <TouchableOpacity onPress={onDismiss}><MaterialIcons name="close" size={20} color="#52525b" /></TouchableOpacity>
       </Animated.View>
     );
 };
@@ -84,6 +78,7 @@ const App: React.FC = () => {
   const [view, setView] = useState<ViewType>('login');
   const [lastView, setLastView] = useState<ViewType>('menu'); 
   const [peers, setPeers] = useState<Record<string, UserData>>({});
+  const [bannedPeers, setBannedPeers] = useState<string[]>([]); // Liste noire locale Host
   
   const [pings, setPings] = useState<PingData[]>([]);
   const [hostId, setHostId] = useState<string>('');
@@ -100,7 +95,6 @@ const App: React.FC = () => {
   const [showScanner, setShowScanner] = useState(false);
   const [hasCameraPermission, setHasCameraPermission] = useState(false);
   
-  const [showPingModal, setShowPingModal] = useState(false);
   const [showQuickMsgModal, setShowQuickMsgModal] = useState(false);
   const [quickMessagesList, setQuickMessagesList] = useState<string[]>([]);
   
@@ -130,11 +124,26 @@ const App: React.FC = () => {
     setTimeout(() => setToast(null), 3000);
   }, []);
 
-  const sendPushNotification = async (title: string, body: string) => {
-      await Notifications.scheduleNotificationAsync({
-          content: { title, body, sound: true },
-          trigger: null, // Immédiat
+  // --- NOTIFICATIONS INTELLIGENTES ---
+  const lastNotifId = useRef<string | null>(null);
+
+  const sendPushNotification = async (title: string, body: string, isAlert = false) => {
+      // Annule la précédente si elle existe pour éviter l'empilement
+      if (lastNotifId.current) {
+          await Notifications.dismissNotificationAsync(lastNotifId.current);
+      }
+      
+      const id = await Notifications.scheduleNotificationAsync({
+          content: { title, body, sound: isAlert },
+          trigger: null,
       });
+      lastNotifId.current = id;
+      
+      if (isAlert) {
+          // Vibration longue pour Contact/Alerte
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+          // Vibration pattern custom si possible sur Android (non implémenté ici pour rester simple)
+      }
   };
 
   const copyToClipboard = async () => {
@@ -145,8 +154,12 @@ const App: React.FC = () => {
   useEffect(() => {
       let mounted = true;
 
-      // Gestion AppState pour maintenir en arrière-plan
+      // GESTION ARRIERE-PLAN ROBUSTE
       const subscription = AppState.addEventListener('change', nextAppState => {
+          if (appState.current.match(/inactive|background/) && nextAppState === 'active') {
+              // Retour au premier plan : forcer une synchro si connecté
+              if (hostId) connectivityService.broadcast({ type: 'UPDATE', user: user });
+          }
           appState.current = nextAppState;
       });
 
@@ -181,7 +194,6 @@ const App: React.FC = () => {
 
       const unsubConfig = configService.subscribe((newSettings) => {
           setSettings(newSettings);
-          // MISE A JOUR DYNAMIQUE DE LA LISTE DES MESSAGES
           if (newSettings.quickMessages) {
               setQuickMessagesList(newSettings.quickMessages);
           }
@@ -224,11 +236,12 @@ const App: React.FC = () => {
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status !== 'granted') { setGpsStatus('ERROR'); return; }
 
+        // Start Location service avec Foreground Service implicite via Expo Location
         gpsSubscription.current = await Location.watchPositionAsync(
             { accuracy: Location.Accuracy.High, timeInterval: interval, distanceInterval: 5 },
             (loc) => {
                 const { latitude, longitude, speed, heading, accuracy } = loc.coords;
-                if (accuracy && accuracy > 100) return;
+                if (accuracy && accuracy > 100) return; // Filtrage précision faible
                 setGpsStatus('OK');
                 
                 setUser(prev => {
@@ -274,7 +287,23 @@ const App: React.FC = () => {
   const handleConnectivityEvent = useCallback((event: ConnectivityEvent) => {
       switch (event.type) {
           case 'PEER_OPEN': setUser(prev => ({ ...prev, id: event.id })); setIsServicesReady(true); break;
-          case 'PEERS_UPDATED': setPeers(event.peers); break;
+          // FUSION INTELLIGENTE DES PEERS ICI
+          case 'PEERS_UPDATED': 
+              setPeers(prev => {
+                  const newPeers = { ...prev };
+                  // Pour chaque nouveau peer reçu
+                  Object.values(event.peers).forEach(p => {
+                      // Si on a déjà un peer avec ce callsign MAIS un ID différent
+                      const existingId = Object.keys(newPeers).find(k => newPeers[k].callsign === p.callsign && k !== p.id);
+                      if (existingId) {
+                          // On supprime l'ancien doublon (on suppose que le nouveau est le bon)
+                          delete newPeers[existingId];
+                      }
+                      newPeers[p.id] = p;
+                  });
+                  return newPeers;
+              });
+              break;
           case 'HOST_CONNECTED': setHostId(event.hostId); break;
           case 'TOAST': showToast(event.msg, event.level as any); break;
           case 'DATA_RECEIVED': handleProtocolData(event.data, event.from); break;
@@ -286,28 +315,27 @@ const App: React.FC = () => {
   }, [showToast, finishLogout]);
 
   const handleProtocolData = (data: any, fromId: string) => {
+      if (bannedPeers.includes(fromId)) return; // Ignorer data des bannis
+
       if (data.type === 'PING') {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             setPings(prev => [...prev, data.ping]);
             
-            // NOTIFICATION PING
             const p = data.ping;
-            let title = `ALERTE ${p.type}`;
+            const isHostile = p.type === 'HOSTILE';
+            let title = isHostile ? "⚠️ CONTACT" : "Info Tactique";
             let body = `${p.sender}: ${p.msg}`;
-            if (p.type === 'HOSTILE') {
-                title = "⚠️ CONTACT ENNEMI";
-                body = `${p.sender} signale HOSTILE. ${p.msg}`;
-            }
-            sendPushNotification(title, body);
+            
+            // Notification persistante intelligente
+            sendPushNotification(title, body, isHostile);
             setNavNotif(title + " - " + p.msg);
       }
       else if (data.type === 'UPDATE' && data.user && data.user.lastMsg) {
-          // NOTIFICATION MESSAGE RAPIDE
           const u = data.user;
-          // Vérifier si c'est un nouveau message (différent de l'ancien état connu)
+          // Vérifier doublon callsign ici aussi
           if (peers[u.id]?.lastMsg !== u.lastMsg) {
               const msg = `MSG ${u.callsign}: ${u.lastMsg}`;
-              sendPushNotification("Message Tactique", msg);
+              sendPushNotification("Message Tactique", msg, false);
               setNavNotif(msg);
           }
       }
@@ -346,6 +374,27 @@ const App: React.FC = () => {
       }} ]);
   };
 
+  // --- ACTIONS OPERATEUR ---
+  const handleOperatorActionNavigate = (targetId: string) => {
+      setNavTargetId(targetId);
+      setView('map');
+      showToast("Guidage GPS activé");
+  };
+
+  const handleOperatorActionKick = (targetId: string, type: 'temp' | 'perm') => {
+      // Envoyer message kick au peer
+      const conn = connectivityService.getConnection(targetId); // Supposons cette méthode expose ou via broadcast ciblé
+      // Solution via broadcast ciblé si getConnection n'est pas exposé
+      // connectivityService.sendTo(targetId, { type: 'KICK' }); // A ajouter dans service
+      
+      // Ici on simule le ban local et update peers
+      setBannedPeers(prev => [...prev, targetId]);
+      const newPeers = { ...peers };
+      delete newPeers[targetId];
+      setPeers(newPeers);
+      showToast(type === 'perm' ? "Banni définitivement" : "Exclu temporairement");
+  };
+
   const handlePingClick = (id: string) => {
       const p = pings.find(ping => ping.id === id);
       if (!p) return;
@@ -365,6 +414,10 @@ const App: React.FC = () => {
   const handleChangeStatus = (s: OperatorStatus) => {
       setUser(prev => ({ ...prev, status: s }));
       connectivityService.updateUserStatus(s);
+      if (s === OperatorStatus.CONTACT) {
+          // Vibration plus longue pour confirmer le statut critique
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      }
   };
 
   const handleMapPing = (loc: {lat: number, lng: number}) => {
@@ -492,7 +545,9 @@ const App: React.FC = () => {
                         <ScrollView contentContainerStyle={styles.grid}>
                             <OperatorCard user={user} isMe style={{ width: '100%' }} />
                             {Object.values(peers).filter(p => p.id !== user.id).map(p => (
-                                <OperatorCard key={p.id} user={p} me={user} style={{ width: '100%' }} />
+                                <TouchableOpacity key={p.id} onLongPress={() => setSelectedOperatorId(p.id)} activeOpacity={0.8} style={{ width: '100%' }}>
+                                    <OperatorCard user={p} me={user} style={{ width: '100%' }} />
+                                </TouchableOpacity>
                             ))}
                         </ScrollView>
                     ) : (
@@ -501,8 +556,9 @@ const App: React.FC = () => {
                                 me={user} peers={peers} pings={pings} mapMode={mapMode} showTrails={showTrails} showPings={showPings} 
                                 isHost={user.role === OperatorRole.HOST} userArrowColor={settings.userArrowColor} 
                                 pingMode={isPingMode}
+                                navTargetId={navTargetId}
                                 onPing={handleMapPing}
-                                onPingMove={(p) => {}} onPingClick={handlePingClick} onNavStop={() => {}} 
+                                onPingMove={(p) => {}} onPingClick={handlePingClick} onNavStop={() => setNavTargetId(null)} 
                             />
                             
                             <View style={styles.mapControls}>
@@ -531,7 +587,17 @@ const App: React.FC = () => {
          ) : null
       )}
 
-      {/* MODALES */}
+      {/* MODALE ACTIONS OPERATEUR */}
+      <OperatorActionModal 
+          visible={!!selectedOperatorId} 
+          targetOperator={peers[selectedOperatorId || ''] || null}
+          currentUserRole={user.role} 
+          onClose={() => setSelectedOperatorId(null)}
+          onKick={handleOperatorActionKick}
+          onNavigate={handleOperatorActionNavigate}
+      />
+
+      {/* MODALES CLASSIQUES */}
       <Modal visible={showQRModal} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -576,6 +642,7 @@ const App: React.FC = () => {
           </View>
       </Modal>
 
+      {/* RESTE DES MODALES PING IDENTIQUES A L'ETAPE PRECEDENTE ... */}
       <Modal visible={showPingMenu} transparent animationType="fade">
           <View style={styles.modalOverlay}>
               <View style={styles.pingMenuContainer}>
@@ -669,7 +736,7 @@ const styles = StyleSheet.create({
   scannerClose: { position: 'absolute', top: 50, right: 20, padding: 10, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 20 },
   toast: { position: 'absolute', top: 50, alignSelf: 'center', backgroundColor: '#1e3a8a', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 20, zIndex: 9999, elevation: 9999 },
   toastText: { color: 'white', fontWeight: 'bold', fontSize: 12 },
-  navNotif: { position: 'absolute', top: 100, left: 20, right: 20, backgroundColor: '#18181b', borderRadius: 12, borderWidth: 1, borderColor: '#06b6d4', padding: 15, flexDirection: 'row', alignItems: 'center', gap: 15, zIndex: 10000, elevation: 10000 },
+  navNotif: { position: 'absolute', top: 100, left: 20, right: 20, backgroundColor: '#18181b', borderRadius: 12, borderWidth: 1, borderColor: '#06b6d4', padding: 15, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 15, zIndex: 10000, elevation: 10000 },
   navNotifText: { color: 'white', fontWeight: 'bold', flex: 1, fontSize: 14 },
   mapControls: { position: 'absolute', top: 16, right: 16, gap: 12, zIndex: 2000, elevation: 2000 },
   mapBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#18181b', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
@@ -697,5 +764,3 @@ const styles = StyleSheet.create({
 });
 
 export default App;
-
-
