@@ -35,7 +35,7 @@ try { SplashScreen.preventAutoHideAsync().catch(() => {}); } catch (e) {}
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
-    shouldPlaySound: false, // On gère le son manuellement pour éviter les conflits
+    shouldPlaySound: false,
     shouldSetBadge: false,
   }),
 });
@@ -43,11 +43,9 @@ Notifications.setNotificationHandler({
 let DEFAULT_MSG_JSON: string[] = [];
 try { DEFAULT_MSG_JSON = require('./msg.json'); } catch (e) {}
 
-// --- NOTIFICATION COMPONENT ---
 const NavNotification = ({ message, onDismiss }: { message: string, onDismiss: () => void }) => {
     const pan = useRef(new Animated.ValueXY()).current;
     useEffect(() => {
-        // Disparaît auto après 5s
         const timer = setTimeout(onDismiss, 5000);
         return () => clearTimeout(timer);
     }, [message]);
@@ -77,8 +75,10 @@ const App: React.FC = () => {
 
   const [view, setView] = useState<ViewType>('login');
   const [lastView, setLastView] = useState<ViewType>('menu'); 
+  const [lastOpsView, setLastOpsView] = useState<ViewType>('map'); // Pour se souvenir si on était map ou liste
+
   const [peers, setPeers] = useState<Record<string, UserData>>({});
-  const [bannedPeers, setBannedPeers] = useState<string[]>([]); // Liste noire locale Host
+  const [bannedPeers, setBannedPeers] = useState<string[]>([]);
   
   const [pings, setPings] = useState<PingData[]>([]);
   const [hostId, setHostId] = useState<string>('');
@@ -96,6 +96,7 @@ const App: React.FC = () => {
   const [hasCameraPermission, setHasCameraPermission] = useState(false);
   
   const [showQuickMsgModal, setShowQuickMsgModal] = useState(false);
+  const [freeMsgInput, setFreeMsgInput] = useState(''); // Pour message libre
   const [quickMessagesList, setQuickMessagesList] = useState<string[]>([]);
   
   const [showPingMenu, setShowPingMenu] = useState(false);
@@ -124,25 +125,19 @@ const App: React.FC = () => {
     setTimeout(() => setToast(null), 3000);
   }, []);
 
-  // --- NOTIFICATIONS INTELLIGENTES ---
   const lastNotifId = useRef<string | null>(null);
 
   const sendPushNotification = async (title: string, body: string, isAlert = false) => {
-      // Annule la précédente si elle existe pour éviter l'empilement
       if (lastNotifId.current) {
           await Notifications.dismissNotificationAsync(lastNotifId.current);
       }
-      
       const id = await Notifications.scheduleNotificationAsync({
           content: { title, body, sound: isAlert },
           trigger: null,
       });
       lastNotifId.current = id;
-      
       if (isAlert) {
-          // Vibration longue pour Contact/Alerte
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-          // Vibration pattern custom si possible sur Android (non implémenté ici pour rester simple)
       }
   };
 
@@ -151,13 +146,24 @@ const App: React.FC = () => {
     showToast("ID Copié");
   };
 
+  // --- RETOUR ARRIERE AVEC CONFIRMATION DECONNEXION ---
+  const handleBackPress = () => {
+      if (view === 'settings') { setView(lastView); return; }
+      if (view === 'ops' || view === 'map') {
+          Alert.alert("Déconnexion", "Quitter la session et retourner au menu ?", [
+              { text: "Annuler", style: "cancel" },
+              { text: "Confirmer", style: "destructive", onPress: handleLogout }
+          ]);
+      } else {
+          setView('login');
+      }
+  };
+
   useEffect(() => {
       let mounted = true;
 
-      // GESTION ARRIERE-PLAN ROBUSTE
       const subscription = AppState.addEventListener('change', nextAppState => {
           if (appState.current.match(/inactive|background/) && nextAppState === 'active') {
-              // Retour au premier plan : forcer une synchro si connecté
               if (hostId) connectivityService.broadcast({ type: 'UPDATE', user: user });
           }
           appState.current = nextAppState;
@@ -236,12 +242,11 @@ const App: React.FC = () => {
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status !== 'granted') { setGpsStatus('ERROR'); return; }
 
-        // Start Location service avec Foreground Service implicite via Expo Location
         gpsSubscription.current = await Location.watchPositionAsync(
             { accuracy: Location.Accuracy.High, timeInterval: interval, distanceInterval: 5 },
             (loc) => {
                 const { latitude, longitude, speed, heading, accuracy } = loc.coords;
-                if (accuracy && accuracy > 100) return; // Filtrage précision faible
+                if (accuracy && accuracy > 100) return;
                 setGpsStatus('OK');
                 
                 setUser(prev => {
@@ -287,18 +292,12 @@ const App: React.FC = () => {
   const handleConnectivityEvent = useCallback((event: ConnectivityEvent) => {
       switch (event.type) {
           case 'PEER_OPEN': setUser(prev => ({ ...prev, id: event.id })); setIsServicesReady(true); break;
-          // FUSION INTELLIGENTE DES PEERS ICI
           case 'PEERS_UPDATED': 
               setPeers(prev => {
                   const newPeers = { ...prev };
-                  // Pour chaque nouveau peer reçu
                   Object.values(event.peers).forEach(p => {
-                      // Si on a déjà un peer avec ce callsign MAIS un ID différent
                       const existingId = Object.keys(newPeers).find(k => newPeers[k].callsign === p.callsign && k !== p.id);
-                      if (existingId) {
-                          // On supprime l'ancien doublon (on suppose que le nouveau est le bon)
-                          delete newPeers[existingId];
-                      }
+                      if (existingId) { delete newPeers[existingId]; }
                       newPeers[p.id] = p;
                   });
                   return newPeers;
@@ -315,7 +314,7 @@ const App: React.FC = () => {
   }, [showToast, finishLogout]);
 
   const handleProtocolData = (data: any, fromId: string) => {
-      if (bannedPeers.includes(fromId)) return; // Ignorer data des bannis
+      if (bannedPeers.includes(fromId)) return;
 
       if (data.type === 'PING') {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -326,13 +325,11 @@ const App: React.FC = () => {
             let title = isHostile ? "⚠️ CONTACT" : "Info Tactique";
             let body = `${p.sender}: ${p.msg}`;
             
-            // Notification persistante intelligente
             sendPushNotification(title, body, isHostile);
             setNavNotif(title + " - " + p.msg);
       }
       else if (data.type === 'UPDATE' && data.user && data.user.lastMsg) {
           const u = data.user;
-          // Vérifier doublon callsign ici aussi
           if (peers[u.id]?.lastMsg !== u.lastMsg) {
               const msg = `MSG ${u.callsign}: ${u.lastMsg}`;
               sendPushNotification("Message Tactique", msg, false);
@@ -352,12 +349,14 @@ const App: React.FC = () => {
       setUser(prev => ({ ...prev, role: OperatorRole.OPR }));
       connectivityService.init({ ...user, role: OperatorRole.OPR }, OperatorRole.OPR, finalId);
       setView('map');
+      setLastOpsView('map');
   };
   const createSession = async () => {
       startGpsTracking(settings.gpsUpdateInterval);
       setUser(prev => ({ ...prev, role: OperatorRole.HOST }));
       connectivityService.init({ ...user, role: OperatorRole.HOST }, OperatorRole.HOST);
       setView('map');
+      setLastOpsView('map');
   };
 
   const handleScannerBarCodeScanned = ({ data }: any) => {
@@ -367,27 +366,20 @@ const App: React.FC = () => {
   };
 
   const handleLogout = () => {
-      Alert.alert("Déconnexion", "Quitter le réseau ?", [ { text: "Non" }, { text: "Oui", onPress: () => {
-             if (user.role === OperatorRole.HOST) connectivityService.broadcast({ type: 'CLIENT_LEAVING', id: user.id });
-             else connectivityService.broadcast({ type: 'CLIENT_LEAVING', id: user.id, callsign: user.callsign });
-             finishLogout();
-      }} ]);
+      if (user.role === OperatorRole.HOST) connectivityService.broadcast({ type: 'CLIENT_LEAVING', id: user.id });
+      else connectivityService.broadcast({ type: 'CLIENT_LEAVING', id: user.id, callsign: user.callsign });
+      finishLogout();
   };
 
-  // --- ACTIONS OPERATEUR ---
   const handleOperatorActionNavigate = (targetId: string) => {
       setNavTargetId(targetId);
       setView('map');
+      setLastOpsView('map');
       showToast("Guidage GPS activé");
   };
 
   const handleOperatorActionKick = (targetId: string, type: 'temp' | 'perm') => {
-      // Envoyer message kick au peer
-      const conn = connectivityService.getConnection(targetId); // Supposons cette méthode expose ou via broadcast ciblé
-      // Solution via broadcast ciblé si getConnection n'est pas exposé
-      // connectivityService.sendTo(targetId, { type: 'KICK' }); // A ajouter dans service
-      
-      // Ici on simule le ban local et update peers
+      connectivityService.sendTo(targetId, { type: 'KICK' });
       setBannedPeers(prev => [...prev, targetId]);
       const newPeers = { ...peers };
       delete newPeers[targetId];
@@ -408,6 +400,7 @@ const App: React.FC = () => {
       setUser(prev => ({ ...prev, lastMsg: msg }));
       connectivityService.updateUser({ lastMsg: msg });
       setShowQuickMsgModal(false);
+      setFreeMsgInput('');
       showToast(msg ? `Msg: ${msg}` : "Message effacé");
   };
 
@@ -415,7 +408,6 @@ const App: React.FC = () => {
       setUser(prev => ({ ...prev, status: s }));
       connectivityService.updateUserStatus(s);
       if (s === OperatorStatus.CONTACT) {
-          // Vibration plus longue pour confirmer le statut critique
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       }
   };
@@ -493,11 +485,11 @@ const App: React.FC = () => {
         
         {hostId ? (
             <>
-                <TouchableOpacity onPress={() => setView('map')} style={[styles.menuCard, {borderColor: '#22c55e'}]}>
+                <TouchableOpacity onPress={() => setView(lastOpsView)} style={[styles.menuCard, {borderColor: '#22c55e'}]}>
                   <MaterialIcons name="map" size={40} color="#22c55e" />
-                  <View style={{marginLeft: 20}}><Text style={styles.menuCardTitle}>RETOURNER CARTE</Text><Text style={styles.menuCardSubtitle}>{hostId}</Text></View>
+                  <View style={{marginLeft: 20}}><Text style={styles.menuCardTitle}>RETOURNER SESSION</Text><Text style={styles.menuCardSubtitle}>{hostId}</Text></View>
                 </TouchableOpacity>
-                <TouchableOpacity onPress={handleLogout} style={[styles.menuCard, {borderColor: '#ef4444', marginTop: 20}]}>
+                <TouchableOpacity onPress={() => Alert.alert("Déconnexion", "Quitter ?", [{text:"Non"}, {text:"Oui", onPress:handleLogout}])} style={[styles.menuCard, {borderColor: '#ef4444', marginTop: 20}]}>
                   <MaterialIcons name="logout" size={40} color="#ef4444" />
                   <View style={{marginLeft: 20}}><Text style={[styles.menuCardTitle, {color:'#ef4444'}]}>QUITTER</Text></View>
                 </TouchableOpacity>
@@ -532,11 +524,16 @@ const App: React.FC = () => {
              <View style={{flex: 1}}>
                 <SafeAreaView style={styles.header}>
                     <View style={styles.headerContent}>
-                        <TouchableOpacity onPress={() => setView('menu')}><MaterialIcons name="arrow-back" size={24} color="white" /></TouchableOpacity>
+                        <TouchableOpacity onPress={handleBackPress}><MaterialIcons name="arrow-back" size={24} color="white" /></TouchableOpacity>
                         <Text style={styles.headerTitle}>TacSuite</Text>
                         <View style={{flexDirection: 'row', gap: 15}}>
                             <TouchableOpacity onPress={() => setView('settings')}><MaterialIcons name="settings" size={24} color="white" /></TouchableOpacity>
-                            <TouchableOpacity onPress={() => setView(view === 'map' ? 'ops' : 'map')}><MaterialIcons name={view === 'map' ? 'list' : 'map'} size={24} color="white" /></TouchableOpacity>
+                            {/* BOUTON TOGGLE MAP/LISTE AVEC MEMOIRE */}
+                            <TouchableOpacity onPress={() => { 
+                                const nextView = view === 'map' ? 'ops' : 'map';
+                                setView(nextView);
+                                setLastOpsView(nextView);
+                            }}><MaterialIcons name={view === 'map' ? 'list' : 'map'} size={24} color="white" /></TouchableOpacity>
                         </View>
                     </View>
                 </SafeAreaView>
@@ -587,7 +584,6 @@ const App: React.FC = () => {
          ) : null
       )}
 
-      {/* MODALE ACTIONS OPERATEUR */}
       <OperatorActionModal 
           visible={!!selectedOperatorId} 
           targetOperator={peers[selectedOperatorId || ''] || null}
@@ -597,7 +593,42 @@ const App: React.FC = () => {
           onNavigate={handleOperatorActionNavigate}
       />
 
-      {/* MODALES CLASSIQUES */}
+      {/* MODALE MESSAGE */}
+      <Modal visible={showQuickMsgModal} animationType="fade" transparent>
+          <KeyboardAvoidingView behavior="padding" style={styles.modalOverlay}>
+              <View style={[styles.modalContent, {backgroundColor: '#18181b', borderWidth: 1, borderColor: '#333', maxHeight: '80%'}]}>
+                  <Text style={[styles.modalTitle, {color: '#06b6d4', marginBottom: 15}]}>MESSAGE RAPIDE</Text>
+                  
+                  {/* ZONE MESSAGE LIBRE */}
+                  <View style={{flexDirection: 'row', marginBottom: 15, width: '100%'}}>
+                      <TextInput 
+                          style={[styles.pingInput, {flex: 1, marginBottom: 0, textAlign: 'left'}]}
+                          placeholder="Message libre..."
+                          placeholderTextColor="#52525b"
+                          value={freeMsgInput}
+                          onChangeText={setFreeMsgInput}
+                      />
+                      <TouchableOpacity onPress={() => handleSendQuickMessage(freeMsgInput)} style={[styles.modalBtn, {backgroundColor: '#06b6d4', marginLeft: 10, flex: 0, width: 50}]}>
+                          <MaterialIcons name="send" size={20} color="white" />
+                      </TouchableOpacity>
+                  </View>
+
+                  <FlatList 
+                    data={quickMessagesList} 
+                    keyExtractor={(item, index) => index.toString()} 
+                    renderItem={({item}) => (
+                        <TouchableOpacity onPress={() => handleSendQuickMessage(item.includes("Effacer") ? "" : item)} style={styles.quickMsgItem}>
+                            <Text style={styles.quickMsgText}>{item}</Text>
+                        </TouchableOpacity>
+                    )} 
+                    ItemSeparatorComponent={() => <View style={{height: 1, backgroundColor: '#27272a'}} />} 
+                  />
+                  <TouchableOpacity onPress={() => setShowQuickMsgModal(false)} style={[styles.closeBtn, {backgroundColor: '#27272a', marginTop: 15}]}><Text style={{color: '#a1a1aa'}}>ANNULER</Text></TouchableOpacity>
+              </View>
+          </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Autres modales inchangées ... */}
       <Modal visible={showQRModal} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -623,26 +654,6 @@ const App: React.FC = () => {
         </View>
       </Modal>
 
-      <Modal visible={showQuickMsgModal} animationType="fade" transparent>
-          <View style={styles.modalOverlay}>
-              <View style={[styles.modalContent, {backgroundColor: '#18181b', borderWidth: 1, borderColor: '#333', maxHeight: '80%'}]}>
-                  <Text style={[styles.modalTitle, {color: '#06b6d4', marginBottom: 15}]}>MESSAGE RAPIDE</Text>
-                  <FlatList 
-                    data={quickMessagesList} 
-                    keyExtractor={(item, index) => index.toString()} 
-                    renderItem={({item}) => (
-                        <TouchableOpacity onPress={() => handleSendQuickMessage(item.includes("Effacer") ? "" : item)} style={styles.quickMsgItem}>
-                            <Text style={styles.quickMsgText}>{item}</Text>
-                        </TouchableOpacity>
-                    )} 
-                    ItemSeparatorComponent={() => <View style={{height: 1, backgroundColor: '#27272a'}} />} 
-                  />
-                  <TouchableOpacity onPress={() => setShowQuickMsgModal(false)} style={[styles.closeBtn, {backgroundColor: '#27272a', marginTop: 15}]}><Text style={{color: '#a1a1aa'}}>ANNULER</Text></TouchableOpacity>
-              </View>
-          </View>
-      </Modal>
-
-      {/* RESTE DES MODALES PING IDENTIQUES A L'ETAPE PRECEDENTE ... */}
       <Modal visible={showPingMenu} transparent animationType="fade">
           <View style={styles.modalOverlay}>
               <View style={styles.pingMenuContainer}>
