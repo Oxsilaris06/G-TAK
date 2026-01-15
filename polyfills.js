@@ -1,8 +1,13 @@
 import 'react-native-get-random-values';
 import { registerGlobals } from 'react-native-webrtc';
 
-// 1. Enregistre RTCPeerConnection, RTCSessionDescription, etc. dans global
-registerGlobals();
+// 1. Activation WebRTC SÉCURISÉE
+// Empêche le crash si le module natif n'est pas encore chargé
+try {
+    registerGlobals();
+} catch (e) {
+    console.warn("WebRTC Native Module not found - PeerJS will not work correctly but App will start.");
+}
 
 // 2. Window & Self
 if (typeof window === 'undefined') {
@@ -34,7 +39,6 @@ if (!global.navigator) {
 if (!global.navigator.userAgent) {
     global.navigator.userAgent = 'react-native';
 }
-// Force le mode "Online" pour que PeerJS tente la connexion
 if (global.navigator.onLine === undefined) {
     global.navigator.onLine = true;
 }
@@ -48,7 +52,7 @@ if (typeof process === 'undefined') {
     };
 }
 
-// 6. TextEncoder/Decoder (Souvent manquant sur Android Hermes)
+// 6. TextEncoder/Decoder
 if (typeof TextEncoder === 'undefined') {
     global.TextEncoder = class TextEncoder {
         encode(str) {
@@ -76,7 +80,7 @@ global.setTimeout = (fn, ms, ...args) => {
     return originalSetTimeout(fn, ms || 0, ...args);
 };
 
-// 8. Crypto Fallback (Dernier recours)
+// 8. Crypto Fallback
 if (typeof crypto === 'undefined') {
     global.crypto = {
         getRandomValues: (arr) => {
