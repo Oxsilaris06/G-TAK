@@ -20,13 +20,12 @@ export interface UserData {
     head: number;
     bat: number;
     joinedAt: number;
-    lastMsg?: string;      // Message rapide affiché sur la tuile
-    isTx?: boolean;        // Pour compatibilité visuelle (micro)
+    lastMsg?: string;
+    isTx?: boolean; // Gardé pour compatibilité visuelle même si audio off
 }
 
 export type PingType = 'HOSTILE' | 'FRIEND' | 'INTEL';
 
-// Structure détaillée pour le caneva Hostile (SALTA complet)
 export interface HostileDetails {
     position?: string;   
     nature?: string;     
@@ -40,9 +39,9 @@ export interface PingData {
     id: string;
     lat: number;
     lng: number;
-    msg: string;         // Texte libre
+    msg: string;
     type: PingType;
-    details?: HostileDetails; // Détails optionnels (Uniquement pour Hostile)
+    details?: HostileDetails;
     sender: string;
     timestamp: number;
 }
@@ -52,7 +51,6 @@ export interface AppSettings {
     gpsUpdateInterval: number;
     userArrowColor: string;
     quickMessages: string[];
-    // audioOutput/voxSensitivity retirés car TacSuite est Data-Only
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
