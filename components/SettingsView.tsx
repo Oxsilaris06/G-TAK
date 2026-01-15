@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Alert, Linking } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { configService } from '../services/configService';
 import { AppSettings, DEFAULT_SETTINGS } from '../types';
@@ -60,7 +60,6 @@ const SettingsView: React.FC<Props> = ({ onClose }) => {
                     const parsed = JSON.parse(content);
                     let importedMsgs: string[] = [];
 
-                    // On accepte soit un tableau direct, soit un objet avec la clé quickMessages
                     if (Array.isArray(parsed)) {
                         importedMsgs = parsed.filter(item => typeof item === 'string');
                     } else if (parsed.quickMessages && Array.isArray(parsed.quickMessages)) {
@@ -68,21 +67,26 @@ const SettingsView: React.FC<Props> = ({ onClose }) => {
                     }
 
                     if (importedMsgs.length > 0) {
-                        // MISE A JOUR ET SAUVEGARDE IMMEDIATE
                         const updatedSettings = { ...settings, quickMessages: importedMsgs };
                         setSettings(updatedSettings);
                         await configService.update(updatedSettings);
-                        Alert.alert("Succès", `${importedMsgs.length} messages importés et sauvegardés.`);
+                        Alert.alert("Succès", `${importedMsgs.length} messages importés.`);
                     } else {
-                        Alert.alert("Erreur", "Aucun message valide trouvé dans le fichier.");
+                        Alert.alert("Erreur", "Aucun message valide trouvé.");
                     }
                 } catch (jsonError) {
-                    Alert.alert("Erreur JSON", "Format de fichier invalide.");
+                    Alert.alert("Erreur JSON", "Fichier mal formé.");
                 }
             }
         } catch (e) {
             Alert.alert("Erreur Import", "Impossible de lire le fichier.");
         }
+    };
+
+    const openDoc = (file: string) => {
+        // Lien vers le dépôt GitHub public (adapté selon votre structure)
+        const baseUrl = "https://github.com/oxsilaris06/g-tak/blob/main/";
+        Linking.openURL(baseUrl + file).catch(err => Alert.alert("Erreur", "Impossible d'ouvrir le lien."));
     };
 
     return (
@@ -138,12 +142,10 @@ const SettingsView: React.FC<Props> = ({ onClose }) => {
 
                 <View style={styles.section}>
                     <Text style={styles.sectionTitle}>MESSAGES PRÉDÉFINIS</Text>
-                    
                     <TouchableOpacity onPress={handleImportJson} style={styles.importBtn}>
                         <MaterialIcons name="file-upload" size={20} color="white" />
                         <Text style={{color:'white', fontWeight:'bold'}}>IMPORTER JSON</Text>
                     </TouchableOpacity>
-                    
                     <View style={styles.addRow}>
                         <TextInput 
                             style={[styles.input, {flex:1, textAlign:'left'}]} 
@@ -164,6 +166,20 @@ const SettingsView: React.FC<Props> = ({ onClose }) => {
                             </TouchableOpacity>
                         </View>
                     ))}
+                </View>
+
+                {/* SECTION DOCUMENTATION */}
+                <View style={styles.section}>
+                    <Text style={styles.sectionTitle}>À PROPOS</Text>
+                    <TouchableOpacity onPress={() => openDoc('PRIVACY.md')} style={styles.linkRow}>
+                        <Text style={styles.linkText}>Politique de Confidentialité</Text>
+                        <MaterialIcons name="open-in-new" size={20} color="#3b82f6" />
+                    </TouchableOpacity>
+                    <View style={styles.separator} />
+                    <TouchableOpacity onPress={() => openDoc('README.md')} style={styles.linkRow}>
+                        <Text style={styles.linkText}>Documentation / Guide</Text>
+                        <MaterialIcons name="description" size={20} color="#3b82f6" />
+                    </TouchableOpacity>
                 </View>
 
                 <TouchableOpacity onPress={resetDefaults} style={styles.resetBtn}>
@@ -199,7 +215,11 @@ const styles = StyleSheet.create({
     msgText: { color: '#d4d4d8' },
     resetBtn: { padding: 15, alignItems: 'center', borderWidth: 1, borderColor: '#ef4444', borderRadius: 12, marginBottom: 20 },
     resetText: { color: '#ef4444', fontWeight: 'bold' },
-    importBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#27272a', padding: 12, borderRadius: 8, gap: 10, borderWidth: 1, borderColor: '#333', marginBottom: 15 }
+    importBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#27272a', padding: 12, borderRadius: 8, gap: 10, borderWidth: 1, borderColor: '#333', marginBottom: 15 },
+    // Styles pour les liens
+    linkRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12 },
+    linkText: { color: 'white', fontSize: 16 },
+    separator: { height: 1, backgroundColor: '#27272a' }
 });
 
 export default SettingsView;
