@@ -15,9 +15,9 @@ const SettingsView: React.FC<Props> = ({ onClose }) => {
     const [newMsg, setNewMsg] = useState('');
 
     useEffect(() => {
-        // CORRECTION CRITIQUE : configService.get() est synchrone et retourne l'objet directement
-        const currentSettings = configService.get();
-        setSettings(currentSettings);
+        // FIX: Appel synchrone direct, pas de .then()
+        const currentData = configService.get();
+        setSettings(currentData);
     }, []);
 
     const save = async () => {
@@ -47,7 +47,6 @@ const SettingsView: React.FC<Props> = ({ onClose }) => {
         ]);
     };
 
-    // Fonction d'importation JSON
     const handleImportJson = async () => {
         try {
             const result = await DocumentPicker.getDocumentAsync({
@@ -64,10 +63,8 @@ const SettingsView: React.FC<Props> = ({ onClose }) => {
                     let newMsgs: string[] = [];
 
                     if (Array.isArray(parsed)) {
-                        // Cas 1: Le fichier est un tableau direct ["msg1", "msg2"]
                         newMsgs = parsed.filter(item => typeof item === 'string');
                     } else if (parsed.quickMessages && Array.isArray(parsed.quickMessages)) {
-                        // Cas 2: Le fichier est une config complète { quickMessages: [...] }
                         newMsgs = parsed.quickMessages.filter((item: any) => typeof item === 'string');
                     }
 
@@ -75,15 +72,14 @@ const SettingsView: React.FC<Props> = ({ onClose }) => {
                         setSettings(prev => ({ ...prev, quickMessages: newMsgs }));
                         Alert.alert("Succès", `${newMsgs.length} messages importés.`);
                     } else {
-                        Alert.alert("Erreur", "Aucun message valide trouvé dans le fichier JSON.");
+                        Alert.alert("Erreur", "Aucun message valide trouvé.");
                     }
                 } catch (jsonError) {
-                    Alert.alert("Erreur JSON", "Le fichier est mal formé.");
+                    Alert.alert("Erreur JSON", "Fichier mal formé.");
                 }
             }
         } catch (e) {
             Alert.alert("Erreur Import", "Impossible de lire le fichier.");
-            console.error(e);
         }
     };
 
@@ -98,7 +94,6 @@ const SettingsView: React.FC<Props> = ({ onClose }) => {
 
             <ScrollView style={styles.content}>
                 
-                {/* IDENTITÉ */}
                 <View style={styles.section}>
                     <Text style={styles.sectionTitle}>IDENTITÉ OPS</Text>
                     <View style={styles.row}>
@@ -124,7 +119,6 @@ const SettingsView: React.FC<Props> = ({ onClose }) => {
                     </View>
                 </View>
 
-                {/* GPS */}
                 <View style={styles.section}>
                     <Text style={styles.sectionTitle}>GPS & BATTERIE</Text>
                     <View style={styles.row}>
@@ -140,17 +134,14 @@ const SettingsView: React.FC<Props> = ({ onClose }) => {
                     </View>
                 </View>
 
-                {/* MESSAGES RAPIDES */}
                 <View style={styles.section}>
                     <Text style={styles.sectionTitle}>MESSAGES PRÉDÉFINIS</Text>
                     
-                    {/* Bouton Import JSON */}
                     <TouchableOpacity onPress={handleImportJson} style={styles.importBtn}>
                         <MaterialIcons name="file-upload" size={20} color="white" />
                         <Text style={{color:'white', fontWeight:'bold'}}>IMPORTER JSON</Text>
                     </TouchableOpacity>
-                    <Text style={styles.hint}>Format: ["Msg1", "Msg2", ...]</Text>
-
+                    
                     <View style={styles.addRow}>
                         <TextInput 
                             style={[styles.input, {flex:1, textAlign:'left'}]} 
@@ -206,9 +197,7 @@ const styles = StyleSheet.create({
     msgText: { color: '#d4d4d8' },
     resetBtn: { padding: 15, alignItems: 'center', borderWidth: 1, borderColor: '#ef4444', borderRadius: 12, marginBottom: 20 },
     resetText: { color: '#ef4444', fontWeight: 'bold' },
-    // Styles Import
-    importBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#27272a', padding: 12, borderRadius: 8, gap: 10, borderWidth: 1, borderColor: '#333', marginBottom: 5 },
-    hint: { color: '#52525b', fontSize: 10, marginTop: 2, marginBottom: 15, textAlign: 'center' }
+    importBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#27272a', padding: 12, borderRadius: 8, gap: 10, borderWidth: 1, borderColor: '#333', marginBottom: 15 }
 });
 
 export default SettingsView;
