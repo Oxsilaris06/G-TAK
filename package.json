@@ -37,7 +37,8 @@
     "expo-notifications": "~0.27.6",
     "expo-document-picker": "~11.10.1",
     "expo-splash-screen": "~0.23.1",
-    "@expo/vector-icons": "^14.0.0"
+    "@expo/vector-icons": "^14.0.0",
+    "react-native-webrtc": "^118.0.3"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",
