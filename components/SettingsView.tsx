@@ -60,7 +60,7 @@ const SettingsView: React.FC<Props> = ({ onClose }) => {
                     const parsed = JSON.parse(content);
                     let importedMsgs: string[] = [];
 
-                    // Détection format: Tableau simple de strings OU Objet avec propriété quickMessages
+                    // On accepte soit un tableau direct, soit un objet avec la clé quickMessages
                     if (Array.isArray(parsed)) {
                         importedMsgs = parsed.filter(item => typeof item === 'string');
                     } else if (parsed.quickMessages && Array.isArray(parsed.quickMessages)) {
@@ -68,21 +68,16 @@ const SettingsView: React.FC<Props> = ({ onClose }) => {
                     }
 
                     if (importedMsgs.length > 0) {
-                        // CORRECTION : Mise à jour immédiate du state ET sauvegarde
-                        setSettings(prev => {
-                            // On peut choisir d'écraser (pour un import propre) ou d'ajouter
-                            // Ici on remplace pour être sûr d'avoir la liste propre du JSON
-                            const newSettings = { ...prev, quickMessages: importedMsgs };
-                            // Sauvegarde asynchrone pour persistance immédiate
-                            configService.update(newSettings); 
-                            return newSettings;
-                        });
-                        Alert.alert("Succès", `${importedMsgs.length} messages importés.`);
+                        // MISE A JOUR ET SAUVEGARDE IMMEDIATE
+                        const updatedSettings = { ...settings, quickMessages: importedMsgs };
+                        setSettings(updatedSettings);
+                        await configService.update(updatedSettings);
+                        Alert.alert("Succès", `${importedMsgs.length} messages importés et sauvegardés.`);
                     } else {
-                        Alert.alert("Erreur", "Aucun message valide trouvé dans le JSON.");
+                        Alert.alert("Erreur", "Aucun message valide trouvé dans le fichier.");
                     }
                 } catch (jsonError) {
-                    Alert.alert("Erreur JSON", "Fichier mal formé.");
+                    Alert.alert("Erreur JSON", "Format de fichier invalide.");
                 }
             }
         } catch (e) {
