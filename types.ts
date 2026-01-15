@@ -21,6 +21,7 @@ export interface UserData {
     bat: number;
     joinedAt: number;
     lastMsg?: string;      // Message rapide affiché sur la tuile
+    isTx?: boolean;        // Pour compatibilité visuelle (micro)
 }
 
 export type PingType = 'HOSTILE' | 'FRIEND' | 'INTEL';
@@ -51,6 +52,7 @@ export interface AppSettings {
     gpsUpdateInterval: number;
     userArrowColor: string;
     quickMessages: string[];
+    // audioOutput/voxSensitivity retirés car TacSuite est Data-Only
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
