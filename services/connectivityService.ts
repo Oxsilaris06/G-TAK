@@ -2,7 +2,6 @@ import Peer, { DataConnection } from 'peerjs';
 import { CONFIG } from '../constants';
 import { UserData, OperatorRole, OperatorStatus } from '../types';
 
-// Types d'événements que le service peut émettre vers l'UI
 export type ConnectivityEvent = 
   | { type: 'PEER_OPEN'; id: string }
   | { type: 'PEERS_UPDATED'; peers: Record<string, UserData> }
@@ -22,6 +21,8 @@ class ConnectivityService {
   private hostId: string | null = null;
   private peersMap: Record<string, UserData> = {};
   
+  private keepAliveInterval: any = null;
+
   // --- GESTION DES ABONNEMENTS ---
   public subscribe(listener: Listener): () => void {
     this.listeners.push(listener);
@@ -36,10 +37,14 @@ class ConnectivityService {
 
   // --- INITIALISATION & CONNEXION ---
   public async init(user: UserData, role: OperatorRole, targetHostId?: string, forceId?: string) {
+    // Si déjà connecté avec le même rôle et ID, ne rien faire pour éviter coupure
+    if (this.peer && !this.peer.destroyed && this.user?.role === role && (!targetHostId || this.hostId === targetHostId)) {
+        return;
+    }
+
     this.cleanup(); 
     this.user = { ...user, role };
     
-    // Génération ID court pour l'hôte, ou ID PeerJS auto pour les clients
     const myId = forceId || (role === OperatorRole.HOST ? this.generateShortId() : undefined);
     console.log(`[Connectivity] Init TacSuite Link: ${myId || 'AUTO'}`);
 
@@ -60,17 +65,23 @@ class ConnectivityService {
         } else if (targetHostId) {
           this.connectToHost(targetHostId);
         }
+        
+        this.startKeepAlive();
       });
 
       this.peer.on('connection', (conn) => this.handleIncomingConnection(conn));
       
       this.peer.on('error', (err: any) => {
         console.error('[Connectivity] Peer Error:', err);
-        if (err.type === 'unavailable-id') {
+        if (err.type === 'peer-unavailable') {
+             this.notify({ type: 'TOAST', msg: 'Hôte introuvable', level: 'error' });
+             this.notify({ type: 'DISCONNECTED', reason: 'NO_HOST' });
+        } else if (err.type === 'unavailable-id') {
            this.notify({ type: 'TOAST', msg: 'ID indisponible, nouvel essai...', level: 'info' });
            setTimeout(() => this.init(user, role, targetHostId), 1000);
-        } else {
-           this.notify({ type: 'TOAST', msg: `Erreur Réseau: ${err.type}`, level: 'error' });
+        } else if (err.type === 'network' || err.type === 'disconnected') {
+            // Tentative de reconnexion silencieuse
+            this.peer?.reconnect();
         }
       });
 
@@ -92,11 +103,12 @@ class ConnectivityService {
 
     this.hostId = targetId;
     
+    // Fermer ancienne connexion si existante
     if (this.connections[targetId]) {
       this.connections[targetId].close();
     }
 
-    const conn = this.peer.connect(targetId, { reliable: true });
+    const conn = this.peer.connect(targetId, { reliable: true, serialization: 'json' });
     this.setupDataConnection(conn);
   }
 
@@ -116,6 +128,8 @@ class ConnectivityService {
     this.connections[conn.peer] = conn;
 
     conn.on('data', (data: any) => {
+      // KeepAlive packet ?
+      if (data && data.type === 'PING_ALIVE') return; 
       this.handleProtocolData(data, conn.peer);
     });
 
@@ -134,6 +148,10 @@ class ConnectivityService {
       if (conn.peer === this.hostId) {
         this.notify({ type: 'DISCONNECTED', reason: 'NO_HOST' });
       }
+    });
+    
+    conn.on('error', (err) => {
+        console.warn(`Conn error with ${conn.peer}`, err);
     });
   }
 
@@ -176,6 +194,14 @@ class ConnectivityService {
       if (conn.open) conn.send(payload);
     });
   }
+  
+  public sendTo(targetId: string, data: any) {
+      if (!this.user) return;
+      const conn = this.connections[targetId];
+      if (conn && conn.open) {
+          conn.send({ ...data, from: this.user.id });
+      }
+  }
 
   public updateUserStatus(status: OperatorStatus) {
     if (!this.user) return;
@@ -190,9 +216,7 @@ class ConnectivityService {
      this.user.lat = lat;
      this.user.lng = lng;
      this.user.head = head;
-     // On met à jour l'état local
      if(this.user.id) this.peersMap[this.user.id] = this.user;
-     // On diffuse
      this.broadcast({ type: 'UPDATE', user: this.user });
   }
 
@@ -204,7 +228,21 @@ class ConnectivityService {
       this.notify({ type: 'PEERS_UPDATED', peers: this.peersMap });
   }
 
+  // --- KEEP ALIVE ---
+  // Envoie un petit paquet périodique pour garder les tunnels WebRTC ouverts
+  private startKeepAlive() {
+      if (this.keepAliveInterval) clearInterval(this.keepAliveInterval);
+      this.keepAliveInterval = setInterval(() => {
+          if (this.user && this.peer && !this.peer.destroyed) {
+              Object.values(this.connections).forEach(conn => {
+                  if (conn.open) conn.send({ type: 'PING_ALIVE' });
+              });
+          }
+      }, 5000);
+  }
+
   public cleanup() {
+    if (this.keepAliveInterval) clearInterval(this.keepAliveInterval);
     this.peer?.destroy();
     this.peer = null;
     this.connections = {};
