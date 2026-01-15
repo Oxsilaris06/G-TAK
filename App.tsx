@@ -8,7 +8,7 @@ import {
 import { StatusBar } from 'expo-status-bar';
 import QRCode from 'react-native-qrcode-svg';
 import { Camera } from 'expo-camera'; 
-import { CameraView } from 'expo-camera/next';
+import { CameraView } from 'expo-camera/next'; // Import sécurisé pour CameraView
 import * as Notifications from 'expo-notifications';
 import * as Location from 'expo-location';
 import { useKeepAwake } from 'expo-keep-awake';
@@ -19,6 +19,7 @@ import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Magnetometer } from 'expo-sensors';
 import * as SplashScreen from 'expo-splash-screen';
+import * as ScreenOrientation from 'expo-screen-orientation';
 
 import { UserData, OperatorStatus, OperatorRole, ViewType, PingData, AppSettings, DEFAULT_SETTINGS, PingType, HostileDetails } from './types';
 import { CONFIG, STATUS_COLORS } from './constants';
@@ -136,6 +137,8 @@ const App: React.FC = () => {
   const lastHeadBroadcast = useRef<number>(0);
   const gpsSubscription = useRef<Location.LocationSubscription | null>(null);
   const appState = useRef(AppState.currentState);
+
+  useEffect(() => { ScreenOrientation.unlockAsync(); }, []);
 
   const showToast = useCallback((msg: string, type: 'info' | 'error' = 'info') => {
     setToast({ msg, type });
@@ -400,10 +403,16 @@ const App: React.FC = () => {
       setShowPingForm(true); 
   };
 
-  // --- RENDU UI AVEC CARTE PERSISTANTE ---
+  // --- FONCTION CORRIGÉE : HANDLE SCANNER ---
+  const handleScannerBarCodeScanned = ({ data }: any) => {
+    setShowScanner(false);
+    setHostInput(data);
+    setTimeout(() => joinSession(data), 500);
+  };
+
+  // --- RENDU UI ---
   const renderMainContent = () => (
       <View style={{flex: 1}}>
-          {/* VUE OPS (LISTE) */}
           <View style={{ flex: 1, display: view === 'ops' ? 'flex' : 'none' }}>
               <SafeAreaView style={styles.header}>
                   <View style={styles.headerContent}>
@@ -426,7 +435,6 @@ const App: React.FC = () => {
               </ScrollView>
           </View>
 
-          {/* VUE CARTE (Toujours présente dans l'arbre React, juste masquée si inactive) */}
           <View style={{ flex: 1, display: view === 'map' ? 'flex' : 'none' }}>
               <SafeAreaView style={styles.header}>
                   <View style={styles.headerContent}>
@@ -477,18 +485,6 @@ const App: React.FC = () => {
           </View>
       </View>
   );
-
-  // Le reste du composant (Settings, Login, Modales)
-  // ... (Identique à la version précédente mais avec la correction des modales)
-
-  if (!isAppReady) {
-      return (
-        <View style={{flex: 1, backgroundColor: '#000000', justifyContent: 'center', alignItems: 'center'}}>
-            <ActivityIndicator size="large" color="#3b82f6" />
-            <StatusBar style="light" />
-        </View>
-      );
-  }
 
   return (
     <View style={styles.container}>
@@ -545,13 +541,13 @@ const App: React.FC = () => {
        ) : renderMainContent()
       }
 
-      {/* MODALES & ELEMENTS FLOTTANTS - TOUTES AVEC THEME NOIR */}
+      {/* MODALES & ELEMENTS FLOTTANTS */}
       <OperatorActionModal visible={!!selectedOperatorId} targetOperator={peers[selectedOperatorId || ''] || null} currentUserRole={user.role} onClose={() => setSelectedOperatorId(null)} onKick={handleOperatorActionKick} onNavigate={handleOperatorActionNavigate} />
       
       <Modal visible={showQuickMsgModal} animationType="fade" transparent>
           <KeyboardAvoidingView behavior="padding" style={styles.modalOverlay}>
-              <View style={styles.modalContent}>
-                  <Text style={[styles.modalTitle, {color: '#06b6d4'}]}>MESSAGE RAPIDE</Text>
+              <View style={[styles.modalContent, {backgroundColor: '#18181b', borderWidth: 1, borderColor: '#333', maxHeight: '80%'}]}>
+                  <Text style={[styles.modalTitle, {color: '#06b6d4', marginBottom: 15}]}>MESSAGE RAPIDE</Text>
                   <View style={{flexDirection: 'row', marginBottom: 15, width: '100%'}}>
                       <TextInput style={[styles.pingInput, {flex: 1, marginBottom: 0, textAlign: 'left'}]} placeholder="Message libre..." placeholderTextColor="#52525b" value={freeMsgInput} onChangeText={setFreeMsgInput} />
                       <TouchableOpacity onPress={() => handleSendQuickMessage(freeMsgInput)} style={[styles.modalBtn, {backgroundColor: '#06b6d4', marginLeft: 10, flex: 0, width: 50}]}><MaterialIcons name="send" size={20} color="white" /></TouchableOpacity>
@@ -578,19 +574,18 @@ const App: React.FC = () => {
 
       <Modal visible={showPingForm} transparent animationType="slide">
           <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
-              <View style={styles.modalContent}>
+              <View style={[styles.modalContent, {width: '90%', maxHeight: '80%'}]}>
                   <Text style={[styles.modalTitle, {color: currentPingType === 'HOSTILE' ? '#ef4444' : currentPingType === 'FRIEND' ? '#22c55e' : '#eab308'}]}>{currentPingType === 'HOSTILE' ? 'ADVERSAIRE' : currentPingType === 'FRIEND' ? 'AMI' : 'RENS'}</Text>
-                  <Text style={styles.label}>Message</Text>
-                  <TextInput style={styles.pingInput} placeholder="Titre / Info" placeholderTextColor="#52525b" value={pingMsgInput} onChangeText={setPingMsgInput} autoFocus={currentPingType !== 'HOSTILE'} />
+                  <TextInput style={styles.pingInput} placeholder="Intitulé" placeholderTextColor="#52525b" value={pingMsgInput} onChangeText={setPingMsgInput} autoFocus />
                   {currentPingType === 'HOSTILE' && (
                       <ScrollView style={{width: '100%', maxHeight: 300, marginBottom: 10}}>
-                          <Text style={[styles.label, {color: '#ef4444', marginTop: 10}]}>Détails (Caneva)</Text>
+                          <Text style={[styles.label, {color: '#ef4444', marginTop: 10}]}>Détails Tactiques (Caneva)</Text>
                           <TextInput style={styles.detailInput} placeholder="Position" placeholderTextColor="#52525b" value={hostileDetails.position} onChangeText={t => setHostileDetails({...hostileDetails, position: t})} />
                           <TextInput style={styles.detailInput} placeholder="Nature" placeholderTextColor="#52525b" value={hostileDetails.nature} onChangeText={t => setHostileDetails({...hostileDetails, nature: t})} />
                           <TextInput style={styles.detailInput} placeholder="Attitude" placeholderTextColor="#52525b" value={hostileDetails.attitude} onChangeText={t => setHostileDetails({...hostileDetails, attitude: t})} />
                           <TextInput style={styles.detailInput} placeholder="Volume" placeholderTextColor="#52525b" value={hostileDetails.volume} onChangeText={t => setHostileDetails({...hostileDetails, volume: t})} />
                           <TextInput style={styles.detailInput} placeholder="Armement" placeholderTextColor="#52525b" value={hostileDetails.armes} onChangeText={t => setHostileDetails({...hostileDetails, armes: t})} />
-                          <TextInput style={styles.detailInput} placeholder="Substances" placeholderTextColor="#52525b" value={hostileDetails.substances} onChangeText={t => setHostileDetails({...hostileDetails, substances: t})} />
+                          <TextInput style={styles.detailInput} placeholder="Substances / Tenue" placeholderTextColor="#52525b" value={hostileDetails.substances} onChangeText={t => setHostileDetails({...hostileDetails, substances: t})} />
                       </ScrollView>
                   )}
                   <View style={{flexDirection: 'row', gap: 10, marginTop: 10}}>
@@ -603,7 +598,7 @@ const App: React.FC = () => {
 
       <Modal visible={!!editingPing} transparent animationType="slide">
           <View style={styles.modalOverlay}>
-              <View style={styles.modalContent}>
+              <View style={[styles.modalContent, {width: '90%'}]}>
                   <Text style={styles.modalTitle}>MODIFICATION</Text>
                   <TextInput style={styles.pingInput} value={pingMsgInput} onChangeText={setPingMsgInput} />
                   {editingPing?.type === 'HOSTILE' && (
@@ -639,10 +634,17 @@ const App: React.FC = () => {
         </View>
       </Modal>
 
+      {/* SCANNER MODAL CORRIGÉE */}
       <Modal visible={showScanner} animationType="slide">
         <View style={{flex: 1, backgroundColor: 'black'}}>
-          <CameraView style={{flex: 1}} onBarcodeScanned={handleScannerBarCodeScanned} barcodeScannerSettings={{barcodeTypes: ["qr"]}} />
-          <TouchableOpacity onPress={() => setShowScanner(false)} style={styles.scannerClose}><MaterialIcons name="close" size={30} color="white" /></TouchableOpacity>
+          <CameraView 
+            style={{flex: 1}} 
+            onBarcodeScanned={handleScannerBarCodeScanned} 
+            barcodeScannerSettings={{barcodeTypes: ["qr"]}} 
+          />
+          <TouchableOpacity onPress={() => setShowScanner(false)} style={styles.scannerClose}>
+            <MaterialIcons name="close" size={30} color="white" />
+          </TouchableOpacity>
         </View>
       </Modal>
 
