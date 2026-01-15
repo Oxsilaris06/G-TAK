@@ -8,7 +8,7 @@ import {
 import { StatusBar } from 'expo-status-bar';
 import QRCode from 'react-native-qrcode-svg';
 import { Camera } from 'expo-camera'; 
-import { CameraView } from 'expo-camera/next'; // Import sécurisé pour CameraView
+import { CameraView } from 'expo-camera/next';
 import * as Notifications from 'expo-notifications';
 import * as Location from 'expo-location';
 import { useKeepAwake } from 'expo-keep-awake';
@@ -19,7 +19,9 @@ import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Magnetometer } from 'expo-sensors';
 import * as SplashScreen from 'expo-splash-screen';
-import * as ScreenOrientation from 'expo-screen-orientation';
+
+// SUPPRESSION DE L'IMPORT QUI POSAIT PROBLÈME
+// import * as ScreenOrientation from 'expo-screen-orientation';
 
 import { UserData, OperatorStatus, OperatorRole, ViewType, PingData, AppSettings, DEFAULT_SETTINGS, PingType, HostileDetails } from './types';
 import { CONFIG, STATUS_COLORS } from './constants';
@@ -138,8 +140,6 @@ const App: React.FC = () => {
   const gpsSubscription = useRef<Location.LocationSubscription | null>(null);
   const appState = useRef(AppState.currentState);
 
-  useEffect(() => { ScreenOrientation.unlockAsync(); }, []);
-
   const showToast = useCallback((msg: string, type: 'info' | 'error' = 'info') => {
     setToast({ msg, type });
     if (type === 'error') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -169,8 +169,11 @@ const App: React.FC = () => {
       } else { setView('login'); }
   };
 
+  // --- INITIALISATION PRINCIPALE OPTIMISÉE ---
   useEffect(() => {
       let mounted = true;
+
+      // 1. Gestion Arrière-plan
       const subscription = AppState.addEventListener('change', nextAppState => {
           if (appState.current.match(/inactive|background/) && nextAppState === 'active') {
               if (hostId) connectivityService.broadcast({ type: 'UPDATE', user: user });
@@ -178,20 +181,40 @@ const App: React.FC = () => {
           appState.current = nextAppState;
       });
 
-      const initApp = async () => {
+      // 2. Chargement Asynchrone Initial (Séquentiel)
+      const bootstrap = async () => {
           try {
+              // A. Config
               const s = await configService.init();
-              if (mounted) {
-                  setSettings(s);
-                  if (s.username) { setUser(prev => ({...prev, callsign: s.username})); setLoginInput(s.username); }
-                  setQuickMessagesList(s.quickMessages || DEFAULT_SETTINGS.quickMessages);
+              if (!mounted) return;
+              
+              setSettings(s);
+              if (s.username) { setUser(prev => ({...prev, callsign: s.username})); setLoginInput(s.username); }
+              let msgs = s.quickMessages;
+              if ((!msgs || msgs.length === 0) && Array.isArray(DEFAULT_MSG_JSON)) { 
+                  msgs = DEFAULT_MSG_JSON; 
               }
-          } catch(e) {}
-          bootstrapPermissionsAsync();
-          if (mounted) { setIsAppReady(true); setTimeout(async () => { await SplashScreen.hideAsync().catch(() => {}); }, 500); }
-      };
-      initApp();
+              setQuickMessagesList(msgs || DEFAULT_SETTINGS.quickMessages);
 
+              // B. Permissions
+              await bootstrapPermissionsAsync();
+
+          } catch (e) {
+              console.warn("Bootstrap Error:", e);
+          } finally {
+              if (mounted) {
+                  setIsAppReady(true);
+                  // Cacher le splash screen uniquement quand tout est prêt
+                  setTimeout(async () => { 
+                      await SplashScreen.hideAsync().catch(() => {}); 
+                  }, 500);
+              }
+          }
+      };
+
+      bootstrap();
+
+      // 3. Subscriptions Services
       const unsubConfig = configService.subscribe((newSettings) => {
           setSettings(newSettings);
           if (newSettings.quickMessages) setQuickMessagesList(newSettings.quickMessages);
@@ -202,6 +225,7 @@ const App: React.FC = () => {
           if (gpsSubscription.current) startGpsTracking(newSettings.gpsUpdateInterval);
       });
       const unsubConn = connectivityService.subscribe(handleConnectivityEvent);
+
       return () => { mounted = false; unsubConfig(); unsubConn(); subscription.remove(); };
   }, []);
 
@@ -216,10 +240,14 @@ const App: React.FC = () => {
              ]).catch(() => {});
           }
           const { status } = await Location.getForegroundPermissionsAsync();
-          if (status === 'granted') { await Location.requestBackgroundPermissionsAsync().catch(() => {}); setGpsStatus('OK'); }
+          if (status === 'granted') { 
+              // Tentative silencieuse pour le background
+              await Location.requestBackgroundPermissionsAsync().catch(() => {}); 
+              setGpsStatus('OK'); 
+          }
           const camStatus = await Camera.getCameraPermissionsAsync();
           setHasCameraPermission(camStatus.status === 'granted');
-      } catch (e) {}
+      } catch (e) { console.warn("Perms Check Error", e); }
   };
 
   const requestCamera = async () => {
@@ -256,11 +284,13 @@ const App: React.FC = () => {
       setUser(prev => ({...prev, id: '', role: OperatorRole.OPR, status: OperatorStatus.CLEAR, lastMsg: '' }));
   }, []);
 
+  // --- MAGNETOMETRE ---
   useEffect(() => { 
       Magnetometer.setUpdateInterval(100); 
       const sub = Magnetometer.addListener((data) => { 
           let angle = Math.atan2(data.y, data.x) * (180 / Math.PI) - 90; 
           if (angle < 0) angle += 360; 
+          
           setUser(prev => { 
               if (Math.abs(prev.head - angle) > 2) {
                   const newHead = Math.floor(angle);
@@ -403,7 +433,7 @@ const App: React.FC = () => {
       setShowPingForm(true); 
   };
 
-  // --- FONCTION CORRIGÉE : HANDLE SCANNER ---
+  // --- FONCTION AJOUTÉE/CORRIGÉE POUR LE SCANNER ---
   const handleScannerBarCodeScanned = ({ data }: any) => {
     setShowScanner(false);
     setHostInput(data);
@@ -485,6 +515,15 @@ const App: React.FC = () => {
           </View>
       </View>
   );
+
+  if (!isAppReady) {
+      return (
+        <View style={{flex: 1, backgroundColor: '#000000', justifyContent: 'center', alignItems: 'center'}}>
+            <ActivityIndicator size="large" color="#3b82f6" />
+            <StatusBar style="light" />
+        </View>
+      );
+  }
 
   return (
     <View style={styles.container}>
@@ -576,7 +615,8 @@ const App: React.FC = () => {
           <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
               <View style={[styles.modalContent, {width: '90%', maxHeight: '80%'}]}>
                   <Text style={[styles.modalTitle, {color: currentPingType === 'HOSTILE' ? '#ef4444' : currentPingType === 'FRIEND' ? '#22c55e' : '#eab308'}]}>{currentPingType === 'HOSTILE' ? 'ADVERSAIRE' : currentPingType === 'FRIEND' ? 'AMI' : 'RENS'}</Text>
-                  <TextInput style={styles.pingInput} placeholder="Intitulé" placeholderTextColor="#52525b" value={pingMsgInput} onChangeText={setPingMsgInput} autoFocus />
+                  <Text style={styles.label}>Message</Text>
+                  <TextInput style={styles.pingInput} placeholder="Titre / Info" placeholderTextColor="#52525b" value={pingMsgInput} onChangeText={setPingMsgInput} autoFocus={currentPingType !== 'HOSTILE'} />
                   {currentPingType === 'HOSTILE' && (
                       <ScrollView style={{width: '100%', maxHeight: 300, marginBottom: 10}}>
                           <Text style={[styles.label, {color: '#ef4444', marginTop: 10}]}>Détails Tactiques (Caneva)</Text>
@@ -634,17 +674,10 @@ const App: React.FC = () => {
         </View>
       </Modal>
 
-      {/* SCANNER MODAL CORRIGÉE */}
       <Modal visible={showScanner} animationType="slide">
         <View style={{flex: 1, backgroundColor: 'black'}}>
-          <CameraView 
-            style={{flex: 1}} 
-            onBarcodeScanned={handleScannerBarCodeScanned} 
-            barcodeScannerSettings={{barcodeTypes: ["qr"]}} 
-          />
-          <TouchableOpacity onPress={() => setShowScanner(false)} style={styles.scannerClose}>
-            <MaterialIcons name="close" size={30} color="white" />
-          </TouchableOpacity>
+          <CameraView style={{flex: 1}} onBarcodeScanned={handleScannerBarCodeScanned} barcodeScannerSettings={{barcodeTypes: ["qr"]}} />
+          <TouchableOpacity onPress={() => setShowScanner(false)} style={styles.scannerClose}><MaterialIcons name="close" size={30} color="white" /></TouchableOpacity>
         </View>
       </Modal>
 
