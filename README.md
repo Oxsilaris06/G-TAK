@@ -1,105 +1,57 @@
-📡 ComTac v14 - Tactical Communication System
-
-ComTac est une application de communication tactique décentralisée conçue pour la coordination d'équipes sur le terrain. Elle combine la voix sur IP (VoIP), le partage de position GPS en temps réel et une interface de gestion d'opérateurs, le tout via une architecture Peer-to-Peer (P2P) sécurisée.
-
-🚀 Fonctionnalités Clés
-
-🎙️ Communications Vocales
-
-Mode PTT (Push-To-Talk) : Communication manuelle par pression.
-
-Mode VOX : Activation vocale automatique avec détection de bruit ambiant.
-
-Contrôles Matériels : Support des boutons de volume et des boutons de casque (même écran éteint sur Android) grâce à un service d'accessibilité dédié.
-
-Canal Privé : Possibilité d'établir une liaison point à point isolée avec un membre de l'équipe.
-
-🗺️ Carte Tactique (Tactical Map)
-
-Visualisation Temps Réel : Affiche la position et l'orientation (boussole) de tous les membres de l'escouade.
-
-Historique de Déplacement : Tracés colorés selon le statut de l'opérateur (Clear, Contact, Progression, etc.).
-
-Pings Tactiques : Pose de marqueurs (ennemis, objectifs) synchronisés instantanément avec l'équipe.
-
-Modes de Carte : Sombre, Clair et Satellite.
-
-👥 Gestion d'Équipe
-
-Statuts Opérateurs : Mise à jour rapide du statut (CLEAR, CONTACT, BUSY, APPUI, PROGRESSION).
-
-Rôles : Distinction entre l'Hôte (Chef de groupe) et les Opérateurs.
-
-Sécurité : L'hôte peut bannir (kick) des utilisateurs indésirables.
-
-Appairage Facile : Connexion via ID court ou scan de QR Code.
-
-🛠️ Architecture Technique
-
-L'application repose sur une philosophie "Stateless" (Sans état) et décentralisée :
-
-Framework : React Native / Expo (SDK 51).
-
-P2P : Utilisation de WebRTC via PeerJS pour les flux audio et les données (DataChannels).
-
-Cartographie : Leaflet.js intégré via une WebView pour des performances fluides.
-
-Audio : Intégration de react-native-webrtc, InCallManager et RNSoundLevel pour la gestion des flux et du VOX.
-
-Android Native : Service d'accessibilité personnalisé pour l'interception des touches physiques (Volume UP, Media keys).
-
-📦 Installation et Développement
-
-Prérequis
-
-Node.js (v20+)
-
-Expo CLI
-
-Android Studio / Xcode (pour le développement natif)
-
-Installation
-
+TacSuite - Suivi Tactique de Groupe
+TacSuite est une solution open-source de Situation Awareness (SA) et de suivi tactique sur réseau maillé décentralisé (Peer-to-Peer). Conçue pour les environnements dégradés ou les opérations de groupe (MilSim, Airsoft, Randonnée, Secours), elle permet de partager positions, statuts et alertes en temps réel sans serveur central.
+Fonctionnalités Clés
+ * Réseau Mesh Hybride : Utilise PeerJS (WebRTC Data Channels) pour créer un réseau P2P résilient entre terminaux via 4G/5G/Wi-Fi. Pas de serveur backend propriétaire requis.
+ * Blue Force Tracking (BFT) : Affichage en temps réel des positions, orientations (compas) et statuts de tous les équipiers.
+ * Cartographie Tactique :
+   * Fonds de carte multiples (Sombre, Clair, Satellite).
+   * Système de Pings Avancés :
+     * Hostile (Rouge) : Caneva SALTA complet (Position, Nature, Volume, Attitude...).
+     * Ami (Vert) : Points de ralliement, positions alliées.
+     * Renseignement (Jaune) : Observations diverses.
+   * Tracés historiques des mouvements (Trails).
+ * Messagerie Flash : Envoi rapide de messages pré-configurés ("Contact", "Besoin Soutien", "RAS") visibles directement sur la tuile de l'opérateur.
+ * Gestion de Groupe :
+   * Création de session instantanée par QR Code.
+   * Rôles Hôte / Opérateur.
+   * Exclusion d'utilisateurs.
+ * Sécurité & Discrétion :
+   * Mode "Silence Radio" global piloté par l'hôte.
+   * Données éphémères (rien n'est stocké sur un serveur).
+   * Thème sombre optimisé pour la nuit (OLED friendly).
+Installation (.apk)
+ * Téléchargez le fichier TacSuite.apk depuis la section Releases.
+ * Autorisez l'installation d'applications de sources inconnues sur votre appareil Android.
+ * Installez l'APK.
+ * Au premier lancement, acceptez les permissions (Localisation, Caméra pour QR, Notifications).
+Guide Rapide
+1. Démarrer une Mission (Hôte)
+ * Sur l'écran d'accueil, cliquez sur "CRÉER SESSION".
+ * Votre ID de session (ex: X9J2K) s'affiche en haut.
+ * Partagez cet ID ou faites scanner votre QR Code (via le bouton QR en bas à droite) à vos équipiers.
+2. Rejoindre une Mission (Opérateur)
+ * Sur l'écran d'accueil, entrez l'ID de l'hôte ou cliquez sur "SCANNER" pour lire le QR Code de l'hôte.
+ * Cliquez sur "REJOINDRE".
+3. Interface Tactique
+ * Carte : Affiche les positions. Double-cliquez n'importe où pour poser un marqueur (Ping).
+ * Menu Pings : Choisissez le type (Hostile/Ami/Rens). Remplissez les détails (SALTA pour Hostile).
+ * Statuts : En bas, changez votre statut (CLEAR, CONTACT, PROGRESSION) pour informer l'équipe.
+ * Messages : Cliquez sur "MSG" pour envoyer une info rapide.
+Architecture Technique
+ * Frontend : React Native (Expo)
+ * Cartographie : Leaflet (via WebView)
+ * Réseau : PeerJS (WebRTC Data)
+ * État : Gestion locale React State + Context
+Compilation (Développement)
 # Cloner le dépôt
-git clone [https://github.com/Oxsilaris06/Comtac.git](https://github.com/Oxsilaris06/Comtac.git)
-cd Comtac
+git clone [https://github.com/oxsilaris06/g-tak.git](https://github.com/oxsilaris06/g-tak.git)
+cd g-tak
 
 # Installer les dépendances
-npm install --legacy-peer-deps
+npm install
 
-# Lancer la configuration native (Expo Prebuild)
-npx expo prebuild
+# Lancer en mode dev
+npx expo start
 
-
-Exécution
-
-# Android
-npm run android
-
-# iOS
-npm run ios
-
-
-🏗️ Build et CI/CD
-
-Le projet inclut des configurations pour l'automatisation des builds :
-
-GitHub Actions : Workflow disponible dans .github/workflows/android-build.yml pour générer des APK Debug.
-
-Codemagic : Fichier codemagic.yaml configuré pour des builds Android autonomes.
-
-🛡️ Confidentialité (Privacy)
-
-ComTac est conçu pour respecter la vie privée des opérateurs :
-
-Zéro Serveur : Aucune donnée de localisation ou de voix n'est stockée sur un serveur central.
-
-P2P Direct : Les données transitent directement entre les téléphones de l'escouade.
-
-Local Only : Les historiques de tracés et trigrammes sont stockés localement sur l'appareil.
-
-Voir le fichier PRIVACY.md pour plus de détails.
-
-✍️ Auteur
-
-Développé par Oxsilaris06.
+Avertissement
+TacSuite est un outil d'aide à la coordination. Il ne doit pas être utilisé comme unique moyen de navigation ou de communication dans des situations critiques où la sécurité des personnes est en jeu. Le fonctionnement dépend de la connectivité réseau (Data) de l'appareil.
