@@ -21,7 +21,7 @@ export interface UserData {
     bat: number;
     joinedAt: number;
     lastMsg?: string;
-    isTx?: boolean; // Gardé pour compatibilité visuelle même si audio off
+    isTx?: boolean; 
 }
 
 export type PingType = 'HOSTILE' | 'FRIEND' | 'INTEL';
@@ -51,6 +51,7 @@ export interface AppSettings {
     gpsUpdateInterval: number;
     userArrowColor: string;
     quickMessages: string[];
+    disableBackgroundNotifications?: boolean; // Nouvelle option
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -66,7 +67,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
         "Négatif",
         "Départ",
         "Halte"
-    ]
+    ],
+    disableBackgroundNotifications: false
 };
 
 export type ViewType = 'login' | 'menu' | 'ops' | 'map' | 'settings';
