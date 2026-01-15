@@ -1,4 +1,4 @@
-import './polyfills'; // IMPORTANT: Toujours en premier
+import './polyfills'; 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { 
   StyleSheet, View, Text, TextInput, TouchableOpacity, 
@@ -28,10 +28,8 @@ import OperatorCard from './components/OperatorCard';
 import TacticalMap from './components/TacticalMap';
 import SettingsView from './components/SettingsView';
 
-// INIT SPLASH
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
-// INIT NOTIFS
 Notifications.setNotificationHandler({
   handleNotification: async () => ({ shouldShowAlert: true, shouldPlaySound: true, shouldSetBadge: false }),
 });
@@ -39,7 +37,6 @@ Notifications.setNotificationHandler({
 let DEFAULT_MSG_JSON: string[] = [];
 try { DEFAULT_MSG_JSON = require('./msg.json'); } catch (e) { }
 
-// COMPOSANT UI
 const NavNotification = ({ message, onDismiss }: { message: string, onDismiss: () => void }) => {
     const pan = useRef(new Animated.ValueXY()).current;
     const panResponder = useRef(
@@ -121,7 +118,6 @@ const App: React.FC = () => {
   const [isOffline, setIsOffline] = useState(false);
 
   const lastLocationRef = useRef<any>(null);
-  const lastHeadBroadcast = useRef<number>(0);
   const gpsSubscription = useRef<Location.LocationSubscription | null>(null);
 
   const showToast = useCallback((msg: string, type: 'info' | 'error' = 'info') => {
@@ -141,7 +137,6 @@ const App: React.FC = () => {
   };
 
   const bootstrapPermissions = async () => {
-    console.log("Bootstrapping Permissions...");
     try {
         if (Platform.OS === 'android') {
             await PermissionsAndroid.requestMultiple([
@@ -149,24 +144,17 @@ const App: React.FC = () => {
                 PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION,
             ]).catch(() => {});
         }
-
         try {
             const { status } = await Notifications.getPermissionsAsync();
             if (status !== 'granted') await Notifications.requestPermissionsAsync();
         } catch(e) {}
-        
         try {
             const locRes = await Location.requestForegroundPermissionsAsync();
             if (locRes.status !== 'granted') setGpsStatus('ERROR');
             else setGpsStatus('OK');
         } catch(e) { setGpsStatus('ERROR'); }
-
-        if (!cameraPermission?.granted) {
-            await requestCameraPermission().catch(() => {});
-        }
-    } catch (e) {
-        console.warn("Global Perm Error:", e);
-    }
+        if (!cameraPermission?.granted) await requestCameraPermission().catch(() => {});
+    } catch (e) {}
   };
 
   const startGpsTracking = useCallback(async (interval: number) => {
@@ -174,14 +162,12 @@ const App: React.FC = () => {
       try {
         const hasPerm = await Location.getForegroundPermissionsAsync();
         if (!hasPerm.granted) return;
-
         gpsSubscription.current = await Location.watchPositionAsync(
             { accuracy: Location.Accuracy.High, timeInterval: interval, distanceInterval: 5 },
             (loc) => {
                 const { latitude, longitude, speed, heading, accuracy } = loc.coords;
                 if (accuracy && accuracy > 100) return;
                 setGpsStatus('OK');
-                
                 setUser(prev => {
                     const gpsHead = (speed && speed > 1 && heading !== null) ? heading : prev.head;
                     if (!lastLocationRef.current || Math.abs(latitude - lastLocationRef.current.lat) > 0.0001 || Math.abs(longitude - lastLocationRef.current.lng) > 0.0001) {
@@ -203,7 +189,6 @@ const App: React.FC = () => {
       setUser(prev => ({...prev, id: '', role: OperatorRole.OPR, status: OperatorStatus.CLEAR, lastMsg: '' }));
   }, []);
 
-  // --- LOGIC VIBRATION CONTACT ---
   useEffect(() => {
       const newPeers = peers;
       const oldPeers = prevPeersRef.current;
@@ -220,94 +205,6 @@ const App: React.FC = () => {
       });
       prevPeersRef.current = newPeers;
   }, [peers, user.id]);
-
-  const handleConnectivityEvent = useCallback((event: ConnectivityEvent) => {
-      switch (event.type) {
-          case 'PEER_OPEN':
-              setUser(prev => ({ ...prev, id: event.id }));
-              break;
-          case 'PEERS_UPDATED':
-              setPeers(event.peers);
-              break;
-          case 'HOST_CONNECTED':
-              setHostId(event.hostId);
-              break;
-          case 'TOAST':
-              showToast(event.msg, event.level as any);
-              break;
-          case 'DATA_RECEIVED':
-              handleProtocolData(event.data, event.from);
-              break;
-          case 'DISCONNECTED':
-              if (event.reason === 'KICKED') { Alert.alert("Exclu", "Banni par l'hôte."); finishLogout(); }
-              else if (event.reason === 'NO_HOST') { showToast("Hôte perdu", "error"); finishLogout(); }
-              break;
-      }
-  }, [showToast, finishLogout]);
-
-  const handleProtocolData = (data: any, fromId: string) => {
-      switch (data.type) {
-        case 'PING':
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            setPings(prev => [...prev, data.ping]);
-            showToast(`ALERTE: ${data.ping.type} - ${data.ping.msg}`);
-            Notifications.scheduleNotificationAsync({ content: { title: `TACTIQUE: ${data.ping.type}`, body: `${data.ping.sender} : ${data.ping.msg}`, sound: true }, trigger: null });
-            break;
-        case 'PING_MOVE': 
-            setPings(prev => prev.map(p => p.id === data.id ? { ...p, lat: data.lat, lng: data.lng } : p));
-            break;
-        case 'PING_UPDATE':
-            setPings(prev => prev.map(p => p.id === data.id ? { ...p, msg: data.msg, details: data.details } : p));
-            break;
-        case 'PING_DELETE': 
-            setPings(prev => prev.filter(p => p.id !== data.id));
-            break;
-        case 'NAV_NOTIFY':
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            setIncomingNavNotif(`${data.callsign} en route vers vous.`);
-            Notifications.scheduleNotificationAsync({ content: { title: "MOUVEMENT", body: `${data.callsign} arrive.`, sound: true }, trigger: null });
-            break;
-      }
-  };
-
-  // --- INIT SAFE & TIMEOUT ---
-  useEffect(() => {
-      const load = async () => {
-          try {
-              // On force le passage après 4 secondes max, même si les perms bloquent
-              await Promise.race([
-                  bootstrapPermissions(),
-                  new Promise(resolve => setTimeout(resolve, 4000))
-              ]);
-
-              const s = await configService.init();
-              let msgs = s.quickMessages;
-              if ((!msgs || msgs.length === 0) && Array.isArray(DEFAULT_MSG_JSON)) { msgs = DEFAULT_MSG_JSON; }
-              setSettings(s);
-              setQuickMessagesList(msgs || DEFAULT_SETTINGS.quickMessages);
-              
-              if (s.username) { setUser(prev => ({ ...prev, callsign: s.username })); setLoginInput(s.username); }
-          } catch (e) {
-              console.warn("Init Error", e);
-          } finally {
-              setIsAppReady(true);
-              await SplashScreen.hideAsync().catch(() => {});
-          }
-      };
-      load();
-
-      const unsubConfig = configService.subscribe((newSettings) => {
-          setSettings(newSettings);
-          if (newSettings.quickMessages) setQuickMessagesList(newSettings.quickMessages);
-          if (newSettings.username && newSettings.username !== user.callsign) {
-              connectivityService.updateUser({ callsign: newSettings.username });
-              setUser(prev => ({ ...prev, callsign: newSettings.username }));
-          }
-          if (gpsSubscription.current) startGpsTracking(newSettings.gpsUpdateInterval);
-      });
-      const unsubConn = connectivityService.subscribe(handleConnectivityEvent);
-      return () => { unsubConfig(); unsubConn(); };
-  }, []); 
 
   useEffect(() => { 
       Battery.getBatteryLevelAsync().then(l => setUser(u => ({ ...u, bat: Math.floor(l * 100) }))); 
@@ -334,6 +231,65 @@ const App: React.FC = () => {
       }); 
       return () => sub && sub.remove(); 
   }, [hostId]);
+
+  const handleConnectivityEvent = useCallback((event: ConnectivityEvent) => {
+      switch (event.type) {
+          case 'PEER_OPEN': setUser(prev => ({ ...prev, id: event.id })); break;
+          case 'PEERS_UPDATED': setPeers(event.peers); break;
+          case 'HOST_CONNECTED': setHostId(event.hostId); break;
+          case 'TOAST': showToast(event.msg, event.level as any); break;
+          case 'DATA_RECEIVED': handleProtocolData(event.data, event.from); break;
+          case 'DISCONNECTED':
+              if (event.reason === 'KICKED') { Alert.alert("Exclu", "Banni par l'hôte."); finishLogout(); }
+              else if (event.reason === 'NO_HOST') { showToast("Hôte perdu", "error"); finishLogout(); }
+              break;
+      }
+  }, [showToast, finishLogout]);
+
+  const handleProtocolData = (data: any, fromId: string) => {
+      switch (data.type) {
+        case 'PING':
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            setPings(prev => [...prev, data.ping]);
+            showToast(`ALERTE: ${data.ping.type} - ${data.ping.msg}`);
+            Notifications.scheduleNotificationAsync({ content: { title: `TACTIQUE: ${data.ping.type}`, body: `${data.ping.sender} : ${data.ping.msg}`, sound: true }, trigger: null });
+            break;
+        case 'PING_MOVE': setPings(prev => prev.map(p => p.id === data.id ? { ...p, lat: data.lat, lng: data.lng } : p)); break;
+        case 'PING_UPDATE': setPings(prev => prev.map(p => p.id === data.id ? { ...p, msg: data.msg, details: data.details } : p)); break;
+        case 'PING_DELETE': setPings(prev => prev.filter(p => p.id !== data.id)); break;
+        case 'NAV_NOTIFY':
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            setIncomingNavNotif(`${data.callsign} en route vers vous.`);
+            Notifications.scheduleNotificationAsync({ content: { title: "MOUVEMENT", body: `${data.callsign} arrive.`, sound: true }, trigger: null });
+            break;
+      }
+  };
+
+  useEffect(() => {
+      const load = async () => {
+          try {
+              await Promise.race([ bootstrapPermissions(), new Promise(resolve => setTimeout(resolve, 4000)) ]);
+              const s = await configService.init();
+              let msgs = s.quickMessages;
+              if ((!msgs || msgs.length === 0) && Array.isArray(DEFAULT_MSG_JSON)) { msgs = DEFAULT_MSG_JSON; }
+              setSettings(s);
+              setQuickMessagesList(msgs || DEFAULT_SETTINGS.quickMessages);
+              if (s.username) { setUser(prev => ({ ...prev, callsign: s.username })); setLoginInput(s.username); }
+          } catch (e) { } finally { setIsAppReady(true); await SplashScreen.hideAsync().catch(() => {}); }
+      };
+      load();
+      const unsubConfig = configService.subscribe((newSettings) => {
+          setSettings(newSettings);
+          if (newSettings.quickMessages) setQuickMessagesList(newSettings.quickMessages);
+          if (newSettings.username && newSettings.username !== user.callsign) {
+              connectivityService.updateUser({ callsign: newSettings.username });
+              setUser(prev => ({ ...prev, callsign: newSettings.username }));
+          }
+          if (gpsSubscription.current) startGpsTracking(newSettings.gpsUpdateInterval);
+      });
+      const unsubConn = connectivityService.subscribe(handleConnectivityEvent);
+      return () => { unsubConfig(); unsubConn(); };
+  }, []); 
 
   const startPingCreation = (loc: { lat: number, lng: number }) => { setTempPingLoc(loc); setShowPingMenu(true); };
   const selectPingType = (type: PingType) => { setCurrentPingType(type); setShowPingMenu(false); setPingMsgInput(''); setHostileDetails({}); setShowPingForm(true); };
@@ -473,7 +429,6 @@ const App: React.FC = () => {
   return (
     <View style={styles.container}>
       <StatusBar style="light" backgroundColor="#050505" />
-      
       {view === 'settings' ? ( <SettingsView onClose={() => setView(lastView)} /> ) : (
         <View style={{flex: 1}}>
             {view === 'login' ? renderLogin() : 
@@ -547,7 +502,7 @@ const App: React.FC = () => {
                         </View>
                      </View>
                  </View>
-             )
+             ) : null
             }
         </View>
       )}
