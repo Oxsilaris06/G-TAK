@@ -2,8 +2,8 @@ export default {
   expo: {
     name: "TacSuite",
     slug: "tacsuite",
-    version: "3.2.0",
-    orientation: "default", // Autorise Portrait et Paysage
+    version: "3.2.1",
+    orientation: "default", // Autorise Portrait et Paysage sans plugin externe
     icon: "./assets/icon.png",
     userInterfaceStyle: "dark",
     splash: {
@@ -18,10 +18,10 @@ export default {
       supportsTablet: true,
       bundleIdentifier: "com.tacsuite.app",
       infoPlist: {
-        UIBackgroundModes: ["location", "fetch", "voip"], // Essentiel pour le background
+        UIBackgroundModes: ["location", "fetch", "voip"],
         NSLocationAlwaysAndWhenInUseUsageDescription: "Suivi tactique de l'équipe même en arrière-plan.",
         NSLocationWhenInUseUsageDescription: "Affichage position sur carte.",
-        NSCameraUsageDescription: "Scan QR Code.",
+        NSCameraUsageDescription: "Scan QR Code."
       }
     },
     android: {
@@ -58,13 +58,8 @@ export default {
           "cameraPermission": "Allow TacSuite to access your camera for QR scanning."
         }
       ],
-      "expo-notifications",
-      [
-        "expo-screen-orientation", 
-        {
-          "initialOrientation": "DEFAULT"
-        }
-      ]
+      "expo-notifications"
+      // Retrait de expo-screen-orientation qui posait problème
     ],
     extra: {
       eas: {
