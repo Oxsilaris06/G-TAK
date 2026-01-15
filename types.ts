@@ -20,25 +20,28 @@ export interface UserData {
     head: number;
     bat: number;
     joinedAt: number;
-    lastMsg?: string;
+    lastMsg?: string;      // Nouveau champ pour le message rapide
 }
 
 export type PingType = 'HOSTILE' | 'FRIEND' | 'INTEL';
 
+// Structure détaillée pour le caneva Hostile (SALTA / format tactique)
 export interface HostileDetails {
-    attitude?: string;
-    volume?: string;
-    armes?: string;
-    substances?: string;
+    position?: string;   
+    nature?: string;     
+    attitude?: string;   
+    volume?: string;     
+    armes?: string;      
+    substances?: string; // Tenue / Signes distinctifs
 }
 
 export interface PingData {
     id: string;
     lat: number;
     lng: number;
-    msg: string;         // Texte libre (affiché au dessus)
-    type: PingType;      // Type de ping
-    details?: HostileDetails; // Infos caneva (pour hostile)
+    msg: string;         // Texte principal
+    type: PingType;
+    details?: HostileDetails; // Détails optionnels (Hostile)
     sender: string;
     timestamp: number;
 }
@@ -58,7 +61,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
         "RAS / Effacer",
         "Contact Visuel",
         "En Position",
-        "Besoin Soutien"
+        "Besoin Soutien",
+        "Reçu",
+        "Négatif",
+        "Départ",
+        "Halte"
     ]
 };
 
