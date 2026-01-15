@@ -2,7 +2,7 @@ export default {
   expo: {
     name: "TacSuite",
     slug: "tacsuite",
-    version: "3.2.2",
+    version: "3.2.3",
     orientation: "default", // Suffisant pour autoriser la rotation sans plugin
     icon: "./assets/icon.png",
     userInterfaceStyle: "dark",
