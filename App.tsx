@@ -19,6 +19,7 @@ import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Magnetometer } from 'expo-sensors';
 import * as SplashScreen from 'expo-splash-screen';
+import * as ScreenOrientation from 'expo-screen-orientation';
 
 import { UserData, OperatorStatus, OperatorRole, ViewType, PingData, AppSettings, DEFAULT_SETTINGS, PingType, HostileDetails } from './types';
 import { CONFIG, STATUS_COLORS } from './constants';
@@ -133,8 +134,11 @@ const App: React.FC = () => {
   const [gpsStatus, setGpsStatus] = useState<'WAITING' | 'OK' | 'ERROR'>('WAITING');
 
   const lastLocationRef = useRef<any>(null);
+  const lastHeadBroadcast = useRef<number>(0);
   const gpsSubscription = useRef<Location.LocationSubscription | null>(null);
   const appState = useRef(AppState.currentState);
+
+  useEffect(() => { ScreenOrientation.unlockAsync(); }, []);
 
   const showToast = useCallback((msg: string, type: 'info' | 'error' = 'info') => {
     setToast({ msg, type });
@@ -218,6 +222,11 @@ const App: React.FC = () => {
       } catch (e) {}
   };
 
+  const requestCamera = async () => {
+      const res = await Camera.requestCameraPermissionsAsync();
+      setHasCameraPermission(res.status === 'granted');
+  };
+
   const startGpsTracking = useCallback(async (interval: number) => {
       if (gpsSubscription.current) gpsSubscription.current.remove();
       try {
@@ -247,18 +256,29 @@ const App: React.FC = () => {
       setUser(prev => ({...prev, id: '', role: OperatorRole.OPR, status: OperatorStatus.CLEAR, lastMsg: '' }));
   }, []);
 
+  // --- MAGNETOMETRE AVEC INTERVALLE REGLABLE ---
   useEffect(() => { 
       Magnetometer.setUpdateInterval(100); 
       const sub = Magnetometer.addListener((data) => { 
           let angle = Math.atan2(data.y, data.x) * (180 / Math.PI) - 90; 
           if (angle < 0) angle += 360; 
+          
           setUser(prev => { 
-              if (Math.abs(prev.head - angle) > 3) return { ...prev, head: Math.floor(angle) }; 
+              if (Math.abs(prev.head - angle) > 2) {
+                  const newHead = Math.floor(angle);
+                  const now = Date.now();
+                  // Utilisation de l'intervalle paramétré
+                  if (now - lastHeadBroadcast.current > (settings.orientationUpdateInterval || 500) && hostId) {
+                      connectivityService.broadcast({ type: 'UPDATE_USER', user: { ...prev, head: newHead } });
+                      lastHeadBroadcast.current = now;
+                  }
+                  return { ...prev, head: newHead }; 
+              }
               return prev; 
           }); 
       }); 
       return () => sub && sub.remove(); 
-  }, [hostId]);
+  }, [hostId, settings.orientationUpdateInterval]);
 
   const handleConnectivityEvent = useCallback((event: ConnectivityEvent) => {
       switch (event.type) {
@@ -307,6 +327,11 @@ const App: React.FC = () => {
       else if (data.type === 'PING_MOVE') setPings(prev => prev.map(p => p.id === data.id ? { ...p, lat: data.lat, lng: data.lng } : p));
       else if (data.type === 'PING_DELETE') setPings(prev => prev.filter(p => p.id !== data.id));
       else if (data.type === 'PING_UPDATE') setPings(prev => prev.map(p => p.id === data.id ? { ...p, msg: data.msg, details: data.details } : p));
+      else if (data.type === 'COPY_POS') {
+          // Gestion copie coordonnées
+          Clipboard.setStringAsync(data.text);
+          showToast("Position Copiée");
+      }
   };
 
   const joinSession = async (id?: string) => {
@@ -355,11 +380,41 @@ const App: React.FC = () => {
       setShowPingForm(false); setTempPingLoc(null); setIsPingMode(false);
   };
 
+  const savePingEdit = () => {
+      if (!editingPing) return;
+      const updatedPing = { ...editingPing, msg: pingMsgInput, details: editingPing.type === 'HOSTILE' ? hostileDetails : undefined };
+      setPings(prev => prev.map(p => p.id === editingPing.id ? updatedPing : p));
+      connectivityService.broadcast({ type: 'PING_UPDATE', id: editingPing.id, msg: pingMsgInput, details: updatedPing.details });
+      setEditingPing(null);
+  };
+  const deletePing = () => {
+      if (!editingPing) return;
+      setPings(prev => prev.filter(p => p.id !== editingPing.id));
+      connectivityService.broadcast({ type: 'PING_DELETE', id: editingPing.id });
+      setEditingPing(null);
+  };
+
+  const handleMapPing = (loc: {lat: number, lng: number}) => {
+      setTempPingLoc(loc);
+      setShowPingMenu(true); 
+  };
+
+  const selectPingType = (type: PingType) => { 
+      setCurrentPingType(type); 
+      setShowPingMenu(false); 
+      setPingMsgInput(''); 
+      // AUTO FILL POSITION POUR HOSTILE
+      let defaultDetails: HostileDetails = {position: '', nature: '', attitude: '', volume: '', armes: '', substances: ''};
+      if (type === 'HOSTILE' && tempPingLoc) {
+          defaultDetails.position = `${tempPingLoc.lat.toFixed(5)}, ${tempPingLoc.lng.toFixed(5)}`;
+      }
+      setHostileDetails(defaultDetails);
+      setShowPingForm(true); 
+  };
+
   // --- RENDU UI ---
-  // Rendu conditionnel des vues principales pour préserver l'état de la carte
   const renderMainContent = () => (
       <View style={{flex: 1}}>
-          {/* VUE OPS */}
           <View style={{ flex: 1, display: view === 'ops' ? 'flex' : 'none' }}>
               <SafeAreaView style={styles.header}>
                   <View style={styles.headerContent}>
@@ -382,7 +437,6 @@ const App: React.FC = () => {
               </ScrollView>
           </View>
 
-          {/* VUE MAP (Toujours montée mais cachée si pas active) */}
           <View style={{ flex: 1, display: view === 'map' ? 'flex' : 'none' }}>
               <SafeAreaView style={styles.header}>
                   <View style={styles.headerContent}>
@@ -420,7 +474,6 @@ const App: React.FC = () => {
               </View>
           </View>
 
-          {/* FOOTER COMMUN */}
           <View style={styles.footer}>
                 <View style={styles.statusRow}>
                   {[OperatorStatus.PROGRESSION, OperatorStatus.CONTACT, OperatorStatus.CLEAR].map(s => (
@@ -505,7 +558,6 @@ const App: React.FC = () => {
               </View>
           </KeyboardAvoidingView>
       </Modal>
-      {/* MODALE PING TYPE */}
       <Modal visible={showPingMenu} transparent animationType="fade">
           <View style={styles.modalOverlay}>
               <View style={styles.pingMenuContainer}>
@@ -519,7 +571,6 @@ const App: React.FC = () => {
               </View>
           </View>
       </Modal>
-      {/* MODALE FORM PING */}
       <Modal visible={showPingForm} transparent animationType="slide">
           <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
               <View style={[styles.modalContent, {width: '90%', maxHeight: '80%'}]}>
@@ -544,7 +595,6 @@ const App: React.FC = () => {
               </View>
           </KeyboardAvoidingView>
       </Modal>
-      {/* MODALE EDIT PING */}
       <Modal visible={!!editingPing} transparent animationType="slide">
           <View style={styles.modalOverlay}>
               <View style={[styles.modalContent, {width: '90%'}]}>
@@ -568,7 +618,6 @@ const App: React.FC = () => {
               </View>
           </View>
       </Modal>
-      {/* QR & SCANNER */}
       <Modal visible={showQRModal} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -591,7 +640,7 @@ const App: React.FC = () => {
 
       {activeNotif && <NavNotification message={`${activeNotif.id}: ${activeNotif.msg}`} type={activeNotif.type} isNightOps={nightOpsMode} onDismiss={() => setActiveNotif(null)} />}
       
-      {/* FILTRE NIGHT OPS (OVERLAY ROUGE TRANSPARENT) */}
+      {/* FILTRE NIGHT OPS */}
       {nightOpsMode && <View style={styles.nightOpsOverlay} pointerEvents="none" />}
       
       {toast && ( <View style={[styles.toast, toast.type === 'error' && {backgroundColor: '#ef4444'}]}><Text style={styles.toastText}>{toast.msg}</Text></View> )}
@@ -648,8 +697,6 @@ const styles = StyleSheet.create({
   iconBtnDanger: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#ef4444', justifyContent: 'center', alignItems: 'center', elevation: 5 },
   iconBtnSecondary: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#52525b', justifyContent: 'center', alignItems: 'center', elevation: 5 },
   iconBtnSuccess: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#22c55e', justifyContent: 'center', alignItems: 'center', elevation: 5 },
-  
-  // OVERLAY NIGHT OPS
   nightOpsOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(255, 0, 0, 0.15)', zIndex: 99999, pointerEvents: 'none' }
 });
 
