@@ -1,51 +1,27 @@
-Politique de Confidentialité - ComTac
-
-Dernière mise à jour : [23/12/2025]
-
-L'application ComTac ("l'Application") accorde une importance primordiale à la confidentialité de ses utilisateurs, notamment dans le cadre d'opérations tactiques et de simulation. Cette politique détaille comment nous traitons vos données, en conformité avec le Règlement Général sur la Protection des Données (RGPD).
-
-1. Les Données que nous collectons
-
-Nous collectons uniquement les données strictement nécessaires au fonctionnement "Tactique" de l'application :
-
-A. Données de Localisation (GPS)
-
-Finalité : Afficher votre position et celle de vos coéquipiers sur la carte tactique en temps réel.
-
-Traitement : Ces données sont transmises directement à vos pairs (P2P via WebRTC) et ne sont pas stockées sur nos serveurs. L'historique de déplacement (tracé) est stocké localement sur votre appareil de manière temporaire.
-
-B. Données Audio (Microphone)
-
-Finalité : Permettre la communication vocale (VoIP) et mesurer le niveau sonore ambiant pour la détection de bruit (fonction VOX).
-
-Traitement : Le flux audio transite en direct via WebRTC. Aucune conversation n'est enregistrée ni stockée sur un serveur.
-
-C. Identifiants Techniques
-
-Nous utilisons des identifiants éphémères (Peer ID) générés aléatoirement pour la connexion Peer-to-Peer.
-
-Votre "Trigramme" (Pseudo) est stocké localement sur votre appareil pour faciliter votre reconnexion.
-
-2. Architecture Peer-to-Peer (P2P)
-
-ComTac fonctionne sur une architecture décentralisée via WebRTC et PeerJS.
-
-Ce que cela signifie : Vos données (position, voix) transitent directement de votre téléphone vers celui de vos coéquipiers, sans passer par un serveur de stockage central ("Stateless").
-
-Adresse IP : Pour établir cette connexion directe, votre adresse IP technique peut être visible par les participants de votre groupe tactique (comme lors d'un appel téléphonique direct).
-
-3. Partage des données
-
-Aucun tiers commercial : Nous ne vendons, ne louons et ne partageons aucune de vos données personnelles avec des tiers publicitaires ou commerciaux.
-
-Partage restreint : Les données sont partagées exclusivement avec les membres de l'équipe ("Squad") que vous rejoignez volontairement via un code de salon ou un QR Code.
-
-4. Vos Droits
-
-Conformément au RGPD, vous disposez d'un droit d'accès, de rectification et d'effacement de vos données.
-L'application ne conservant pas d'historique sur serveur (architecture "Stateless"), la désinstallation de l'application ou la fermeture complète de l'application supprime vos données de session (position, connexions actives).
-
+Politique de Confidentialité de TacSuite
+Dernière mise à jour : 15 Janvier 2026
+TacSuite est conçue selon un principe de "Privacy by Design". Nous ne collectons, ne stockons et ne vendons aucune donnée personnelle. L'application fonctionne sur un modèle Peer-to-Peer (P2P) éphémère.
+1. Aucune Collecte de Données Serveur
+TacSuite n'utilise aucun serveur central pour stocker vos données.
+ * Il n'y a pas de base de données utilisateurs.
+ * Il n'y a pas de compte à créer (pas d'email, pas de mot de passe).
+ * Toutes les données (positions, messages, pings) transitent directement d'un appareil à l'autre via des canaux WebRTC sécurisés.
+ * Dès que vous fermez l'application ou quittez la session, toutes les données tactiques sont effacées de la mémoire vive de l'appareil.
+2. Permissions Android Requises
+Pour fonctionner, TacSuite nécessite les permissions suivantes sur votre appareil. Ces permissions sont utilisées uniquement pour les fonctionnalités locales de l'application :
+ * Localisation (GPS) :
+   * Usage : Afficher votre position sur la carte et la partager avec les membres de votre groupe connectés à la même session.
+   * Confidentialité : Vos coordonnées GPS ne sont partagées qu'avec les pairs connectés à votre session temporaire. Elles ne sont jamais envoyées à un serveur tiers.
+ * Caméra :
+   * Usage : Uniquement pour scanner les QR Codes de connexion afin de rejoindre une session rapidement.
+   * Confidentialité : Aucune image n'est enregistrée ou transmise. Le flux vidéo est traité localement pour la reconnaissance du code.
+ * Notifications :
+   * Usage : Vous alerter (son/vibration) lorsqu'un équipier signale un danger (Ping Hostile) ou envoie un message prioritaire, même si l'écran est éteint.
+3. Services Tiers
+L'application utilise les services techniques suivants pour établir la connexion P2P :
+ * Serveurs STUN (Google) : Utilisés uniquement lors de la phase d'initialisation pour permettre à votre téléphone de trouver son adresse IP publique et se connecter aux autres. Aucune donnée de contenu (positions, messages) ne passe par ces serveurs.
+ * Cartographie (Tuiles) : Les fonds de carte (images) sont téléchargés depuis des serveurs publics (CartoDB, ArcGIS) en fonction de votre zone géographique affichée.
+4. Consentement
+En utilisant TacSuite, vous acceptez que votre position géographique et votre pseudonyme (Trigramme) soient partagés en temps réel avec les autres utilisateurs que vous avez volontairement rejoints dans une session.
 5. Contact
-
-Pour toute question relative à la confidentialité ou pour exercer vos droits :
-Email : nicolas.maheux45@gmail.com
+Pour toute question technique ou relative à la confidentialité, veuillez ouvrir une "Issue" sur le dépôt GitHub du projet.
