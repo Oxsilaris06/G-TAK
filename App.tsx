@@ -19,7 +19,6 @@ import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Magnetometer } from 'expo-sensors';
 import * as SplashScreen from 'expo-splash-screen';
-import * as ScreenOrientation from 'expo-screen-orientation';
 
 import { UserData, OperatorStatus, OperatorRole, ViewType, PingData, AppSettings, DEFAULT_SETTINGS, PingType, HostileDetails } from './types';
 import { CONFIG, STATUS_COLORS } from './constants';
@@ -138,8 +137,6 @@ const App: React.FC = () => {
   const gpsSubscription = useRef<Location.LocationSubscription | null>(null);
   const appState = useRef(AppState.currentState);
 
-  useEffect(() => { ScreenOrientation.unlockAsync(); }, []);
-
   const showToast = useCallback((msg: string, type: 'info' | 'error' = 'info') => {
     setToast({ msg, type });
     if (type === 'error') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -256,18 +253,15 @@ const App: React.FC = () => {
       setUser(prev => ({...prev, id: '', role: OperatorRole.OPR, status: OperatorStatus.CLEAR, lastMsg: '' }));
   }, []);
 
-  // --- MAGNETOMETRE AVEC INTERVALLE REGLABLE ---
   useEffect(() => { 
       Magnetometer.setUpdateInterval(100); 
       const sub = Magnetometer.addListener((data) => { 
           let angle = Math.atan2(data.y, data.x) * (180 / Math.PI) - 90; 
           if (angle < 0) angle += 360; 
-          
           setUser(prev => { 
               if (Math.abs(prev.head - angle) > 2) {
                   const newHead = Math.floor(angle);
                   const now = Date.now();
-                  // Utilisation de l'intervalle paramétré
                   if (now - lastHeadBroadcast.current > (settings.orientationUpdateInterval || 500) && hostId) {
                       connectivityService.broadcast({ type: 'UPDATE_USER', user: { ...prev, head: newHead } });
                       lastHeadBroadcast.current = now;
@@ -327,11 +321,6 @@ const App: React.FC = () => {
       else if (data.type === 'PING_MOVE') setPings(prev => prev.map(p => p.id === data.id ? { ...p, lat: data.lat, lng: data.lng } : p));
       else if (data.type === 'PING_DELETE') setPings(prev => prev.filter(p => p.id !== data.id));
       else if (data.type === 'PING_UPDATE') setPings(prev => prev.map(p => p.id === data.id ? { ...p, msg: data.msg, details: data.details } : p));
-      else if (data.type === 'COPY_POS') {
-          // Gestion copie coordonnées
-          Clipboard.setStringAsync(data.text);
-          showToast("Position Copiée");
-      }
   };
 
   const joinSession = async (id?: string) => {
@@ -403,7 +392,6 @@ const App: React.FC = () => {
       setCurrentPingType(type); 
       setShowPingMenu(false); 
       setPingMsgInput(''); 
-      // AUTO FILL POSITION POUR HOSTILE
       let defaultDetails: HostileDetails = {position: '', nature: '', attitude: '', volume: '', armes: '', substances: ''};
       if (type === 'HOSTILE' && tempPingLoc) {
           defaultDetails.position = `${tempPingLoc.lat.toFixed(5)}, ${tempPingLoc.lng.toFixed(5)}`;
@@ -412,9 +400,10 @@ const App: React.FC = () => {
       setShowPingForm(true); 
   };
 
-  // --- RENDU UI ---
+  // --- RENDU UI AVEC CARTE PERSISTANTE ---
   const renderMainContent = () => (
       <View style={{flex: 1}}>
+          {/* VUE OPS (LISTE) */}
           <View style={{ flex: 1, display: view === 'ops' ? 'flex' : 'none' }}>
               <SafeAreaView style={styles.header}>
                   <View style={styles.headerContent}>
@@ -437,6 +426,7 @@ const App: React.FC = () => {
               </ScrollView>
           </View>
 
+          {/* VUE CARTE (Toujours présente dans l'arbre React, juste masquée si inactive) */}
           <View style={{ flex: 1, display: view === 'map' ? 'flex' : 'none' }}>
               <SafeAreaView style={styles.header}>
                   <View style={styles.headerContent}>
@@ -487,6 +477,18 @@ const App: React.FC = () => {
           </View>
       </View>
   );
+
+  // Le reste du composant (Settings, Login, Modales)
+  // ... (Identique à la version précédente mais avec la correction des modales)
+
+  if (!isAppReady) {
+      return (
+        <View style={{flex: 1, backgroundColor: '#000000', justifyContent: 'center', alignItems: 'center'}}>
+            <ActivityIndicator size="large" color="#3b82f6" />
+            <StatusBar style="light" />
+        </View>
+      );
+  }
 
   return (
     <View style={styles.container}>
@@ -543,12 +545,13 @@ const App: React.FC = () => {
        ) : renderMainContent()
       }
 
-      {/* MODALES & ELEMENTS FLOTTANTS */}
+      {/* MODALES & ELEMENTS FLOTTANTS - TOUTES AVEC THEME NOIR */}
       <OperatorActionModal visible={!!selectedOperatorId} targetOperator={peers[selectedOperatorId || ''] || null} currentUserRole={user.role} onClose={() => setSelectedOperatorId(null)} onKick={handleOperatorActionKick} onNavigate={handleOperatorActionNavigate} />
+      
       <Modal visible={showQuickMsgModal} animationType="fade" transparent>
           <KeyboardAvoidingView behavior="padding" style={styles.modalOverlay}>
-              <View style={[styles.modalContent, {backgroundColor: '#18181b', borderWidth: 1, borderColor: '#333', maxHeight: '80%'}]}>
-                  <Text style={[styles.modalTitle, {color: '#06b6d4', marginBottom: 15}]}>MESSAGE RAPIDE</Text>
+              <View style={styles.modalContent}>
+                  <Text style={[styles.modalTitle, {color: '#06b6d4'}]}>MESSAGE RAPIDE</Text>
                   <View style={{flexDirection: 'row', marginBottom: 15, width: '100%'}}>
                       <TextInput style={[styles.pingInput, {flex: 1, marginBottom: 0, textAlign: 'left'}]} placeholder="Message libre..." placeholderTextColor="#52525b" value={freeMsgInput} onChangeText={setFreeMsgInput} />
                       <TouchableOpacity onPress={() => handleSendQuickMessage(freeMsgInput)} style={[styles.modalBtn, {backgroundColor: '#06b6d4', marginLeft: 10, flex: 0, width: 50}]}><MaterialIcons name="send" size={20} color="white" /></TouchableOpacity>
@@ -558,6 +561,7 @@ const App: React.FC = () => {
               </View>
           </KeyboardAvoidingView>
       </Modal>
+
       <Modal visible={showPingMenu} transparent animationType="fade">
           <View style={styles.modalOverlay}>
               <View style={styles.pingMenuContainer}>
@@ -571,9 +575,10 @@ const App: React.FC = () => {
               </View>
           </View>
       </Modal>
+
       <Modal visible={showPingForm} transparent animationType="slide">
           <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
-              <View style={[styles.modalContent, {width: '90%', maxHeight: '80%'}]}>
+              <View style={styles.modalContent}>
                   <Text style={[styles.modalTitle, {color: currentPingType === 'HOSTILE' ? '#ef4444' : currentPingType === 'FRIEND' ? '#22c55e' : '#eab308'}]}>{currentPingType === 'HOSTILE' ? 'ADVERSAIRE' : currentPingType === 'FRIEND' ? 'AMI' : 'RENS'}</Text>
                   <Text style={styles.label}>Message</Text>
                   <TextInput style={styles.pingInput} placeholder="Titre / Info" placeholderTextColor="#52525b" value={pingMsgInput} onChangeText={setPingMsgInput} autoFocus={currentPingType !== 'HOSTILE'} />
@@ -595,9 +600,10 @@ const App: React.FC = () => {
               </View>
           </KeyboardAvoidingView>
       </Modal>
+
       <Modal visible={!!editingPing} transparent animationType="slide">
           <View style={styles.modalOverlay}>
-              <View style={[styles.modalContent, {width: '90%'}]}>
+              <View style={styles.modalContent}>
                   <Text style={styles.modalTitle}>MODIFICATION</Text>
                   <TextInput style={styles.pingInput} value={pingMsgInput} onChangeText={setPingMsgInput} />
                   {editingPing?.type === 'HOSTILE' && (
@@ -618,6 +624,7 @@ const App: React.FC = () => {
               </View>
           </View>
       </Modal>
+
       <Modal visible={showQRModal} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -631,6 +638,7 @@ const App: React.FC = () => {
           </View>
         </View>
       </Modal>
+
       <Modal visible={showScanner} animationType="slide">
         <View style={{flex: 1, backgroundColor: 'black'}}>
           <CameraView style={{flex: 1}} onBarcodeScanned={handleScannerBarCodeScanned} barcodeScannerSettings={{barcodeTypes: ["qr"]}} />
@@ -640,7 +648,6 @@ const App: React.FC = () => {
 
       {activeNotif && <NavNotification message={`${activeNotif.id}: ${activeNotif.msg}`} type={activeNotif.type} isNightOps={nightOpsMode} onDismiss={() => setActiveNotif(null)} />}
       
-      {/* FILTRE NIGHT OPS */}
       {nightOpsMode && <View style={styles.nightOpsOverlay} pointerEvents="none" />}
       
       {toast && ( <View style={[styles.toast, toast.type === 'error' && {backgroundColor: '#ef4444'}]}><Text style={styles.toastText}>{toast.msg}</Text></View> )}
