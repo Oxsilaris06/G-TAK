@@ -1,55 +1,54 @@
 import 'react-native-get-random-values';
+import { registerGlobals } from 'react-native-webrtc';
 
-// 1. GLOBAL ENVIRONMENT SETUP
+// 1. Enregistre RTCPeerConnection, RTCSessionDescription, etc. dans global
+registerGlobals();
+
+// 2. Window & Self
 if (typeof window === 'undefined') {
     global.window = global;
 }
-
 if (typeof self === 'undefined') {
     global.self = global;
 }
 
+// 3. Location (Critique pour PeerJS)
+if (!global.window.location) {
+    global.window.location = {
+        protocol: 'https:',
+        host: 'localhost',
+        hostname: 'localhost',
+        href: 'https://localhost',
+        port: '443',
+        search: '',
+        hash: '',
+        pathname: '/',
+        origin: 'https://localhost'
+    };
+}
+
+// 4. Navigator
+if (!global.navigator) {
+    global.navigator = {};
+}
+if (!global.navigator.userAgent) {
+    global.navigator.userAgent = 'react-native';
+}
+// Force le mode "Online" pour que PeerJS tente la connexion
+if (global.navigator.onLine === undefined) {
+    global.navigator.onLine = true;
+}
+
+// 5. Process
 if (typeof process === 'undefined') {
     global.process = {
         env: { NODE_ENV: __DEV__ ? 'development' : 'production' },
-        version: '',
         nextTick: (cb) => setTimeout(cb, 0),
-        browser: true,
-        platform: 'linux' 
+        browser: true
     };
 }
 
-// 2. NAVIGATOR POLYFILL
-if (!global.navigator) {
-    global.navigator = {
-        userAgent: 'react-native',
-        product: 'ReactNative',
-        platform: 'Linux armv81',
-        appVersion: '1.0.0',
-        onLine: true,
-    };
-} else {
-    // Merge existing properties safely
-    if (!global.navigator.userAgent) global.navigator.userAgent = 'react-native';
-    if (global.navigator.onLine === undefined) global.navigator.onLine = true;
-}
-
-// 3. LOCATION POLYFILL
-if (!global.location) {
-    global.location = {
-        href: 'http://localhost/',
-        protocol: 'http:',
-        host: 'localhost',
-        hostname: 'localhost',
-        port: '80',
-        pathname: '/',
-        search: '',
-        hash: '',
-        origin: 'http://localhost'
-    };
-}
-
-// 4. TEXT ENCODER / DECODER
+// 6. TextEncoder/Decoder (Souvent manquant sur Android Hermes)
 if (typeof TextEncoder === 'undefined') {
     global.TextEncoder = class TextEncoder {
         encode(str) {
@@ -71,23 +70,16 @@ if (typeof TextDecoder === 'undefined') {
     };
 }
 
-// 5. TIMERS & PERFORMANCE
+// 7. Timers Override
 const originalSetTimeout = setTimeout;
 global.setTimeout = (fn, ms, ...args) => {
     return originalSetTimeout(fn, ms || 0, ...args);
 };
 
-if (typeof performance === 'undefined') {
-    global.performance = {
-        now: () => Date.now()
-    };
-}
-
-// 6. CRYPTO FALLBACK (Minimal)
+// 8. Crypto Fallback (Dernier recours)
 if (typeof crypto === 'undefined') {
     global.crypto = {
         getRandomValues: (arr) => {
-             // Fallback uniquement si react-native-get-random-values échoue
              for (let i = 0; i < arr.length; i++) {
                  arr[i] = Math.floor(Math.random() * 256);
              }
