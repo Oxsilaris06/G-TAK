@@ -18,11 +18,11 @@ export default {
       supportsTablet: true,
       bundleIdentifier: "com.comtac.sa",
       infoPlist: {
-        UIBackgroundModes: ["location", "fetch"],
-        NSLocationAlwaysAndWhenInUseUsageDescription: "ComTac nécessite votre position pour la coordination tactique avec votre équipe.",
-        NSLocationAlwaysUsageDescription: "Le suivi en arrière-plan est nécessaire pour la sécurité de l'équipe même écran éteint.",
-        NSLocationWhenInUseUsageDescription: "Affichage de votre position sur la carte tactique.",
-        NSCameraUsageDescription: "Nécessaire pour scanner les QR Codes de connexion."
+        UIBackgroundModes: ["location", "fetch", "voip"],
+        NSLocationAlwaysAndWhenInUseUsageDescription: "Suivi tactique de l'équipe.",
+        NSLocationWhenInUseUsageDescription: "Affichage position sur carte.",
+        NSCameraUsageDescription: "Scan QR Code & WebRTC.",
+        NSMicrophoneUsageDescription: "Audio WebRTC."
       }
     },
     android: {
@@ -36,6 +36,7 @@ export default {
         "ACCESS_FINE_LOCATION",
         "ACCESS_BACKGROUND_LOCATION",
         "CAMERA",
+        "RECORD_AUDIO",
         "FOREGROUND_SERVICE",
         "FOREGROUND_SERVICE_LOCATION",
         "WAKE_LOCK",
@@ -43,11 +44,9 @@ export default {
         "INTERNET",
         "ACCESS_NETWORK_STATE",
         "ACCESS_WIFI_STATE",
-        "POST_NOTIFICATIONS" 
+        "POST_NOTIFICATIONS",
+        "MODIFY_AUDIO_SETTINGS"
       ]
-    },
-    web: {
-      favicon: "./assets/favicon.png"
     },
     plugins: [
       [
@@ -69,10 +68,12 @@ export default {
           "android": {
             "compileSdkVersion": 34,
             "targetSdkVersion": 34,
-            "buildToolsVersion": "34.0.0"
+            "buildToolsVersion": "34.0.0",
+            "kotlinVersion": "1.8.0" 
           }
         }
-      ]
+      ],
+      "@config-plugins/react-native-webrtc"
     ],
     extra: {
       eas: {
