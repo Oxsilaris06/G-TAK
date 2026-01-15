@@ -7,12 +7,8 @@ import {
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import QRCode from 'react-native-qrcode-svg';
-
-// CAMERA FIX: API Check
 import { CameraView, useCameraPermissions } from 'expo-camera/next'; 
-// NOTIFICATIONS IMPORT
 import * as Notifications from 'expo-notifications';
-
 import * as Location from 'expo-location';
 import { useKeepAwake } from 'expo-keep-awake';
 import * as Battery from 'expo-battery';
@@ -22,6 +18,7 @@ import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Magnetometer } from 'expo-sensors';
 import NetInfo from '@react-native-community/netinfo';
+import * as SplashScreen from 'expo-splash-screen'; // NOUVEAU
 
 import { UserData, OperatorStatus, OperatorRole, ViewType, PingData, AppSettings, DEFAULT_SETTINGS, PingType, HostileDetails } from './types';
 import { CONFIG, STATUS_COLORS } from './constants';
@@ -32,7 +29,9 @@ import OperatorCard from './components/OperatorCard';
 import TacticalMap from './components/TacticalMap';
 import SettingsView from './components/SettingsView';
 
-// --- CONFIGURATION NOTIFICATIONS ---
+// Empêcher le splash screen de disparaître tant qu'on n'est pas prêt
+SplashScreen.preventAutoHideAsync().catch(() => {});
+
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
@@ -44,10 +43,8 @@ Notifications.setNotificationHandler({
 let DEFAULT_MSG_JSON: string[] = [];
 try { DEFAULT_MSG_JSON = require('./msg.json'); } catch (e) { }
 
-// --- COMPOSANT NOTIFICATION INTERNE ---
 const NavNotification = ({ message, onDismiss }: { message: string, onDismiss: () => void }) => {
     const pan = useRef(new Animated.ValueXY()).current;
-    
     const panResponder = useRef(
       PanResponder.create({
         onMoveShouldSetPanResponder: () => true,
@@ -61,12 +58,8 @@ const NavNotification = ({ message, onDismiss }: { message: string, onDismiss: (
         }
       })
     ).current;
-  
     return (
-      <Animated.View 
-        style={[styles.navNotif, { transform: [{ translateX: pan.x }] }]} 
-        {...panResponder.panHandlers}
-      >
+      <Animated.View style={[styles.navNotif, { transform: [{ translateX: pan.x }] }]} {...panResponder.panHandlers}>
           <MaterialIcons name="directions-run" size={24} color="#06b6d4" />
           <Text style={styles.navNotifText}>{message}</Text>
           <MaterialIcons name="chevron-right" size={20} color="#52525b" />
@@ -81,7 +74,6 @@ const App: React.FC = () => {
     ? useCameraPermissions() 
     : [{ granted: false, canAskAgain: true }, async () => ({ granted: false, canAskAgain: true, status: 'denied', expires: 'never' })];
 
-  // --- STATE ---
   const [isAppReady, setIsAppReady] = useState(false);
   const [toast, setToast] = useState<{ msg: string; type: 'info' | 'error' } | null>(null);
 
@@ -135,7 +127,6 @@ const App: React.FC = () => {
   const lastHeadBroadcast = useRef<number>(0);
   const gpsSubscription = useRef<Location.LocationSubscription | null>(null);
 
-  // --- HELPER ---
   const showToast = useCallback((msg: string, type: 'info' | 'error' = 'info') => {
     setToast({ msg, type });
     if (type === 'error') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -143,7 +134,6 @@ const App: React.FC = () => {
   }, []);
 
   const copyToClipboard = async () => {
-    // Si connecté : Host ID. Si non connecté : Mon User ID (PeerJS)
     const idToCopy = hostId || user.id;
     if (idToCopy) {
         await Clipboard.setStringAsync(idToCopy);
@@ -157,16 +147,18 @@ const App: React.FC = () => {
     console.log("Bootstrapping Permissions...");
     try {
         if (Platform.OS === 'android') {
+            // On ne bloque pas si ça échoue, on log juste
             await PermissionsAndroid.requestMultiple([
                 PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
                 PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION,
-            ]).catch(() => console.log("Loc Perm Error"));
+            ]).catch(e => console.warn("Android Perm Error", e));
         }
 
+        // Tentative de notif avec timeout
         try {
-            const { status: existingStatus } = await Notifications.getPermissionsAsync();
-            if (existingStatus !== 'granted') await Notifications.requestPermissionsAsync();
-        } catch(e) { console.log("Notif Perm Error"); }
+            const { status } = await Notifications.getPermissionsAsync();
+            if (status !== 'granted') await Notifications.requestPermissionsAsync();
+        } catch(e) {}
         
         const locRes = await Location.requestForegroundPermissionsAsync().catch(() => ({status: 'denied'}));
         if (locRes.status !== 'granted') {
@@ -179,32 +171,34 @@ const App: React.FC = () => {
             await requestCameraPermission().catch(() => {});
         }
     } catch (e) {
-        console.warn("Permission Error (Global):", e);
+        console.warn("Global Perm Error:", e);
     }
   };
 
   const startGpsTracking = useCallback(async (interval: number) => {
       if (gpsSubscription.current) gpsSubscription.current.remove();
-      const hasPerm = await Location.getForegroundPermissionsAsync().catch(() => ({granted: false}));
-      if (!hasPerm.granted) return;
+      try {
+        const hasPerm = await Location.getForegroundPermissionsAsync();
+        if (!hasPerm.granted) return;
 
-      gpsSubscription.current = await Location.watchPositionAsync(
-        { accuracy: Location.Accuracy.High, timeInterval: interval, distanceInterval: 5 },
-        (loc) => {
-            const { latitude, longitude, speed, heading, accuracy } = loc.coords;
-            if (accuracy && accuracy > 100) return;
-            setGpsStatus('OK');
-            
-            setUser(prev => {
-                const gpsHead = (speed && speed > 1 && heading !== null) ? heading : prev.head;
-                if (!lastLocationRef.current || Math.abs(latitude - lastLocationRef.current.lat) > 0.0001 || Math.abs(longitude - lastLocationRef.current.lng) > 0.0001) {
-                    connectivityService.updateUserPosition(latitude, longitude, gpsHead);
-                    lastLocationRef.current = { lat: latitude, lng: longitude };
-                }
-                return { ...prev, lat: latitude, lng: longitude, head: gpsHead };
-            });
-        }
-      );
+        gpsSubscription.current = await Location.watchPositionAsync(
+            { accuracy: Location.Accuracy.High, timeInterval: interval, distanceInterval: 5 },
+            (loc) => {
+                const { latitude, longitude, speed, heading, accuracy } = loc.coords;
+                if (accuracy && accuracy > 100) return;
+                setGpsStatus('OK');
+                
+                setUser(prev => {
+                    const gpsHead = (speed && speed > 1 && heading !== null) ? heading : prev.head;
+                    if (!lastLocationRef.current || Math.abs(latitude - lastLocationRef.current.lat) > 0.0001 || Math.abs(longitude - lastLocationRef.current.lng) > 0.0001) {
+                        connectivityService.updateUserPosition(latitude, longitude, gpsHead);
+                        lastLocationRef.current = { lat: latitude, lng: longitude };
+                    }
+                    return { ...prev, lat: latitude, lng: longitude, head: gpsHead };
+                });
+            }
+        );
+      } catch(e) { console.warn("GPS Start Error", e); }
   }, []);
 
   const finishLogout = useCallback(() => {
@@ -219,13 +213,10 @@ const App: React.FC = () => {
   useEffect(() => {
       const newPeers = peers;
       const oldPeers = prevPeersRef.current;
-
       Object.keys(newPeers).forEach(peerId => {
           if (peerId === user.id) return; 
-
           const newUser = newPeers[peerId];
           const oldUser = oldPeers[peerId];
-
           if (newUser.status === OperatorStatus.CONTACT) {
               if (!oldUser || oldUser.status !== OperatorStatus.CONTACT) {
                   Vibration.vibrate([0, 500, 200, 500, 200, 500]); 
@@ -233,12 +224,9 @@ const App: React.FC = () => {
               }
           }
       });
-
       prevPeersRef.current = newPeers;
   }, [peers, user.id]);
 
-
-  // --- HANDLERS ---
   const handleConnectivityEvent = useCallback((event: ConnectivityEvent) => {
       switch (event.type) {
           case 'PEER_OPEN':
@@ -290,25 +278,32 @@ const App: React.FC = () => {
       }
   };
 
-  // --- EFFECTS INIT ---
+  // --- INIT CRITIQUE : TIMEOUT DE SÉCURITÉ ---
   useEffect(() => {
-      const initApp = async () => {
-          await bootstrapPermissions();
+      const loadResources = async () => {
           try {
+              // On lance les permissions mais on ne laisse pas bloquer plus de 3 secondes
+              await Promise.race([
+                  bootstrapPermissions(),
+                  new Promise(resolve => setTimeout(resolve, 3000))
+              ]);
+
               const s = await configService.init();
               let msgs = s.quickMessages;
               if ((!msgs || msgs.length === 0) && Array.isArray(DEFAULT_MSG_JSON)) { msgs = DEFAULT_MSG_JSON; }
               setSettings(s);
               setQuickMessagesList(msgs || DEFAULT_SETTINGS.quickMessages);
+              
               if (s.username) { setUser(prev => ({ ...prev, callsign: s.username })); setLoginInput(s.username); }
           } catch (e) {
-              console.warn("Init Error", e);
-          } finally { 
-              setIsAppReady(true); 
+              console.warn("Init Failed", e);
+          } finally {
+              setIsAppReady(true);
+              await SplashScreen.hideAsync().catch(() => {});
           }
       };
       
-      initApp();
+      loadResources();
 
       const unsubConfig = configService.subscribe((newSettings) => {
           setSettings(newSettings);
@@ -321,8 +316,9 @@ const App: React.FC = () => {
       });
       const unsubConn = connectivityService.subscribe(handleConnectivityEvent);
       return () => { unsubConfig(); unsubConn(); };
-  }, [handleConnectivityEvent, startGpsTracking]);
+  }, []); // Run once
 
+  // ... (Reste des useEffects inchangés pour Battery, Magnetometer, NetInfo) ...
   useEffect(() => { 
       Battery.getBatteryLevelAsync().then(l => setUser(u => ({ ...u, bat: Math.floor(l * 100) }))); 
       const sub = Battery.addBatteryLevelListener(({ batteryLevel }) => setUser(u => ({ ...u, bat: Math.floor(batteryLevel * 100) }))); 
@@ -407,8 +403,39 @@ const App: React.FC = () => {
       connectivityService.init({ ...user, role: OperatorRole.HOST }, OperatorRole.HOST);
       setView('map');
   };
+  const handleScannerBarCodeScanned = ({ data }: any) => {
+    setShowScanner(false);
+    setHostInput(data);
+    setTimeout(() => joinSession(data), 500);
+  };
+  const openSettings = () => { setLastView(view); setView('settings'); };
 
-  // --- RENDER MENU MODIFIÉ ---
+  // --- RENDERS ---
+  
+  // Si l'app charge encore mais que le splash screen est caché (cas limite), on met un loader
+  if (!isAppReady) {
+      return (
+          <View style={[styles.container, styles.centerContainer]}>
+              <ActivityIndicator size="large" color="#3b82f6" />
+          </View>
+      );
+  }
+
+  const renderLogin = () => (
+    <View style={styles.centerContainer}>
+      <MaterialIcons name="fingerprint" size={80} color="#3b82f6" style={{opacity: 0.8, marginBottom: 30}} />
+      <Text style={styles.title}>COM<Text style={{color: '#3b82f6'}}>TAC</Text></Text>
+      <TextInput style={styles.input} placeholder="TRIGRAMME" placeholderTextColor="#52525b" maxLength={6} value={loginInput} onChangeText={setLoginInput} autoCapitalize="characters" />
+      <TouchableOpacity onPress={async () => {
+          if (loginInput.length < 2) return;
+          try { await AsyncStorage.setItem(CONFIG.TRIGRAM_STORAGE_KEY, loginInput.toUpperCase()); } catch (e) {}
+          if (loginInput.toUpperCase() !== settings.username) configService.update({ username: loginInput.toUpperCase() });
+          setUser(prev => ({ ...prev, callsign: loginInput.toUpperCase() }));
+          setView('menu');
+      }} style={styles.loginBtn}><Text style={styles.loginBtnText}>CONNEXION</Text></TouchableOpacity>
+    </View>
+  );
+
   const renderMenu = () => {
     const isSessionActive = !!hostId;
     return (
@@ -425,8 +452,6 @@ const App: React.FC = () => {
                 </TouchableOpacity>
             </View>
         </View>
-        
-        {/* INFO STATUS BAR */}
         <View style={{flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 20, backgroundColor: '#18181b', padding: 10, borderRadius: 8}}>
                 {isServicesReady ? (<MaterialIcons name="check-circle" size={16} color="#22c55e" />) : (<ActivityIndicator size="small" color="#3b82f6" />)}
                 <Text style={{color: '#71717a', fontSize: 10, marginRight: 10}}>SYS</Text>
@@ -434,7 +459,6 @@ const App: React.FC = () => {
                 <Text style={{color: '#71717a', fontSize: 10}}>GPS</Text>
         </View>
         
-        {/* LOGIQUE D'AFFICHAGE DU MENU */}
         {isSessionActive ? (
             <View>
                 <TouchableOpacity onPress={() => setView('map')} style={[styles.menuCard, {borderColor: '#22c55e', backgroundColor: 'rgba(34, 197, 94, 0.1)'}]}>
@@ -444,10 +468,8 @@ const App: React.FC = () => {
                     <Text style={styles.menuCardSubtitle}>Réseau: {hostId}</Text>
                   </View>
                 </TouchableOpacity>
-                
                 <View style={styles.divider} />
-                
-                {/* BOUTON QR CODE TOUJOURS VISIBLE SI CONNECTÉ */}
+                {/* BOUTON QR CODE RESTAURÉ */}
                 <TouchableOpacity onPress={() => setShowQRModal(true)} style={[styles.menuCard, {borderColor: '#d4d4d8', padding: 15, marginBottom: 15}]}>
                     <MaterialIcons name="qr-code" size={30} color="#d4d4d8" />
                     <View style={{marginLeft: 20}}>
@@ -455,7 +477,6 @@ const App: React.FC = () => {
                         <Text style={styles.menuCardSubtitle}>Partager ID Session</Text>
                     </View>
                 </TouchableOpacity>
-
                 <TouchableOpacity onPress={() => Alert.alert("Fin de Mission", "Voulez-vous vraiment quitter le canal ?", [{text:"Non"}, {text:"Oui", onPress:handleLogout}])} style={[styles.menuCard, {borderColor: '#ef4444', padding: 15}]}>
                   <MaterialIcons name="logout" size={30} color="#ef4444" />
                   <View style={{marginLeft: 20}}>
@@ -483,8 +504,7 @@ const App: React.FC = () => {
                 <TouchableOpacity onPress={() => joinSession()} style={styles.joinBtn}>
                     <Text style={styles.joinBtnText}>REJOINDRE</Text>
                 </TouchableOpacity>
-                
-                {/* NOUVEAU: BOUTON QR CODE AUSSI EN MODE NON-CONNECTÉ (Pour préparer) */}
+                {/* BOUTON QR CODE MODE NON CONNECTÉ */}
                 <TouchableOpacity onPress={() => setShowQRModal(true)} style={[styles.joinBtn, {backgroundColor: '#18181b', borderWidth:1, borderColor:'#333', marginTop: 15}]}>
                     <View style={{flexDirection:'row', alignItems:'center', justifyContent: 'center', gap: 10}}>
                         <MaterialIcons name="qr-code" size={20} color="#71717a" />
@@ -497,49 +517,21 @@ const App: React.FC = () => {
     </SafeAreaView>
   )};
 
-  if (!isAppReady) return (<View style={[styles.container, styles.centerContainer]}><ActivityIndicator size="large" color="#3b82f6" /><Text style={{color: 'white', marginTop: 20}}>Initialisation...</Text></View>);
-
-  const renderLogin = () => (
-    <View style={styles.centerContainer}>
-      <MaterialIcons name="fingerprint" size={80} color="#3b82f6" style={{opacity: 0.8, marginBottom: 30}} />
-      <Text style={styles.title}>COM<Text style={{color: '#3b82f6'}}>TAC</Text></Text>
-      <TextInput style={styles.input} placeholder="TRIGRAMME" placeholderTextColor="#52525b" maxLength={6} value={loginInput} onChangeText={setLoginInput} autoCapitalize="characters" />
-      <TouchableOpacity onPress={async () => {
-          if (loginInput.length < 2) return;
-          try { await AsyncStorage.setItem(CONFIG.TRIGRAM_STORAGE_KEY, loginInput.toUpperCase()); } catch (e) {}
-          if (loginInput.toUpperCase() !== settings.username) configService.update({ username: loginInput.toUpperCase() });
-          setUser(prev => ({ ...prev, callsign: loginInput.toUpperCase() }));
-          setView('menu');
-      }} style={styles.loginBtn}><Text style={styles.loginBtnText}>CONNEXION</Text></TouchableOpacity>
-    </View>
-  );
-
   return (
     <View style={styles.container}>
       <StatusBar style="light" backgroundColor="#050505" />
-      
-      {view === 'settings' ? (
-         <SettingsView onClose={() => setView(lastView)} />
-      ) : (
+      {view === 'settings' ? ( <SettingsView onClose={() => setView(lastView)} /> ) : (
         <View style={{flex: 1}}>
             {view === 'login' ? renderLogin() : 
              view === 'menu' ? renderMenu() : 
              (view === 'ops' || view === 'map') ? (
                  <View style={{flex: 1}}>
-                     {/* DASHBOARD VIEW (Map/Ops) */}
                      <View style={{backgroundColor: '#09090b'}}>
                         <SafeAreaView style={styles.header}>
                             <View style={styles.headerContent}>
-                            <TouchableOpacity onPress={() => setView('menu')} style={{padding: 8, marginRight: 10}}>
-                                <MaterialIcons name="arrow-back" size={24} color="#a1a1aa" />
-                            </TouchableOpacity>
-                            <View style={{flexDirection: 'row', alignItems: 'center', flex: 1}}>
-                                <MaterialIcons name="satellite" size={20} color="#3b82f6" />
-                                <Text style={styles.headerTitle}> COM<Text style={{color: '#3b82f6'}}>TAC</Text></Text>
-                            </View>
-                            <TouchableOpacity onPress={openSettings} style={{padding: 8, marginRight: 5}}>
-                                <MaterialIcons name="settings" size={24} color="#a1a1aa" />
-                            </TouchableOpacity>
+                            <TouchableOpacity onPress={() => setView('menu')} style={{padding: 8, marginRight: 10}}><MaterialIcons name="arrow-back" size={24} color="#a1a1aa" /></TouchableOpacity>
+                            <View style={{flexDirection: 'row', alignItems: 'center', flex: 1}}><MaterialIcons name="satellite" size={20} color="#3b82f6" /><Text style={styles.headerTitle}> COM<Text style={{color: '#3b82f6'}}>TAC</Text></Text></View>
+                            <TouchableOpacity onPress={openSettings} style={{padding: 8, marginRight: 5}}><MaterialIcons name="settings" size={24} color="#a1a1aa" /></TouchableOpacity>
                             <TouchableOpacity onPress={() => setView(view === 'map' ? 'ops' : 'map')} style={[styles.navBtn, view === 'map' ? styles.navBtnActive : null]}>
                                 <MaterialIcons name={view === 'map' ? 'list' : 'map'} size={16} color={view === 'map' ? 'white' : '#a1a1aa'} />
                                 <Text style={[styles.navBtnText, view === 'map' ? {color:'white'} : null]}>{view === 'map' ? 'LISTE' : 'CARTE'}</Text>
@@ -549,18 +541,12 @@ const App: React.FC = () => {
                         {isOffline && (<View style={[styles.silenceBanner, {backgroundColor: '#ef4444'}]}><Text style={styles.silenceText}>CONNEXION PERDUE</Text></View>)}
                         {isMigrating && (<View style={[styles.silenceBanner, {backgroundColor: '#eab308'}]}><Text style={styles.silenceText}>MIGRATION HÔTE...</Text></View>)}
                      </View>
-
                      <View style={styles.mainContent}>
                         {view === 'ops' ? (
                         <ScrollView contentContainerStyle={styles.grid}>
                             <OperatorCard user={user} isMe style={{ width: '100%' }} />
                             {Object.values(peers).filter(p => p.id !== user.id).map(p => (
-                                <TouchableOpacity 
-                                    key={p.id} 
-                                    onLongPress={() => setSelectedOperatorId(p.id)} 
-                                    activeOpacity={0.8}
-                                    style={{ width: '100%', marginBottom: 10 }}
-                                >
+                                <TouchableOpacity key={p.id} onLongPress={() => setSelectedOperatorId(p.id)} activeOpacity={0.8} style={{ width: '100%', marginBottom: 10 }}>
                                     <OperatorCard user={p} me={user} style={{ width: '100%' }} />
                                 </TouchableOpacity>
                             ))}
@@ -587,40 +573,23 @@ const App: React.FC = () => {
                                 </View>
                             )}
                             <View style={styles.mapControls}>
-                                <TouchableOpacity onPress={() => setMapMode(m => m === 'dark' ? 'light' : m === 'light' ? 'satellite' : 'dark')} style={styles.mapBtn}>
-                                    <MaterialIcons name={mapMode === 'dark' ? 'dark-mode' : mapMode === 'light' ? 'light-mode' : 'satellite'} size={24} color="#d4d4d8" />
-                                </TouchableOpacity>
-                                <TouchableOpacity onPress={() => setShowTrails(!showTrails)} style={styles.mapBtn}>
-                                    <MaterialIcons name={showTrails ? 'visibility' : 'visibility-off'} size={24} color="#d4d4d8" />
-                                </TouchableOpacity>
-                                <TouchableOpacity onPress={() => setShowPings(!showPings)} style={styles.mapBtn}>
-                                    <MaterialIcons name={showPings ? 'location-on' : 'location-off'} size={24} color="#d4d4d8" />
-                                </TouchableOpacity>
-                                <TouchableOpacity onPress={() => setIsPingMode(!isPingMode)} style={[styles.mapBtn, isPingMode ? {backgroundColor: '#dc2626', borderColor: '#f87171'} : null]}>
-                                    <MaterialIcons name="ads-click" size={24} color="white" />
-                                </TouchableOpacity>
+                                <TouchableOpacity onPress={() => setMapMode(m => m === 'dark' ? 'light' : m === 'light' ? 'satellite' : 'dark')} style={styles.mapBtn}><MaterialIcons name={mapMode === 'dark' ? 'dark-mode' : mapMode === 'light' ? 'light-mode' : 'satellite'} size={24} color="#d4d4d8" /></TouchableOpacity>
+                                <TouchableOpacity onPress={() => setShowTrails(!showTrails)} style={styles.mapBtn}><MaterialIcons name={showTrails ? 'visibility' : 'visibility-off'} size={24} color="#d4d4d8" /></TouchableOpacity>
+                                <TouchableOpacity onPress={() => setShowPings(!showPings)} style={styles.mapBtn}><MaterialIcons name={showPings ? 'location-on' : 'location-off'} size={24} color="#d4d4d8" /></TouchableOpacity>
+                                <TouchableOpacity onPress={() => setIsPingMode(!isPingMode)} style={[styles.mapBtn, isPingMode ? {backgroundColor: '#dc2626', borderColor: '#f87171'} : null]}><MaterialIcons name="ads-click" size={24} color="white" /></TouchableOpacity>
                             </View>
                         </View>
                         )}
                      </View>
-
                      <View style={styles.footer}>
                         <View style={styles.statusRow}>
                             {[OperatorStatus.PROGRESSION, OperatorStatus.CONTACT, OperatorStatus.CLEAR].map(s => (
-                                <TouchableOpacity 
-                                    key={s} 
-                                    onPress={() => { connectivityService.updateUserStatus(s); }}
-                                    style={[styles.statusBtn, user.status === s ? { backgroundColor: STATUS_COLORS[s], borderColor: 'white' } : null]}
-                                >
+                                <TouchableOpacity key={s} onPress={() => { connectivityService.updateUserStatus(s); }} style={[styles.statusBtn, user.status === s ? { backgroundColor: STATUS_COLORS[s], borderColor: 'white' } : null]}>
                                     <Text style={[styles.statusBtnText, user.status === s ? {color:'white'} : null]}>{s}</Text>
                                 </TouchableOpacity>
                             ))}
-                            <TouchableOpacity onPress={() => setShowQuickMsgModal(true)} style={[styles.statusBtn, {borderColor: '#06b6d4'}]}>
-                                <Text style={[styles.statusBtnText, {color: '#06b6d4'}]}>MSG</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity onPress={() => setShowQRModal(true)} style={[styles.statusBtn, {borderColor: '#d4d4d8'}]}>
-                                <MaterialIcons name="qr-code-2" size={16} color="#d4d4d8" />
-                            </TouchableOpacity>
+                            <TouchableOpacity onPress={() => setShowQuickMsgModal(true)} style={[styles.statusBtn, {borderColor: '#06b6d4'}]}><Text style={[styles.statusBtnText, {color: '#06b6d4'}]}>MSG</Text></TouchableOpacity>
+                            <TouchableOpacity onPress={() => setShowQRModal(true)} style={[styles.statusBtn, {borderColor: '#d4d4d8'}]}><MaterialIcons name="qr-code-2" size={16} color="#d4d4d8" /></TouchableOpacity>
                         </View>
                      </View>
                  </View>
@@ -629,32 +598,24 @@ const App: React.FC = () => {
         </View>
       )}
 
-      {/* --- MODALES --- */}
+      {/* --- MODALES (Gardées à la fin pour être au dessus) --- */}
       <Modal visible={showQRModal} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>MON IDENTITY TAG</Text>
             <QRCode value={hostId || user.id || 'NO_ID'} size={200} />
-            {/* BOUTON COPIER RECTIFIÉ */}
             <TouchableOpacity onPress={copyToClipboard} style={{marginTop: 20, flexDirection:'row', alignItems:'center', backgroundColor: '#f4f4f5', padding: 10, borderRadius: 8}}>
                 <Text style={[styles.qrId, {marginTop: 0, marginRight: 10}]}>{hostId || user.id}</Text>
                 <MaterialIcons name="content-copy" size={20} color="#3b82f6" />
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => setShowQRModal(false)} style={styles.closeBtn}>
-              <Text style={styles.closeBtnText}>FERMER</Text>
-            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setShowQRModal(false)} style={styles.closeBtn}><Text style={styles.closeBtnText}>FERMER</Text></TouchableOpacity>
           </View>
         </View>
       </Modal>
 
-      {/* AUTRES MODALES... (Déjà incluses dans le code précédent, conservées telles quelles) */}
       <Modal visible={showScanner} animationType="slide">
         <View style={{flex: 1, backgroundColor: 'black'}}>
-          {permission?.granted ? (
-              <CameraView style={{flex: 1}} onBarcodeScanned={handleScannerBarCodeScanned} barcodeScannerSettings={{barcodeTypes: ["qr"]}} />
-          ) : (
-              <View style={{flex: 1, justifyContent: 'center', alignItems: 'center'}}><Text style={{color: 'white'}}>Permission requise</Text></View>
-          )}
+          {permission?.granted ? ( <CameraView style={{flex: 1}} onBarcodeScanned={handleScannerBarCodeScanned} barcodeScannerSettings={{barcodeTypes: ["qr"]}} /> ) : ( <View style={{flex: 1, justifyContent: 'center', alignItems: 'center'}}><Text style={{color: 'white'}}>Permission requise</Text></View> )}
           <TouchableOpacity onPress={() => setShowScanner(false)} style={styles.scannerClose}><MaterialIcons name="close" size={30} color="white" /></TouchableOpacity>
         </View>
       </Modal>
@@ -676,12 +637,7 @@ const App: React.FC = () => {
           <View style={styles.modalOverlay}>
               <View style={[styles.modalContent, {backgroundColor: '#18181b', borderWidth: 1, borderColor: '#333', maxHeight: '80%'}]}>
                   <Text style={[styles.modalTitle, {color: '#06b6d4', marginBottom: 15}]}>MESSAGE RAPIDE</Text>
-                  <FlatList 
-                      data={quickMessagesList} 
-                      keyExtractor={(item, index) => index.toString()}
-                      renderItem={({item}) => <TouchableOpacity onPress={() => sendQuickMessage(item)} style={styles.quickMsgItem}><Text style={styles.quickMsgText}>{item}</Text></TouchableOpacity>}
-                      ItemSeparatorComponent={() => <View style={{height: 1, backgroundColor: '#27272a'}} />}
-                  />
+                  <FlatList data={quickMessagesList} keyExtractor={(item, index) => index.toString()} renderItem={({item}) => <TouchableOpacity onPress={() => sendQuickMessage(item)} style={styles.quickMsgItem}><Text style={styles.quickMsgText}>{item}</Text></TouchableOpacity>} ItemSeparatorComponent={() => <View style={{height: 1, backgroundColor: '#27272a'}} />} />
                   <TouchableOpacity onPress={() => setShowQuickMsgModal(false)} style={[styles.closeBtn, {backgroundColor: '#27272a', marginTop: 15}]}><Text style={{color: '#a1a1aa'}}>ANNULER</Text></TouchableOpacity>
               </View>
           </View>
@@ -692,15 +648,9 @@ const App: React.FC = () => {
               <View style={styles.pingMenuContainer}>
                   <Text style={styles.modalTitle}>TYPE DE MARQUEUR</Text>
                   <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 15, justifyContent: 'center'}}>
-                      <TouchableOpacity onPress={() => selectPingType('HOSTILE')} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(239, 68, 68, 0.2)', borderColor: '#ef4444'}]}>
-                          <MaterialIcons name="warning" size={30} color="#ef4444" /><Text style={{color: '#ef4444', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>ADVERSAIRE</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity onPress={() => selectPingType('FRIEND')} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(34, 197, 94, 0.2)', borderColor: '#22c55e'}]}>
-                          <MaterialIcons name="shield" size={30} color="#22c55e" /><Text style={{color: '#22c55e', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>AMI</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity onPress={() => selectPingType('INTEL')} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(234, 179, 8, 0.2)', borderColor: '#eab308'}]}>
-                          <MaterialIcons name="visibility" size={30} color="#eab308" /><Text style={{color: '#eab308', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>RENS</Text>
-                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => selectPingType('HOSTILE')} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(239, 68, 68, 0.2)', borderColor: '#ef4444'}]}><MaterialIcons name="warning" size={30} color="#ef4444" /><Text style={{color: '#ef4444', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>ADVERSAIRE</Text></TouchableOpacity>
+                      <TouchableOpacity onPress={() => selectPingType('FRIEND')} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(34, 197, 94, 0.2)', borderColor: '#22c55e'}]}><MaterialIcons name="shield" size={30} color="#22c55e" /><Text style={{color: '#22c55e', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>AMI</Text></TouchableOpacity>
+                      <TouchableOpacity onPress={() => selectPingType('INTEL')} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(234, 179, 8, 0.2)', borderColor: '#eab308'}]}><MaterialIcons name="visibility" size={30} color="#eab308" /><Text style={{color: '#eab308', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>RENS</Text></TouchableOpacity>
                   </View>
                   <TouchableOpacity onPress={() => setShowPingMenu(false)} style={[styles.closeBtn, {marginTop: 20, backgroundColor: '#27272a'}]}><Text style={{color:'white'}}>ANNULER</Text></TouchableOpacity>
               </View>
@@ -710,9 +660,7 @@ const App: React.FC = () => {
       <Modal visible={showPingForm} transparent animationType="slide">
           <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
               <View style={[styles.modalContent, {width: '90%', maxHeight: '80%'}]}>
-                  <Text style={[styles.modalTitle, {color: currentPingType === 'HOSTILE' ? '#ef4444' : currentPingType === 'FRIEND' ? '#22c55e' : '#eab308'}]}>
-                      {currentPingType === 'HOSTILE' ? 'ADVERSAIRE' : currentPingType === 'FRIEND' ? 'AMI' : 'RENS'}
-                  </Text>
+                  <Text style={[styles.modalTitle, {color: currentPingType === 'HOSTILE' ? '#ef4444' : currentPingType === 'FRIEND' ? '#22c55e' : '#eab308'}]}>{currentPingType === 'HOSTILE' ? 'ADVERSAIRE' : currentPingType === 'FRIEND' ? 'AMI' : 'RENS'}</Text>
                   <TextInput style={styles.pingInput} placeholder="Intitulé" placeholderTextColor="#52525b" value={pingMsgInput} onChangeText={setPingMsgInput} autoFocus />
                   {currentPingType === 'HOSTILE' && (
                       <ScrollView style={{width: '100%', maxHeight: 200, marginBottom: 10}}>
@@ -751,18 +699,8 @@ const App: React.FC = () => {
           </View>
       </Modal>
 
-      {incomingNavNotif && (
-          <NavNotification 
-            message={incomingNavNotif} 
-            onDismiss={() => setIncomingNavNotif(null)} 
-          />
-      )}
-
-      {toast && (
-        <View style={[styles.toast, toast.type === 'error' && {backgroundColor: '#ef4444'}]}>
-           <Text style={styles.toastText}>{toast.msg}</Text>
-        </View>
-      )}
+      {incomingNavNotif && ( <NavNotification message={incomingNavNotif} onDismiss={() => setIncomingNavNotif(null)} /> )}
+      {toast && ( <View style={[styles.toast, toast.type === 'error' && {backgroundColor: '#ef4444'}]}><Text style={styles.toastText}>{toast.msg}</Text></View> )}
     </View>
   );
 };
