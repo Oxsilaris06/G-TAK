@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Alert, Switch } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Alert } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { configService } from '../services/configService';
 import { AppSettings, DEFAULT_SETTINGS } from '../types';
@@ -15,9 +15,7 @@ const SettingsView: React.FC<Props> = ({ onClose }) => {
     const [newMsg, setNewMsg] = useState('');
 
     useEffect(() => {
-        // FIX: Appel synchrone direct, pas de .then()
-        const currentData = configService.get();
-        setSettings(currentData);
+        setSettings(configService.get());
     }, []);
 
     const save = async () => {
@@ -60,19 +58,28 @@ const SettingsView: React.FC<Props> = ({ onClose }) => {
                 
                 try {
                     const parsed = JSON.parse(content);
-                    let newMsgs: string[] = [];
+                    let importedMsgs: string[] = [];
 
+                    // Détection format: Tableau simple de strings OU Objet avec propriété quickMessages
                     if (Array.isArray(parsed)) {
-                        newMsgs = parsed.filter(item => typeof item === 'string');
+                        importedMsgs = parsed.filter(item => typeof item === 'string');
                     } else if (parsed.quickMessages && Array.isArray(parsed.quickMessages)) {
-                        newMsgs = parsed.quickMessages.filter((item: any) => typeof item === 'string');
+                        importedMsgs = parsed.quickMessages.filter((item: any) => typeof item === 'string');
                     }
 
-                    if (newMsgs.length > 0) {
-                        setSettings(prev => ({ ...prev, quickMessages: newMsgs }));
-                        Alert.alert("Succès", `${newMsgs.length} messages importés.`);
+                    if (importedMsgs.length > 0) {
+                        // CORRECTION : Mise à jour immédiate du state ET sauvegarde
+                        setSettings(prev => {
+                            // On peut choisir d'écraser (pour un import propre) ou d'ajouter
+                            // Ici on remplace pour être sûr d'avoir la liste propre du JSON
+                            const newSettings = { ...prev, quickMessages: importedMsgs };
+                            // Sauvegarde asynchrone pour persistance immédiate
+                            configService.update(newSettings); 
+                            return newSettings;
+                        });
+                        Alert.alert("Succès", `${importedMsgs.length} messages importés.`);
                     } else {
-                        Alert.alert("Erreur", "Aucun message valide trouvé.");
+                        Alert.alert("Erreur", "Aucun message valide trouvé dans le JSON.");
                     }
                 } catch (jsonError) {
                     Alert.alert("Erreur JSON", "Fichier mal formé.");
