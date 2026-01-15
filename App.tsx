@@ -3,7 +3,7 @@ import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { 
   StyleSheet, View, Text, TextInput, TouchableOpacity, 
   SafeAreaView, Platform, Modal, StatusBar as RNStatusBar, Alert, ScrollView, ActivityIndicator,
-  PermissionsAndroid, Animated, PanResponder, FlatList, KeyboardAvoidingView, AppState, Dimensions
+  PermissionsAndroid, Animated, PanResponder, FlatList, KeyboardAvoidingView, AppState
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import QRCode from 'react-native-qrcode-svg';
@@ -19,7 +19,6 @@ import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Magnetometer } from 'expo-sensors';
 import * as SplashScreen from 'expo-splash-screen';
-import * as ScreenOrientation from 'expo-screen-orientation'; // Pour gérer l'orientation
 
 import { UserData, OperatorStatus, OperatorRole, ViewType, PingData, AppSettings, DEFAULT_SETTINGS, PingType, HostileDetails } from './types';
 import { CONFIG, STATUS_COLORS } from './constants';
@@ -35,7 +34,7 @@ try { SplashScreen.preventAutoHideAsync().catch(() => {}); } catch (e) {}
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowAlert: false, // Pas d'alerte système si app ouverte (on utilise le Toast custom)
+    shouldShowAlert: false, 
     shouldPlaySound: false,
     shouldSetBadge: false,
   }),
@@ -44,57 +43,37 @@ Notifications.setNotificationHandler({
 let DEFAULT_MSG_JSON: string[] = [];
 try { DEFAULT_MSG_JSON = require('./msg.json'); } catch (e) {}
 
-// --- TOAST NOTIFICATION INTELLIGENT ---
-// Affiche une notification swipable en haut de l'écran.
-// Rouge + Heartbeat si CONTACT, Noir si normal. 
-// Supporte le mode Night Ops.
 const NavNotification = ({ message, type, isNightOps, onDismiss }: { message: string, type: 'alert' | 'info', isNightOps: boolean, onDismiss: () => void }) => {
     const pan = useRef(new Animated.ValueXY()).current;
-    
-    // Animation Heartbeat pour alerte rouge
     const scaleAnim = useRef(new Animated.Value(1)).current;
+    
     useEffect(() => {
         let anim: Animated.CompositeAnimation | null = null;
         if (type === 'alert') {
-            anim = Animated.loop(
-                Animated.sequence([
-                    Animated.timing(scaleAnim, { toValue: 1.05, duration: 200, useNativeDriver: true }),
-                    Animated.timing(scaleAnim, { toValue: 1, duration: 200, useNativeDriver: true }),
-                    Animated.delay(500)
-                ])
-            );
+            anim = Animated.loop(Animated.sequence([Animated.timing(scaleAnim, { toValue: 1.05, duration: 200, useNativeDriver: true }), Animated.timing(scaleAnim, { toValue: 1, duration: 200, useNativeDriver: true }), Animated.delay(500)]));
             anim.start();
         } else {
-            // Auto dismiss pour info seulement
             const timer = setTimeout(onDismiss, 5000);
             return () => clearTimeout(timer);
         }
         return () => anim?.stop();
     }, [type, message]);
 
-    const panResponder = useRef(
-      PanResponder.create({
+    const panResponder = useRef(PanResponder.create({
         onMoveShouldSetPanResponder: () => true,
         onPanResponderMove: Animated.event([null, { dx: pan.x }], { useNativeDriver: false }),
         onPanResponderRelease: (_, gesture) => {
-          if (Math.abs(gesture.dx) > 100) {
-              Animated.timing(pan, { toValue: { x: gesture.dx > 0 ? 500 : -500, y: 0 }, useNativeDriver: false, duration: 200 }).start(onDismiss);
-          } else {
-              Animated.spring(pan, { toValue: { x: 0, y: 0 }, useNativeDriver: false }).start();
-          }
+          if (Math.abs(gesture.dx) > 100) Animated.timing(pan, { toValue: { x: gesture.dx > 0 ? 500 : -500, y: 0 }, useNativeDriver: false, duration: 200 }).start(onDismiss);
+          else Animated.spring(pan, { toValue: { x: 0, y: 0 }, useNativeDriver: false }).start();
         }
-      })
-    ).current;
+    })).current;
 
-    const bgColor = isNightOps ? '#000' : (type === 'alert' ? '#7f1d1d' : '#18181b'); // Rouge foncé ou Noir
+    const bgColor = isNightOps ? '#000' : (type === 'alert' ? '#7f1d1d' : '#18181b');
     const borderColor = isNightOps ? '#ef4444' : (type === 'alert' ? '#ef4444' : '#06b6d4');
     const textColor = isNightOps ? '#ef4444' : 'white';
 
     return (
-      <Animated.View style={[
-          styles.navNotif, 
-          { transform: [{ translateX: pan.x }, { scale: scaleAnim }], backgroundColor: bgColor, borderColor: borderColor }
-      ]} {...panResponder.panHandlers}>
+      <Animated.View style={[styles.navNotif, { transform: [{ translateX: pan.x }, { scale: scaleAnim }], backgroundColor: bgColor, borderColor: borderColor }]} {...panResponder.panHandlers}>
           <MaterialIcons name={type === 'alert' ? "warning" : "notifications-active"} size={24} color={isNightOps ? '#ef4444' : (type === 'alert' ? 'white' : '#06b6d4')} />
           <Text style={[styles.navNotifText, {color: textColor}]}>{message}</Text>
           <MaterialIcons name="chevron-right" size={20} color={isNightOps ? '#7f1d1d' : "#52525b"} />
@@ -107,16 +86,10 @@ const App: React.FC = () => {
   
   const [isAppReady, setIsAppReady] = useState(false);
   const [toast, setToast] = useState<{ msg: string; type: 'info' | 'error' } | null>(null);
-  
-  // Notification persistante (State pour afficher le composant custom)
   const [activeNotif, setActiveNotif] = useState<{ id: string, msg: string, type: 'alert' | 'info' } | null>(null);
 
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
-  const [user, setUser] = useState<UserData>({
-    id: '', callsign: '', role: OperatorRole.OPR,
-    status: OperatorStatus.CLEAR,
-    joinedAt: Date.now(), bat: 100, head: 0, lat: 0, lng: 0, lastMsg: ''
-  });
+  const [user, setUser] = useState<UserData>({ id: '', callsign: '', role: OperatorRole.OPR, status: OperatorStatus.CLEAR, joinedAt: Date.now(), bat: 100, head: 0, lat: 0, lng: 0, lastMsg: '' });
 
   const [view, setView] = useState<ViewType>('login');
   const [lastView, setLastView] = useState<ViewType>('menu'); 
@@ -135,7 +108,7 @@ const App: React.FC = () => {
   const [showTrails, setShowTrails] = useState(true);
   const [showPings, setShowPings] = useState(true);
   const [isPingMode, setIsPingMode] = useState(false);
-  const [nightOpsMode, setNightOpsMode] = useState(false); // Mode Nuit
+  const [nightOpsMode, setNightOpsMode] = useState(false);
   
   const [showQRModal, setShowQRModal] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
@@ -150,9 +123,7 @@ const App: React.FC = () => {
   const [tempPingLoc, setTempPingLoc] = useState<any>(null);
   const [currentPingType, setCurrentPingType] = useState<PingType>('FRIEND');
   const [pingMsgInput, setPingMsgInput] = useState('');
-  const [hostileDetails, setHostileDetails] = useState<HostileDetails>({
-      position: '', nature: '', attitude: '', volume: '', armes: '', substances: ''
-  });
+  const [hostileDetails, setHostileDetails] = useState<HostileDetails>({ position: '', nature: '', attitude: '', volume: '', armes: '', substances: '' });
   
   const [editingPing, setEditingPing] = useState<PingData | null>(null);
   const [selectedOperatorId, setSelectedOperatorId] = useState<string | null>(null);
@@ -165,65 +136,37 @@ const App: React.FC = () => {
   const gpsSubscription = useRef<Location.LocationSubscription | null>(null);
   const appState = useRef(AppState.currentState);
 
-  // --- ORIENTATION HANDLING ---
-  useEffect(() => {
-      // Déverrouiller toutes les orientations au montage
-      ScreenOrientation.unlockAsync();
-  }, []);
-
   const showToast = useCallback((msg: string, type: 'info' | 'error' = 'info') => {
     setToast({ msg, type });
     if (type === 'error') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     setTimeout(() => setToast(null), 3000);
   }, []);
 
-  // --- NOTIFICATION PUSH SYSTEME (HORS APP) ---
   const lastSysNotifId = useRef<string | null>(null);
-
   const sendSystemNotification = async (title: string, body: string) => {
       if (settings.disableBackgroundNotifications) return;
-      if (appState.current === 'active') return; // Pas de notif système si app ouverte
-
-      // Remplacement intelligent : on annule la précédente
-      if (lastSysNotifId.current) {
-          await Notifications.dismissNotificationAsync(lastSysNotifId.current);
-      }
-      const id = await Notifications.scheduleNotificationAsync({
-          content: { title, body, sound: true },
-          trigger: null,
-      });
+      if (appState.current === 'active') return;
+      if (lastSysNotifId.current) await Notifications.dismissNotificationAsync(lastSysNotifId.current);
+      const id = await Notifications.scheduleNotificationAsync({ content: { title, body, sound: true }, trigger: null });
       lastSysNotifId.current = id;
   };
 
-  // --- TOAST IN-APP INTELLIGENT ---
   const triggerAppNotification = (id: string, msg: string, type: 'alert' | 'info') => {
-      // Remplace la notification existante du même membre (ID) ou écrase tout court
       setActiveNotif({ id, msg, type });
-      if (type === 'alert') {
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      }
+      if (type === 'alert') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
   };
 
-  const copyToClipboard = async () => {
-    await Clipboard.setStringAsync(hostId || user.id || '');
-    showToast("ID Copié");
-  };
+  const copyToClipboard = async () => { await Clipboard.setStringAsync(hostId || user.id || ''); showToast("ID Copié"); };
 
   const handleBackPress = () => {
       if (view === 'settings') { setView(lastView); return; }
       if (view === 'ops' || view === 'map') {
-          Alert.alert("Déconnexion", "Quitter la session et retourner au menu ?", [
-              { text: "Annuler", style: "cancel" },
-              { text: "Confirmer", style: "destructive", onPress: handleLogout }
-          ]);
-      } else {
-          setView('login');
-      }
+          Alert.alert("Déconnexion", "Quitter la session ?", [{ text: "Annuler", style: "cancel" }, { text: "Confirmer", style: "destructive", onPress: handleLogout }]);
+      } else { setView('login'); }
   };
 
   useEffect(() => {
       let mounted = true;
-
       const subscription = AppState.addEventListener('change', nextAppState => {
           if (appState.current.match(/inactive|background/) && nextAppState === 'active') {
               if (hostId) connectivityService.broadcast({ type: 'UPDATE', user: user });
@@ -236,35 +179,18 @@ const App: React.FC = () => {
               const s = await configService.init();
               if (mounted) {
                   setSettings(s);
-                  if (s.username) {
-                      setUser(prev => ({...prev, callsign: s.username}));
-                      setLoginInput(s.username);
-                  }
-                  let msgs = s.quickMessages;
-                  if ((!msgs || msgs.length === 0) && Array.isArray(DEFAULT_MSG_JSON)) { 
-                      msgs = DEFAULT_MSG_JSON; 
-                  }
-                  setQuickMessagesList(msgs || DEFAULT_SETTINGS.quickMessages);
+                  if (s.username) { setUser(prev => ({...prev, callsign: s.username})); setLoginInput(s.username); }
+                  setQuickMessagesList(s.quickMessages || DEFAULT_SETTINGS.quickMessages);
               }
-          } catch(e) { console.warn("Config Load Error", e); }
-
+          } catch(e) {}
           bootstrapPermissionsAsync();
-          
-          if (mounted) {
-              setIsAppReady(true);
-              setTimeout(async () => {
-                  await SplashScreen.hideAsync().catch(() => {});
-              }, 500);
-          }
+          if (mounted) { setIsAppReady(true); setTimeout(async () => { await SplashScreen.hideAsync().catch(() => {}); }, 500); }
       };
-
       initApp();
 
       const unsubConfig = configService.subscribe((newSettings) => {
           setSettings(newSettings);
-          if (newSettings.quickMessages) {
-              setQuickMessagesList(newSettings.quickMessages);
-          }
+          if (newSettings.quickMessages) setQuickMessagesList(newSettings.quickMessages);
           if (newSettings.username && newSettings.username !== user.callsign) {
               connectivityService.updateUser({ callsign: newSettings.username });
               setUser(prev => ({ ...prev, callsign: newSettings.username }));
@@ -272,7 +198,6 @@ const App: React.FC = () => {
           if (gpsSubscription.current) startGpsTracking(newSettings.gpsUpdateInterval);
       });
       const unsubConn = connectivityService.subscribe(handleConnectivityEvent);
-
       return () => { mounted = false; unsubConfig(); unsubConn(); subscription.remove(); };
   }, []);
 
@@ -282,25 +207,15 @@ const App: React.FC = () => {
              await PermissionsAndroid.requestMultiple([
                 PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
                 PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION,
-                PermissionsAndroid.PERMISSIONS.ACCESS_BACKGROUND_LOCATION, // DEMANDE EXPLICITE BACKGROUND
+                PermissionsAndroid.PERMISSIONS.ACCESS_BACKGROUND_LOCATION,
                 PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS
              ]).catch(() => {});
           }
           const { status } = await Location.getForegroundPermissionsAsync();
-          if (status === 'granted') {
-              // Tentative Background (optionnel mais recommandé pour éviter coupures)
-              await Location.requestBackgroundPermissionsAsync().catch(() => {});
-              setGpsStatus('OK');
-          }
-          
+          if (status === 'granted') { await Location.requestBackgroundPermissionsAsync().catch(() => {}); setGpsStatus('OK'); }
           const camStatus = await Camera.getCameraPermissionsAsync();
           setHasCameraPermission(camStatus.status === 'granted');
-      } catch (e) { console.warn("Perms Check Error", e); }
-  };
-
-  const requestCamera = async () => {
-      const res = await Camera.requestCameraPermissionsAsync();
-      setHasCameraPermission(res.status === 'granted');
+      } catch (e) {}
   };
 
   const startGpsTracking = useCallback(async (interval: number) => {
@@ -308,25 +223,20 @@ const App: React.FC = () => {
       try {
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status !== 'granted') { setGpsStatus('ERROR'); return; }
-
-        gpsSubscription.current = await Location.watchPositionAsync(
-            { accuracy: Location.Accuracy.High, timeInterval: interval, distanceInterval: 5 },
-            (loc) => {
-                const { latitude, longitude, speed, heading, accuracy } = loc.coords;
-                if (accuracy && accuracy > 100) return;
-                setGpsStatus('OK');
-                
-                setUser(prev => {
-                    const gpsHead = (speed && speed > 1 && heading !== null) ? heading : prev.head;
-                    if (!lastLocationRef.current || Math.abs(latitude - lastLocationRef.current.lat) > 0.0001 || Math.abs(longitude - lastLocationRef.current.lng) > 0.0001) {
-                        connectivityService.updateUserPosition(latitude, longitude, gpsHead);
-                        lastLocationRef.current = { lat: latitude, lng: longitude };
-                    }
-                    return { ...prev, lat: latitude, lng: longitude, head: gpsHead };
-                });
-            }
-        );
-      } catch(e) { console.warn("GPS Start Error", e); }
+        gpsSubscription.current = await Location.watchPositionAsync({ accuracy: Location.Accuracy.High, timeInterval: interval, distanceInterval: 5 }, (loc) => {
+            const { latitude, longitude, speed, heading, accuracy } = loc.coords;
+            if (accuracy && accuracy > 100) return;
+            setGpsStatus('OK');
+            setUser(prev => {
+                const gpsHead = (speed && speed > 1 && heading !== null) ? heading : prev.head;
+                if (!lastLocationRef.current || Math.abs(latitude - lastLocationRef.current.lat) > 0.0001 || Math.abs(longitude - lastLocationRef.current.lng) > 0.0001) {
+                    connectivityService.updateUserPosition(latitude, longitude, gpsHead);
+                    lastLocationRef.current = { lat: latitude, lng: longitude };
+                }
+                return { ...prev, lat: latitude, lng: longitude, head: gpsHead };
+            });
+        });
+      } catch(e) {}
   }, []);
 
   const finishLogout = useCallback(() => {
@@ -337,12 +247,6 @@ const App: React.FC = () => {
       setUser(prev => ({...prev, id: '', role: OperatorRole.OPR, status: OperatorStatus.CLEAR, lastMsg: '' }));
   }, []);
 
-  useEffect(() => { 
-      Battery.getBatteryLevelAsync().then(l => setUser(u => ({ ...u, bat: Math.floor(l * 100) }))).catch(()=>{}); 
-      const sub = Battery.addBatteryLevelListener(({ batteryLevel }) => setUser(u => ({ ...u, bat: Math.floor(batteryLevel * 100) }))); 
-      return () => sub && sub.remove(); 
-  }, []);
-  
   useEffect(() => { 
       Magnetometer.setUpdateInterval(100); 
       const sub = Magnetometer.addListener((data) => { 
@@ -364,7 +268,7 @@ const App: React.FC = () => {
                   const newPeers = { ...prev };
                   Object.values(event.peers).forEach(p => {
                       const existingId = Object.keys(newPeers).find(k => newPeers[k].callsign === p.callsign && k !== p.id);
-                      if (existingId) { delete newPeers[existingId]; }
+                      if (existingId) delete newPeers[existingId];
                       newPeers[p.id] = p;
                   });
                   return newPeers;
@@ -382,16 +286,13 @@ const App: React.FC = () => {
 
   const handleProtocolData = (data: any, fromId: string) => {
       if (bannedPeers.includes(fromId)) return;
-
       if (data.type === 'PING') {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             setPings(prev => [...prev, data.ping]);
-            
             const p = data.ping;
             const isHostile = p.type === 'HOSTILE';
             let title = isHostile ? "⚠️ CONTACT" : "Info Tactique";
             let body = `${p.sender}: ${p.msg}`;
-            
             triggerAppNotification(p.sender, body, isHostile ? 'alert' : 'info');
             sendSystemNotification(title, body);
       }
@@ -415,21 +316,13 @@ const App: React.FC = () => {
       startGpsTracking(settings.gpsUpdateInterval);
       setUser(prev => ({ ...prev, role: OperatorRole.OPR }));
       connectivityService.init({ ...user, role: OperatorRole.OPR }, OperatorRole.OPR, finalId);
-      setView('map');
-      setLastOpsView('map');
+      setView('map'); setLastOpsView('map');
   };
   const createSession = async () => {
       startGpsTracking(settings.gpsUpdateInterval);
       setUser(prev => ({ ...prev, role: OperatorRole.HOST }));
       connectivityService.init({ ...user, role: OperatorRole.HOST }, OperatorRole.HOST);
-      setView('map');
-      setLastOpsView('map');
-  };
-
-  const handleScannerBarCodeScanned = ({ data }: any) => {
-    setShowScanner(false);
-    setHostInput(data);
-    setTimeout(() => joinSession(data), 500);
+      setView('map'); setLastOpsView('map');
   };
 
   const handleLogout = () => {
@@ -438,70 +331,23 @@ const App: React.FC = () => {
       finishLogout();
   };
 
-  const handleOperatorActionNavigate = (targetId: string) => {
-      setNavTargetId(targetId);
-      setView('map');
-      setLastOpsView('map');
-      showToast("Guidage GPS activé");
-  };
-
+  const handleOperatorActionNavigate = (targetId: string) => { setNavTargetId(targetId); setView('map'); setLastOpsView('map'); showToast("Guidage GPS activé"); };
   const handleOperatorActionKick = (targetId: string, type: 'temp' | 'perm') => {
       connectivityService.sendTo(targetId, { type: 'KICK' });
       setBannedPeers(prev => [...prev, targetId]);
-      const newPeers = { ...peers };
-      delete newPeers[targetId];
-      setPeers(newPeers);
+      const newPeers = { ...peers }; delete newPeers[targetId]; setPeers(newPeers);
       showToast(type === 'perm' ? "Banni définitivement" : "Exclu temporairement");
   };
 
-  const handlePingClick = (id: string) => {
-      const p = pings.find(ping => ping.id === id);
-      if (!p) return;
-      if (user.role === OperatorRole.HOST || p.sender === user.callsign) {
-          setEditingPing(p); setPingMsgInput(p.msg);
-          if (p.details) setHostileDetails(p.details);
-      } else { showToast(`Ping de ${p.sender}`, 'info'); }
-  };
-
-  const handleSendQuickMessage = (msg: string) => {
-      setUser(prev => ({ ...prev, lastMsg: msg }));
-      connectivityService.updateUser({ lastMsg: msg });
-      setShowQuickMsgModal(false);
-      setFreeMsgInput('');
-      showToast(msg ? `Msg: ${msg}` : "Message effacé");
-  };
-
-  const handleChangeStatus = (s: OperatorStatus) => {
-      setUser(prev => ({ ...prev, status: s }));
-      connectivityService.updateUserStatus(s);
-      if (s === OperatorStatus.CONTACT) {
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      }
-  };
-
-  const handleMapPing = (loc: {lat: number, lng: number}) => {
-      setTempPingLoc(loc);
-      setShowPingMenu(true); 
-  };
-
-  const selectPingType = (type: PingType) => { 
-      setCurrentPingType(type); 
-      setShowPingMenu(false); 
-      setPingMsgInput(''); 
-      setHostileDetails({position: '', nature: '', attitude: '', volume: '', armes: '', substances: ''});
-      setShowPingForm(true); 
-  };
+  const handleSendQuickMessage = (msg: string) => { setUser(prev => ({ ...prev, lastMsg: msg })); connectivityService.updateUser({ lastMsg: msg }); setShowQuickMsgModal(false); setFreeMsgInput(''); showToast(msg ? `Msg: ${msg}` : "Message effacé"); };
+  const handleChangeStatus = (s: OperatorStatus) => { setUser(prev => ({ ...prev, status: s })); connectivityService.updateUserStatus(s); if (s === OperatorStatus.CONTACT) Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error); };
   
   const submitPing = () => {
       if (!tempPingLoc) return;
       const newPing: PingData = {
-          id: Math.random().toString(36).substr(2, 9), 
-          lat: tempPingLoc.lat, 
-          lng: tempPingLoc.lng,
+          id: Math.random().toString(36).substr(2, 9), lat: tempPingLoc.lat, lng: tempPingLoc.lng,
           msg: pingMsgInput || (currentPingType === 'HOSTILE' ? 'ENNEMI' : currentPingType === 'FRIEND' ? 'AMI' : 'OBS'),
-          type: currentPingType, 
-          sender: user.callsign, 
-          timestamp: Date.now(),
+          type: currentPingType, sender: user.callsign, timestamp: Date.now(),
           details: currentPingType === 'HOSTILE' ? hostileDetails : undefined
       };
       setPings(prev => [...prev, newPing]);
@@ -509,217 +355,157 @@ const App: React.FC = () => {
       setShowPingForm(false); setTempPingLoc(null); setIsPingMode(false);
   };
 
-  const savePingEdit = () => {
-      if (!editingPing) return;
-      const updatedPing = { ...editingPing, msg: pingMsgInput, details: editingPing.type === 'HOSTILE' ? hostileDetails : undefined };
-      setPings(prev => prev.map(p => p.id === editingPing.id ? updatedPing : p));
-      connectivityService.broadcast({ type: 'PING_UPDATE', id: editingPing.id, msg: pingMsgInput, details: updatedPing.details });
-      setEditingPing(null);
-  };
-  const deletePing = () => {
-      if (!editingPing) return;
-      setPings(prev => prev.filter(p => p.id !== editingPing.id));
-      connectivityService.broadcast({ type: 'PING_DELETE', id: editingPing.id });
-      setEditingPing(null);
-  };
+  // --- RENDU UI ---
+  // Rendu conditionnel des vues principales pour préserver l'état de la carte
+  const renderMainContent = () => (
+      <View style={{flex: 1}}>
+          {/* VUE OPS */}
+          <View style={{ flex: 1, display: view === 'ops' ? 'flex' : 'none' }}>
+              <SafeAreaView style={styles.header}>
+                  <View style={styles.headerContent}>
+                      <TouchableOpacity onPress={handleBackPress}><MaterialIcons name="arrow-back" size={24} color="white" /></TouchableOpacity>
+                      <Text style={styles.headerTitle}>TacSuite</Text>
+                      <View style={{flexDirection: 'row', gap: 15}}>
+                          <TouchableOpacity onPress={() => setNightOpsMode(!nightOpsMode)}><MaterialIcons name="nightlight-round" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
+                          <TouchableOpacity onPress={() => setView('settings')}><MaterialIcons name="settings" size={24} color="white" /></TouchableOpacity>
+                          <TouchableOpacity onPress={() => { setView('map'); setLastOpsView('map'); }}><MaterialIcons name="map" size={24} color="white" /></TouchableOpacity>
+                      </View>
+                  </View>
+              </SafeAreaView>
+              <ScrollView contentContainerStyle={styles.grid}>
+                  <OperatorCard user={user} isMe style={{ width: '100%' }} />
+                  {Object.values(peers).filter(p => p.id !== user.id).map(p => (
+                      <TouchableOpacity key={p.id} onLongPress={() => setSelectedOperatorId(p.id)} activeOpacity={0.8} style={{ width: '100%' }}>
+                          <OperatorCard user={p} me={user} style={{ width: '100%' }} />
+                      </TouchableOpacity>
+                  ))}
+              </ScrollView>
+          </View>
 
-  if (!isAppReady) {
-      return <View style={{flex: 1, backgroundColor: '#000000'}}><StatusBar style="light" /></View>;
-  }
+          {/* VUE MAP (Toujours montée mais cachée si pas active) */}
+          <View style={{ flex: 1, display: view === 'map' ? 'flex' : 'none' }}>
+              <SafeAreaView style={styles.header}>
+                  <View style={styles.headerContent}>
+                      <TouchableOpacity onPress={handleBackPress}><MaterialIcons name="arrow-back" size={24} color="white" /></TouchableOpacity>
+                      <Text style={styles.headerTitle}>TacSuite</Text>
+                      <View style={{flexDirection: 'row', gap: 15}}>
+                          <TouchableOpacity onPress={() => setNightOpsMode(!nightOpsMode)}><MaterialIcons name="nightlight-round" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
+                          <TouchableOpacity onPress={() => setView('settings')}><MaterialIcons name="settings" size={24} color="white" /></TouchableOpacity>
+                          <TouchableOpacity onPress={() => { setView('ops'); setLastOpsView('ops'); }}><MaterialIcons name="list" size={24} color="white" /></TouchableOpacity>
+                      </View>
+                  </View>
+              </SafeAreaView>
+              <View style={{flex: 1}}>
+                  <TacticalMap 
+                      me={user} peers={peers} pings={pings} mapMode={mapMode} showTrails={showTrails} showPings={showPings} 
+                      isHost={user.role === OperatorRole.HOST} userArrowColor={settings.userArrowColor} 
+                      pingMode={isPingMode} navTargetId={navTargetId}
+                      onPing={(loc) => { setTempPingLoc(loc); setShowPingMenu(true); }}
+                      onPingMove={(p) => {}} 
+                      onPingClick={(id) => { 
+                          const p = pings.find(ping => ping.id === id);
+                          if (!p) return;
+                          if (user.role === OperatorRole.HOST || p.sender === user.callsign) {
+                              setEditingPing(p); setPingMsgInput(p.msg); if (p.details) setHostileDetails(p.details);
+                          } else { showToast(`Ping de ${p.sender}`, 'info'); }
+                      }} 
+                      onNavStop={() => setNavTargetId(null)} 
+                  />
+                  <View style={styles.mapControls}>
+                      <TouchableOpacity onPress={() => setMapMode(m => m === 'dark' ? 'light' : m === 'light' ? 'satellite' : 'dark')} style={styles.mapBtn}><MaterialIcons name={mapMode === 'dark' ? 'dark-mode' : mapMode === 'light' ? 'light-mode' : 'satellite'} size={24} color="#d4d4d8" /></TouchableOpacity>
+                      <TouchableOpacity onPress={() => setShowTrails(!showTrails)} style={styles.mapBtn}><MaterialIcons name={showTrails ? 'visibility' : 'visibility-off'} size={24} color="#d4d4d8" /></TouchableOpacity>
+                      <TouchableOpacity onPress={() => setShowPings(!showPings)} style={styles.mapBtn}><MaterialIcons name={showPings ? 'location-on' : 'location-off'} size={24} color="#d4d4d8" /></TouchableOpacity>
+                      <TouchableOpacity onPress={() => setIsPingMode(!isPingMode)} style={[styles.mapBtn, isPingMode ? {backgroundColor: '#dc2626', borderColor: '#f87171'} : null]}><MaterialIcons name="ads-click" size={24} color="white" /></TouchableOpacity>
+                  </View>
+              </View>
+          </View>
 
-  const renderLogin = () => (
-    <View style={styles.centerContainer}>
-      <MaterialIcons name="login" size={80} color="#3b82f6" style={{opacity: 0.8, marginBottom: 30}} />
-      <Text style={styles.title}>Tac<Text style={{color: '#3b82f6'}}>Suite</Text></Text>
-      <TextInput style={styles.input} placeholder="TRIGRAMME" placeholderTextColor="#52525b" maxLength={6} value={loginInput} onChangeText={setLoginInput} autoCapitalize="characters" />
-      <TouchableOpacity onPress={() => {
-          if (loginInput.length < 2) return;
-          try { AsyncStorage.setItem(CONFIG.TRIGRAM_STORAGE_KEY, loginInput.toUpperCase()); } catch (e) {}
-          if (loginInput.toUpperCase() !== settings.username) configService.update({ username: loginInput.toUpperCase() });
-          setUser(prev => ({ ...prev, callsign: loginInput.toUpperCase() }));
-          setView('menu');
-      }} style={styles.loginBtn}><Text style={styles.loginBtnText}>CONNEXION</Text></TouchableOpacity>
-    </View>
-  );
-
-  const renderMenu = () => (
-    <SafeAreaView style={styles.safeArea}>
-      <View style={styles.menuContainer}>
-        <View style={{flexDirection: 'row', justifyContent:'space-between', marginBottom: 20}}>
-            <Text style={styles.sectionTitle}>MENU PRINCIPAL</Text>
-            <TouchableOpacity onPress={() => setView('settings')}><MaterialIcons name="settings" size={24} color="white" /></TouchableOpacity>
-        </View>
-        
-        {hostId ? (
-            <>
-                <TouchableOpacity onPress={() => setView(lastOpsView)} style={[styles.menuCard, {borderColor: '#22c55e'}]}>
-                  <MaterialIcons name="map" size={40} color="#22c55e" />
-                  <View style={{marginLeft: 20}}><Text style={styles.menuCardTitle}>RETOURNER SESSION</Text><Text style={styles.menuCardSubtitle}>{hostId}</Text></View>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => Alert.alert("Déconnexion", "Quitter ?", [{text:"Non"}, {text:"Oui", onPress:handleLogout}])} style={[styles.menuCard, {borderColor: '#ef4444', marginTop: 20}]}>
-                  <MaterialIcons name="logout" size={40} color="#ef4444" />
-                  <View style={{marginLeft: 20}}><Text style={[styles.menuCardTitle, {color:'#ef4444'}]}>QUITTER</Text></View>
-                </TouchableOpacity>
-            </>
-        ) : (
-            <>
-                <TouchableOpacity onPress={createSession} style={styles.menuCard}>
-                  <MaterialIcons name="add-location-alt" size={40} color="#3b82f6" />
-                  <View style={{marginLeft: 20}}><Text style={styles.menuCardTitle}>CRÉER SESSION</Text><Text style={styles.menuCardSubtitle}>Hôte</Text></View>
-                </TouchableOpacity>
-                
-                <View style={styles.divider} />
-                <TextInput style={styles.inputBox} placeholder="ID GROUPE..." placeholderTextColor="#52525b" value={hostInput} onChangeText={setHostInput} autoCapitalize="characters" />
-                <TouchableOpacity onPress={() => joinSession()} style={styles.joinBtn}><Text style={styles.joinBtnText}>REJOINDRE</Text></TouchableOpacity>
-                
-                <TouchableOpacity onPress={() => { requestCamera().then(() => setShowScanner(true)); }} style={[styles.joinBtn, {marginTop: 10, backgroundColor: '#18181b', borderWidth: 1, borderColor: '#333'}]}>
-                    <Text style={{color: '#71717a'}}>SCANNER QR</Text>
-                </TouchableOpacity>
-            </>
-        )}
+          {/* FOOTER COMMUN */}
+          <View style={styles.footer}>
+                <View style={styles.statusRow}>
+                  {[OperatorStatus.PROGRESSION, OperatorStatus.CONTACT, OperatorStatus.CLEAR].map(s => (
+                      <TouchableOpacity key={s} onPress={() => handleChangeStatus(s)} style={[styles.statusBtn, user.status === s ? { backgroundColor: STATUS_COLORS[s], borderColor: 'white' } : null]}>
+                          <Text style={[styles.statusBtnText, user.status === s ? {color:'white'} : null]}>{s}</Text>
+                      </TouchableOpacity>
+                  ))}
+                  <TouchableOpacity onPress={() => setShowQuickMsgModal(true)} style={[styles.statusBtn, {borderColor: '#06b6d4'}]}><Text style={[styles.statusBtnText, {color: '#06b6d4'}]}>MSG</Text></TouchableOpacity>
+                  <TouchableOpacity onPress={() => setShowQRModal(true)} style={[styles.statusBtn, {borderColor: '#d4d4d8'}]}><MaterialIcons name="qr-code-2" size={16} color="#d4d4d8" /></TouchableOpacity>
+              </View>
+          </View>
       </View>
-    </SafeAreaView>
   );
 
   return (
     <View style={styles.container}>
       <StatusBar style="light" backgroundColor="#050505" />
-      {view === 'settings' ? <SettingsView onClose={() => setView(lastView)} /> : (
-         view === 'login' ? renderLogin() :
-         view === 'menu' ? renderMenu() :
-         (view === 'ops' || view === 'map') ? (
-             <View style={{flex: 1}}>
-                <SafeAreaView style={styles.header}>
-                    <View style={styles.headerContent}>
-                        <TouchableOpacity onPress={handleBackPress}><MaterialIcons name="arrow-back" size={24} color="white" /></TouchableOpacity>
-                        <Text style={styles.headerTitle}>TacSuite</Text>
-                        <View style={{flexDirection: 'row', gap: 15}}>
-                            {/* BOUTON NIGHT OPS */}
-                            <TouchableOpacity onPress={() => setNightOpsMode(!nightOpsMode)}>
-                                <MaterialIcons name="nightlight-round" size={24} color={nightOpsMode ? "#ef4444" : "white"} />
-                            </TouchableOpacity>
-                            <TouchableOpacity onPress={() => setView('settings')}><MaterialIcons name="settings" size={24} color="white" /></TouchableOpacity>
-                            <TouchableOpacity onPress={() => { 
-                                const nextView = view === 'map' ? 'ops' : 'map';
-                                setView(nextView);
-                                setLastOpsView(nextView);
-                            }}><MaterialIcons name={view === 'map' ? 'list' : 'map'} size={24} color="white" /></TouchableOpacity>
-                        </View>
-                    </View>
-                </SafeAreaView>
-                <View style={{flex: 1, position: 'relative'}}>
-                    {view === 'ops' ? (
-                        <ScrollView contentContainerStyle={styles.grid}>
-                            <OperatorCard user={user} isMe style={{ width: '100%' }} />
-                            {Object.values(peers).filter(p => p.id !== user.id).map(p => (
-                                <TouchableOpacity key={p.id} onLongPress={() => setSelectedOperatorId(p.id)} activeOpacity={0.8} style={{ width: '100%' }}>
-                                    <OperatorCard user={p} me={user} style={{ width: '100%' }} />
-                                </TouchableOpacity>
-                            ))}
-                        </ScrollView>
-                    ) : (
-                        <View style={{flex: 1}}>
-                            <TacticalMap 
-                                me={user} peers={peers} pings={pings} mapMode={mapMode} showTrails={showTrails} showPings={showPings} 
-                                isHost={user.role === OperatorRole.HOST} userArrowColor={settings.userArrowColor} 
-                                pingMode={isPingMode}
-                                navTargetId={navTargetId}
-                                onPing={handleMapPing}
-                                onPingMove={(p) => {}} onPingClick={handlePingClick} onNavStop={() => setNavTargetId(null)} 
-                            />
-                            
-                            <View style={styles.mapControls}>
-                                <TouchableOpacity onPress={() => setMapMode(m => m === 'dark' ? 'light' : m === 'light' ? 'satellite' : 'dark')} style={styles.mapBtn}><MaterialIcons name={mapMode === 'dark' ? 'dark-mode' : mapMode === 'light' ? 'light-mode' : 'satellite'} size={24} color="#d4d4d8" /></TouchableOpacity>
-                                <TouchableOpacity onPress={() => setShowTrails(!showTrails)} style={styles.mapBtn}><MaterialIcons name={showTrails ? 'visibility' : 'visibility-off'} size={24} color="#d4d4d8" /></TouchableOpacity>
-                                <TouchableOpacity onPress={() => setShowPings(!showPings)} style={styles.mapBtn}><MaterialIcons name={showPings ? 'location-on' : 'location-off'} size={24} color="#d4d4d8" /></TouchableOpacity>
-                                <TouchableOpacity onPress={() => setIsPingMode(!isPingMode)} style={[styles.mapBtn, isPingMode ? {backgroundColor: '#dc2626', borderColor: '#f87171'} : null]}><MaterialIcons name="ads-click" size={24} color="white" /></TouchableOpacity>
-                            </View>
-                        </View>
-                    )}
-                </View>
+      {view === 'settings' ? <SettingsView onClose={() => setView(lastView)} /> : 
+       view === 'login' ? (
+        <View style={styles.centerContainer}>
+          <MaterialIcons name="login" size={80} color="#3b82f6" style={{opacity: 0.8, marginBottom: 30}} />
+          <Text style={styles.title}>Tac<Text style={{color: '#3b82f6'}}>Suite</Text></Text>
+          <TextInput style={styles.input} placeholder="TRIGRAMME" placeholderTextColor="#52525b" maxLength={6} value={loginInput} onChangeText={setLoginInput} autoCapitalize="characters" />
+          <TouchableOpacity onPress={() => {
+              if (loginInput.length < 2) return;
+              try { AsyncStorage.setItem(CONFIG.TRIGRAM_STORAGE_KEY, loginInput.toUpperCase()); } catch (e) {}
+              if (loginInput.toUpperCase() !== settings.username) configService.update({ username: loginInput.toUpperCase() });
+              setUser(prev => ({ ...prev, callsign: loginInput.toUpperCase() }));
+              setView('menu');
+          }} style={styles.loginBtn}><Text style={styles.loginBtnText}>CONNEXION</Text></TouchableOpacity>
+        </View>
+       ) :
+       view === 'menu' ? (
+        <SafeAreaView style={styles.safeArea}>
+          <View style={styles.menuContainer}>
+            <View style={{flexDirection: 'row', justifyContent:'space-between', marginBottom: 20}}>
+                <Text style={styles.sectionTitle}>MENU PRINCIPAL</Text>
+                <TouchableOpacity onPress={() => setView('settings')}><MaterialIcons name="settings" size={24} color="white" /></TouchableOpacity>
+            </View>
+            {hostId ? (
+                <>
+                    <TouchableOpacity onPress={() => setView(lastOpsView)} style={[styles.menuCard, {borderColor: '#22c55e'}]}>
+                      <MaterialIcons name="map" size={40} color="#22c55e" />
+                      <View style={{marginLeft: 20}}><Text style={styles.menuCardTitle}>RETOURNER SESSION</Text><Text style={styles.menuCardSubtitle}>{hostId}</Text></View>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => Alert.alert("Déconnexion", "Quitter ?", [{text:"Non"}, {text:"Oui", onPress:handleLogout}])} style={[styles.menuCard, {borderColor: '#ef4444', marginTop: 20}]}>
+                      <MaterialIcons name="logout" size={40} color="#ef4444" />
+                      <View style={{marginLeft: 20}}><Text style={[styles.menuCardTitle, {color:'#ef4444'}]}>QUITTER</Text></View>
+                    </TouchableOpacity>
+                </>
+            ) : (
+                <>
+                    <TouchableOpacity onPress={createSession} style={styles.menuCard}>
+                      <MaterialIcons name="add-location-alt" size={40} color="#3b82f6" />
+                      <View style={{marginLeft: 20}}><Text style={styles.menuCardTitle}>CRÉER SESSION</Text><Text style={styles.menuCardSubtitle}>Hôte</Text></View>
+                    </TouchableOpacity>
+                    <View style={styles.divider} />
+                    <TextInput style={styles.inputBox} placeholder="ID GROUPE..." placeholderTextColor="#52525b" value={hostInput} onChangeText={setHostInput} autoCapitalize="characters" />
+                    <TouchableOpacity onPress={() => joinSession()} style={styles.joinBtn}><Text style={styles.joinBtnText}>REJOINDRE</Text></TouchableOpacity>
+                    <TouchableOpacity onPress={() => { requestCamera().then(() => setShowScanner(true)); }} style={[styles.joinBtn, {marginTop: 10, backgroundColor: '#18181b', borderWidth: 1, borderColor: '#333'}]}>
+                        <Text style={{color: '#71717a'}}>SCANNER QR</Text>
+                    </TouchableOpacity>
+                </>
+            )}
+          </View>
+        </SafeAreaView>
+       ) : renderMainContent()
+      }
 
-                {/* FOOTER */}
-                <View style={styles.footer}>
-                     <View style={styles.statusRow}>
-                        {[OperatorStatus.PROGRESSION, OperatorStatus.CONTACT, OperatorStatus.CLEAR].map(s => (
-                            <TouchableOpacity key={s} onPress={() => handleChangeStatus(s)} style={[styles.statusBtn, user.status === s ? { backgroundColor: STATUS_COLORS[s], borderColor: 'white' } : null]}>
-                                <Text style={[styles.statusBtnText, user.status === s ? {color:'white'} : null]}>{s}</Text>
-                            </TouchableOpacity>
-                        ))}
-                        <TouchableOpacity onPress={() => setShowQuickMsgModal(true)} style={[styles.statusBtn, {borderColor: '#06b6d4'}]}><Text style={[styles.statusBtnText, {color: '#06b6d4'}]}>MSG</Text></TouchableOpacity>
-                        <TouchableOpacity onPress={() => setShowQRModal(true)} style={[styles.statusBtn, {borderColor: '#d4d4d8'}]}><MaterialIcons name="qr-code-2" size={16} color="#d4d4d8" /></TouchableOpacity>
-                    </View>
-                </View>
-             </View>
-         ) : null
-      )}
-
-      <OperatorActionModal 
-          visible={!!selectedOperatorId} 
-          targetOperator={peers[selectedOperatorId || ''] || null}
-          currentUserRole={user.role} 
-          onClose={() => setSelectedOperatorId(null)}
-          onKick={handleOperatorActionKick}
-          onNavigate={handleOperatorActionNavigate}
-      />
-
+      {/* MODALES & ELEMENTS FLOTTANTS */}
+      <OperatorActionModal visible={!!selectedOperatorId} targetOperator={peers[selectedOperatorId || ''] || null} currentUserRole={user.role} onClose={() => setSelectedOperatorId(null)} onKick={handleOperatorActionKick} onNavigate={handleOperatorActionNavigate} />
       <Modal visible={showQuickMsgModal} animationType="fade" transparent>
           <KeyboardAvoidingView behavior="padding" style={styles.modalOverlay}>
               <View style={[styles.modalContent, {backgroundColor: '#18181b', borderWidth: 1, borderColor: '#333', maxHeight: '80%'}]}>
                   <Text style={[styles.modalTitle, {color: '#06b6d4', marginBottom: 15}]}>MESSAGE RAPIDE</Text>
                   <View style={{flexDirection: 'row', marginBottom: 15, width: '100%'}}>
-                      <TextInput 
-                          style={[styles.pingInput, {flex: 1, marginBottom: 0, textAlign: 'left'}]}
-                          placeholder="Message libre..."
-                          placeholderTextColor="#52525b"
-                          value={freeMsgInput}
-                          onChangeText={setFreeMsgInput}
-                      />
-                      <TouchableOpacity onPress={() => handleSendQuickMessage(freeMsgInput)} style={[styles.modalBtn, {backgroundColor: '#06b6d4', marginLeft: 10, flex: 0, width: 50}]}>
-                          <MaterialIcons name="send" size={20} color="white" />
-                      </TouchableOpacity>
+                      <TextInput style={[styles.pingInput, {flex: 1, marginBottom: 0, textAlign: 'left'}]} placeholder="Message libre..." placeholderTextColor="#52525b" value={freeMsgInput} onChangeText={setFreeMsgInput} />
+                      <TouchableOpacity onPress={() => handleSendQuickMessage(freeMsgInput)} style={[styles.modalBtn, {backgroundColor: '#06b6d4', marginLeft: 10, flex: 0, width: 50}]}><MaterialIcons name="send" size={20} color="white" /></TouchableOpacity>
                   </View>
-                  <FlatList 
-                    data={quickMessagesList} 
-                    keyExtractor={(item, index) => index.toString()} 
-                    renderItem={({item}) => (
-                        <TouchableOpacity onPress={() => handleSendQuickMessage(item.includes("Effacer") ? "" : item)} style={styles.quickMsgItem}>
-                            <Text style={styles.quickMsgText}>{item}</Text>
-                        </TouchableOpacity>
-                    )} 
-                    ItemSeparatorComponent={() => <View style={{height: 1, backgroundColor: '#27272a'}} />} 
-                  />
+                  <FlatList data={quickMessagesList} keyExtractor={(item, index) => index.toString()} renderItem={({item}) => (<TouchableOpacity onPress={() => handleSendQuickMessage(item.includes("Effacer") ? "" : item)} style={styles.quickMsgItem}><Text style={styles.quickMsgText}>{item}</Text></TouchableOpacity>)} ItemSeparatorComponent={() => <View style={{height: 1, backgroundColor: '#27272a'}} />} />
                   <TouchableOpacity onPress={() => setShowQuickMsgModal(false)} style={[styles.closeBtn, {backgroundColor: '#27272a', marginTop: 15}]}><Text style={{color: '#a1a1aa'}}>ANNULER</Text></TouchableOpacity>
               </View>
           </KeyboardAvoidingView>
       </Modal>
-
-      {/* Autres Modales identiques ... */}
-      <Modal visible={showQRModal} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>MON IDENTITY TAG</Text>
-            <QRCode value={hostId || user.id || 'NO_ID'} size={200} />
-            <TouchableOpacity onPress={copyToClipboard} style={{marginTop: 20, flexDirection:'row', alignItems:'center', backgroundColor: '#f4f4f5', padding: 10, borderRadius: 8}}>
-                <Text style={[styles.qrId, {marginTop: 0, marginRight: 10}]}>{hostId || user.id}</Text>
-                <MaterialIcons name="content-copy" size={20} color="#3b82f6" />
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => setShowQRModal(false)} style={styles.closeBtn}><Text style={styles.closeBtnText}>FERMER</Text></TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal visible={showScanner} animationType="slide">
-        <View style={{flex: 1, backgroundColor: 'black'}}>
-          {hasCameraPermission ? (
-             <CameraView style={{flex: 1}} onBarcodeScanned={handleScannerBarCodeScanned} barcodeScannerSettings={{barcodeTypes: ["qr"]}} />
-          ) : (
-             <View style={{flex: 1, justifyContent: 'center', alignItems: 'center'}}><Text style={{color: 'white'}}>Pas de permission Caméra</Text></View>
-          )}
-          <TouchableOpacity onPress={() => setShowScanner(false)} style={styles.scannerClose}><MaterialIcons name="close" size={30} color="white" /></TouchableOpacity>
-        </View>
-      </Modal>
-
+      {/* MODALE PING TYPE */}
       <Modal visible={showPingMenu} transparent animationType="fade">
           <View style={styles.modalOverlay}>
               <View style={styles.pingMenuContainer}>
@@ -733,22 +519,22 @@ const App: React.FC = () => {
               </View>
           </View>
       </Modal>
-
+      {/* MODALE FORM PING */}
       <Modal visible={showPingForm} transparent animationType="slide">
           <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
               <View style={[styles.modalContent, {width: '90%', maxHeight: '80%'}]}>
                   <Text style={[styles.modalTitle, {color: currentPingType === 'HOSTILE' ? '#ef4444' : currentPingType === 'FRIEND' ? '#22c55e' : '#eab308'}]}>{currentPingType === 'HOSTILE' ? 'ADVERSAIRE' : currentPingType === 'FRIEND' ? 'AMI' : 'RENS'}</Text>
-                  <Text style={styles.label}>Message / Description</Text>
-                  <TextInput style={styles.pingInput} placeholder="Intitulé" placeholderTextColor="#52525b" value={pingMsgInput} onChangeText={setPingMsgInput} autoFocus={currentPingType !== 'HOSTILE'} />
+                  <Text style={styles.label}>Message</Text>
+                  <TextInput style={styles.pingInput} placeholder="Titre / Info" placeholderTextColor="#52525b" value={pingMsgInput} onChangeText={setPingMsgInput} autoFocus={currentPingType !== 'HOSTILE'} />
                   {currentPingType === 'HOSTILE' && (
                       <ScrollView style={{width: '100%', maxHeight: 300, marginBottom: 10}}>
-                          <Text style={[styles.label, {color: '#ef4444', marginTop: 10}]}>Détails Tactiques (Caneva)</Text>
+                          <Text style={[styles.label, {color: '#ef4444', marginTop: 10}]}>Détails (Caneva)</Text>
                           <TextInput style={styles.detailInput} placeholder="Position" placeholderTextColor="#52525b" value={hostileDetails.position} onChangeText={t => setHostileDetails({...hostileDetails, position: t})} />
                           <TextInput style={styles.detailInput} placeholder="Nature" placeholderTextColor="#52525b" value={hostileDetails.nature} onChangeText={t => setHostileDetails({...hostileDetails, nature: t})} />
                           <TextInput style={styles.detailInput} placeholder="Attitude" placeholderTextColor="#52525b" value={hostileDetails.attitude} onChangeText={t => setHostileDetails({...hostileDetails, attitude: t})} />
                           <TextInput style={styles.detailInput} placeholder="Volume" placeholderTextColor="#52525b" value={hostileDetails.volume} onChangeText={t => setHostileDetails({...hostileDetails, volume: t})} />
                           <TextInput style={styles.detailInput} placeholder="Armement" placeholderTextColor="#52525b" value={hostileDetails.armes} onChangeText={t => setHostileDetails({...hostileDetails, armes: t})} />
-                          <TextInput style={styles.detailInput} placeholder="Substances / Tenue" placeholderTextColor="#52525b" value={hostileDetails.substances} onChangeText={t => setHostileDetails({...hostileDetails, substances: t})} />
+                          <TextInput style={styles.detailInput} placeholder="Substances" placeholderTextColor="#52525b" value={hostileDetails.substances} onChangeText={t => setHostileDetails({...hostileDetails, substances: t})} />
                       </ScrollView>
                   )}
                   <View style={{flexDirection: 'row', gap: 10, marginTop: 10}}>
@@ -758,7 +544,7 @@ const App: React.FC = () => {
               </View>
           </KeyboardAvoidingView>
       </Modal>
-
+      {/* MODALE EDIT PING */}
       <Modal visible={!!editingPing} transparent animationType="slide">
           <View style={styles.modalOverlay}>
               <View style={[styles.modalContent, {width: '90%'}]}>
@@ -781,6 +567,26 @@ const App: React.FC = () => {
                   </View>
               </View>
           </View>
+      </Modal>
+      {/* QR & SCANNER */}
+      <Modal visible={showQRModal} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>MON IDENTITY TAG</Text>
+            <QRCode value={hostId || user.id || 'NO_ID'} size={200} />
+            <TouchableOpacity onPress={copyToClipboard} style={{marginTop: 20, flexDirection:'row', alignItems:'center', backgroundColor: '#f4f4f5', padding: 10, borderRadius: 8}}>
+                <Text style={[styles.qrId, {marginTop: 0, marginRight: 10}]}>{hostId || user.id}</Text>
+                <MaterialIcons name="content-copy" size={20} color="#3b82f6" />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setShowQRModal(false)} style={styles.closeBtn}><Text style={styles.closeBtnText}>FERMER</Text></TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+      <Modal visible={showScanner} animationType="slide">
+        <View style={{flex: 1, backgroundColor: 'black'}}>
+          <CameraView style={{flex: 1}} onBarcodeScanned={handleScannerBarCodeScanned} barcodeScannerSettings={{barcodeTypes: ["qr"]}} />
+          <TouchableOpacity onPress={() => setShowScanner(false)} style={styles.scannerClose}><MaterialIcons name="close" size={30} color="white" /></TouchableOpacity>
+        </View>
       </Modal>
 
       {activeNotif && <NavNotification message={`${activeNotif.id}: ${activeNotif.msg}`} type={activeNotif.type} isNightOps={nightOpsMode} onDismiss={() => setActiveNotif(null)} />}
@@ -826,12 +632,12 @@ const styles = StyleSheet.create({
   statusBtn: { paddingHorizontal: 16, paddingVertical: 12, borderRadius: 8, backgroundColor: '#18181b', borderWidth: 1, borderColor: '#27272a' },
   statusBtnText: { color: '#71717a', fontSize: 12, fontWeight: 'bold' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center', alignItems: 'center', padding: 30 },
-  modalContent: { width: '100%', backgroundColor: 'white', padding: 24, borderRadius: 24, alignItems: 'center' },
-  modalTitle: { fontSize: 18, fontWeight: '900', marginBottom: 20 },
+  modalContent: { width: '100%', backgroundColor: '#18181b', padding: 24, borderRadius: 24, alignItems: 'center', borderWidth: 1, borderColor: '#333' },
+  modalTitle: { fontSize: 18, fontWeight: '900', marginBottom: 20, color: 'white' },
   qrId: { marginTop: 20, fontSize: 10, backgroundColor: '#f4f4f5', padding: 8, borderRadius: 4 },
   closeBtn: { marginTop: 20, backgroundColor: '#2563eb', width: '100%', padding: 16, borderRadius: 12, alignItems: 'center' },
   closeBtnText: { color: 'white', fontWeight: 'bold' },
-  pingInput: { width: '100%', backgroundColor: 'black', color: 'white', padding: 16, borderRadius: 12, textAlign: 'center', fontSize: 18, marginBottom: 20 },
+  pingInput: { width: '100%', backgroundColor: 'black', color: 'white', padding: 16, borderRadius: 12, textAlign: 'center', fontSize: 18, marginBottom: 20, borderWidth: 1, borderColor: '#333' },
   modalBtn: { flex: 1, padding: 16, borderRadius: 12, alignItems: 'center' },
   quickMsgItem: { paddingVertical: 15, paddingHorizontal: 10, width: '100%', alignItems: 'center' },
   quickMsgText: { color: 'white', fontSize: 16, fontWeight: 'bold' },
