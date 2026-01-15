@@ -1,378 +1,96 @@
-import React, { useEffect, useRef } from 'react';
-import { View, StyleSheet, ActivityIndicator } from 'react-native';
-import { WebView } from 'react-native-webview';
-import { UserData, PingData } from '../types';
+import React from 'react';
+import { View, Text, StyleSheet, Modal, TouchableOpacity, Alert } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
+import { UserData, OperatorRole } from '../types';
 
-interface TacticalMapProps {
-  me: UserData;
-  peers: Record<string, UserData>;
-  pings: PingData[];
-  mapMode: 'dark' | 'light' | 'satellite';
-  showTrails: boolean;
-  showPings: boolean;
-  isHost: boolean;
-  userArrowColor: string;
-  navTargetId?: string | null;
-  pingMode?: boolean; 
-  onPing: (loc: { lat: number; lng: number }) => void;
-  onPingMove: (ping: PingData) => void;
-  onPingClick: (id: string) => void; 
-  onNavStop: () => void;
+interface Props {
+    visible: boolean;
+    targetOperator: UserData | null;
+    currentUserRole: OperatorRole;
+    onClose: () => void;
+    onKick: (id: string, banType: 'temp' | 'perm') => void;
+    onNavigate: (id: string) => void;
+    onPrivateCall?: (id: string) => void; // Optionnel si audio désactivé, mais utile pour ping privé
 }
 
-const TacticalMap: React.FC<TacticalMapProps> = ({
-  me, peers, pings, mapMode, showTrails, showPings, isHost, userArrowColor, navTargetId, pingMode,
-  onPing, onPingMove, onPingClick, onNavStop
+const OperatorActionModal: React.FC<Props> = ({ 
+    visible, targetOperator, currentUserRole, onClose, onKick, onNavigate 
 }) => {
-  const webViewRef = useRef<WebView>(null);
+    if (!targetOperator) return null;
 
-  const leafletHTML = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-      <meta http-equiv="Cache-Control" content="public, max-age=31536000">
-      <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-      <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.css" />
-      
-      <style>
-        body { margin: 0; padding: 0; background: #000; font-family: sans-serif; }
-        #map { width: 100vw; height: 100vh; }
-        .leaflet-control-attribution { display: none; }
-        
-        .tac-marker-root { position: relative; display: flex; justify-content: center; align-items: center; width: 80px; height: 80px; }
-        .tac-cone-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; transition: transform 0.1s linear; pointer-events: none; z-index: 1; }
-        .tac-circle-id { 
-            position: absolute; z-index: 10; width: 32px; height: 32px; border-radius: 50%; border: 2px solid white; 
-            display: flex; justify-content: center; align-items: center; box-shadow: 0 0 5px rgba(0,0,0,0.5); 
-            top: 50%; left: 50%; transform: translate(-50%, -50%); transition: all 0.3s ease; 
-        }
-        .tac-circle-id span { color: white; font-family: monospace; font-size: 10px; font-weight: 900; text-shadow: 0 1px 2px black; }
-        
-        @keyframes heartbeat {
-            0% { transform: translate(-50%, -50%) scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
-            50% { transform: translate(-50%, -50%) scale(1.4); box-shadow: 0 0 20px 10px rgba(239, 68, 68, 0); }
-            100% { transform: translate(-50%, -50%) scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
-        }
-        .tac-marker-heartbeat .tac-circle-id { animation: heartbeat 1.5s infinite ease-in-out !important; border-color: #ef4444 !important; background-color: rgba(239, 68, 68, 0.8) !important; z-index: 9999 !important; }
+    const handleKickPress = () => {
+        Alert.alert(
+            "Exclusion",
+            `Voulez-vous exclure ${targetOperator.callsign} ?`,
+            [
+                { text: "Annuler", style: "cancel" },
+                { text: "Exclure (Temporaire)", onPress: () => onKick(targetOperator.id, 'temp') },
+                { text: "Bannir (Définitif)", onPress: () => onKick(targetOperator.id, 'perm'), style: 'destructive' }
+            ]
+        );
+    };
 
-        .ping-marker-box { display: flex; flex-direction: column; align-items: center; width: 100px; cursor: pointer; pointer-events: auto; }
-        .ping-icon { font-size: 24px; filter: drop-shadow(0px 2px 2px rgba(0,0,0,0.8)); transition: transform 0.2s; }
-        .ping-icon:active { transform: scale(1.2); }
-        .ping-label { 
-            background: rgba(0,0,0,0.7); color: white; padding: 2px 6px; border-radius: 4px; 
-            font-size: 11px; font-weight: bold; margin-bottom: 2px; border: 1px solid rgba(255,255,255,0.3);
-            white-space: nowrap; max-width: 150px; overflow: hidden; text-overflow: ellipsis;
-        }
+    return (
+        <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+            <View style={styles.overlay}>
+                <View style={styles.content}>
+                    <View style={styles.header}>
+                        <MaterialIcons name="person" size={24} color="#3b82f6" />
+                        <Text style={styles.title}>{targetOperator.callsign}</Text>
+                        <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
+                            <MaterialIcons name="close" size={24} color="#a1a1aa" />
+                        </TouchableOpacity>
+                    </View>
 
-        /* Styles Popup Hostile */
-        .ping-details-popup .leaflet-popup-content-wrapper { background: rgba(24, 24, 27, 0.95); border: 1px solid #ef4444; border-radius: 8px; color: white; }
-        .ping-details-popup .leaflet-popup-tip { background: #ef4444; }
-        .ping-details-popup .leaflet-popup-close-button { color: white; }
-        .hostile-info b { color: #ef4444; display: block; border-bottom: 1px solid #333; margin-bottom: 5px; padding-bottom: 2px; }
-        .hostile-row { font-size: 12px; margin-bottom: 2px; }
-        .hostile-label { color: #a1a1aa; font-weight: bold; }
+                    <View style={styles.infoRow}>
+                        <Text style={styles.infoLabel}>ID:</Text>
+                        <Text style={styles.infoValue}>{targetOperator.id}</Text>
+                    </View>
+                    <View style={styles.infoRow}>
+                        <Text style={styles.infoLabel}>Statut:</Text>
+                        <Text style={[styles.infoValue, {color: targetOperator.status === 'CONTACT' ? '#ef4444' : '#22c55e'}]}>
+                            {targetOperator.status}
+                        </Text>
+                    </View>
 
-        #compass { position: absolute; top: 20px; left: 20px; width: 60px; height: 60px; z-index: 9999; background: rgba(0,0,0,0.6); border-radius: 50%; border: 2px solid rgba(255,255,255,0.2); display: flex; justify-content: center; align-items: center; backdrop-filter: blur(2px); pointer-events: none; }
-        #compass-indicator { position: absolute; top: -5px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 8px solid #ef4444; z-index: 20; }
-        #compass-rose { position: relative; width: 100%; height: 100%; transition: transform 0.1s linear; }
-        .compass-label { position: absolute; color: rgba(255,255,255,0.9); font-size: 10px; font-weight: bold; font-family: monospace; }
-        .compass-n { top: 4px; left: 50%; transform: translateX(-50%); color: #ef4444; }
-        .compass-s { bottom: 4px; left: 50%; transform: translateX(-50%); }
-        .compass-e { right: 6px; top: 50%; transform: translateY(-50%); }
-        .compass-w { left: 6px; top: 50%; transform: translateY(-50%); }
+                    <View style={styles.actionsGrid}>
+                        {/* BOUTON NAVIGATION */}
+                        <TouchableOpacity style={styles.actionBtn} onPress={() => { onNavigate(targetOperator.id); onClose(); }}>
+                            <View style={[styles.iconContainer, { backgroundColor: 'rgba(6, 182, 212, 0.2)' }]}>
+                                <MaterialIcons name="navigation" size={32} color="#06b6d4" />
+                            </View>
+                            <Text style={styles.btnLabel}>RALLIEMENT</Text>
+                        </TouchableOpacity>
 
-        .leaflet-routing-container { display: none; }
-        #nav-info-panel { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.85); border: 1px solid #06b6d4; border-radius: 12px; padding: 10px 20px; z-index: 9000; display: none; flex-direction: column; align-items: center; backdrop-filter: blur(4px); }
-        #nav-info-title { color: #06b6d4; font-size: 10px; font-weight: bold; letter-spacing: 1px; margin-bottom: 2px; }
-        #nav-info-data { color: white; font-size: 18px; font-weight: 900; font-family: monospace; }
-        #nav-close { position: absolute; top: -10px; right: -10px; background: #ef4444; color: white; width: 20px; height: 20px; border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 12px; font-weight: bold; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.5); }
-      </style>
-      <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-      <script src="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.js"></script>
-    </head>
-    <body>
-      <div id="map"></div>
-      <div id="compass"><div id="compass-indicator"></div><div id="compass-rose"><span class="compass-label compass-n">N</span><span class="compass-label compass-e">E</span><span class="compass-label compass-s">S</span><span class="compass-label compass-w">O</span></div></div>
-      <div id="nav-info-panel"><div id="nav-close" onclick="stopNav()">x</div><span id="nav-info-title">RALLIEMENT</span><span id="nav-info-data">-- min / -- m</span></div>
-
-      <script>
-        const map = L.map('map', { zoomControl: false, attributionControl: false, doubleClickZoom: false }).setView([48.85, 2.35], 13);
-        const layers = {
-            dark: L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {subdomains:'abcd', maxZoom:19}),
-            light: L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {subdomains:'abcd', maxZoom:19}),
-            satellite: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {maxZoom:19})
-        };
-        let currentLayer = layers.dark; currentLayer.addTo(map);
-
-        const markers = {};
-        const trails = {}; 
-        // PingLayer doit avoir un zIndex très élevé pour être cliquable et visible au-dessus des tuiles
-        const pingLayer = L.layerGroup().addTo(map);
-        map.getPane('markerPane').style.zIndex = 650; // S'assurer que le pane marker est au dessus
-        
-        let pings = {};
-        let userArrowColor = '#3b82f6';
-        let pingMode = false;
-        
-        let pressTimer;
-        let lastMePos = null;
-        let autoCentered = false;
-
-        function getStatusColor(status) {
-             switch(status) {
-                 case 'CONTACT': return '#ef4444'; 
-                 case 'CLEAR': return '#22c55e';   
-                 case 'APPUI': return '#eab308';   
-                 case 'BUSY': return '#a855f7';    
-                 case 'PROGRESSION': return userArrowColor;
-                 default: return userArrowColor;
-             }
-        }
-        
-        function getPingIcon(type) {
-            if(type === 'HOSTILE') return '🔴';
-            if(type === 'FRIEND') return '🔵';
-            if(type === 'INTEL') return '👁️';
-            return '📍';
-        }
-
-        function getPingColor(type) {
-            if(type === 'HOSTILE') return '#ef4444'; 
-            if(type === 'FRIEND') return '#22c55e';
-            if(type === 'INTEL') return '#eab308';
-            return 'white';
-        }
-
-        function sendToApp(data) { window.ReactNativeWebView.postMessage(JSON.stringify(data)); }
-        
-        document.addEventListener('message', (event) => handleData(JSON.parse(event.data)));
-        window.addEventListener('message', (event) => handleData(JSON.parse(event.data)));
-
-        // Double Click -> Toujours Ping
-        map.on('dblclick', function(e) {
-             sendToApp({ type: 'MAP_CLICK', lat: e.latlng.lat, lng: e.latlng.lng });
-        });
-
-        // Simple Click -> Dépend du mode
-        map.on('click', (e) => {
-            if (pingMode) {
-                sendToApp({ type: 'MAP_CLICK', lat: e.latlng.lat, lng: e.latlng.lng });
-            }
-        });
-
-        function handleData(data) {
-            if (data.type === 'UPDATE_MAP') {
-                if(data.userArrowColor) userArrowColor = data.userArrowColor;
-                pingMode = data.pingMode; 
-                
-                updateMapMode(data.mode);
-                updateMarkers(data.me, data.peers, data.showTrails);
-                updatePings(data.pings, data.showPings, data.isHost, data.me.callsign);
-                
-                // --- CORRECTION BOUSSOLE ---
-                if(data.me && typeof data.me.head === 'number') {
-                    const rot = -data.me.head;
-                    const el = document.getElementById('compass-rose');
-                    if(el) el.style.transform = 'rotate(' + rot + 'deg)';
-                }
-
-                // --- CORRECTION CENTRAGE AUTO ---
-                // Si on a une position valide pour "moi" et qu'elle a changé significativement ou pas encore centré
-                if (data.me && data.me.lat !== 0 && data.me.lng !== 0) {
-                    const newPos = L.latLng(data.me.lat, data.me.lng);
-                    if (!autoCentered || (lastMePos && lastMePos.distanceTo(newPos) > 50)) {
-                         // On centre, mais doucement pour ne pas gêner si l'utilisateur navigue
-                         // Sauf au premier chargement où on force
-                         if(!autoCentered) {
-                            map.setView(newPos, 16);
-                            autoCentered = true;
-                         } else {
-                            // Optionnel : ne pas forcer le recentrage constant pour laisser l'utilisateur scroller
-                            // map.panTo(newPos); 
-                         }
-                    }
-                    lastMePos = newPos;
-                }
-
-                if (data.navTargetId) handleNavigation(data.me, data.peers, data.navTargetId);
-                else clearNav();
-            }
-        }
-
-        let routingControl = null;
-        let lastRouteStart = null;
-        let lastRouteEnd = null;
-
-        function handleNavigation(me, peers, targetId) {
-            // ... (logique nav inchangée)
-            const target = peers[targetId];
-            if (!target || !me || me.lat === 0 || me.lng === 0 || target.lat === 0 || target.lng === 0) return;
-            const start = L.latLng(me.lat, me.lng);
-            const end = L.latLng(target.lat, target.lng);
-            // ... (reste de la logique routing)
-             if (!routingControl) {
-                routingControl = L.Routing.control({
-                    waypoints: [start, end],
-                    router: L.Routing.osrmv1({ serviceUrl: 'https://router.project-osrm.org/route/v1', profile: 'foot' }),
-                    lineOptions: { styles: [{color: '#06b6d4', opacity: 0.8, weight: 6, dashArray: '10,10'}] },
-                    createMarker: function() { return null; }, 
-                    addWaypoints: false, draggableWaypoints: false, fitSelectedRoutes: false, show: false 
-                }).addTo(map);
-            } else { routingControl.setWaypoints([start, end]); }
-        }
-
-        function stopNav() { sendToApp({ type: 'NAV_STOP' }); clearNav(); }
-        window.stopNav = stopNav; 
-        function clearNav() { if (routingControl) { map.removeControl(routingControl); routingControl = null; } document.getElementById('nav-info-panel').style.display = 'none'; }
-        
-        function updateMapMode(mode) {
-            const newLayer = layers[mode] || layers.dark;
-            if (currentLayer !== newLayer) { map.removeLayer(currentLayer); newLayer.addTo(map); currentLayer = newLayer; }
-        }
-
-        function updateMarkers(me, peers, showTrails) {
-             // ... (logique markers existante)
-             // Assurer zIndex correct pour les user markers (inférieur aux pings si possible)
-             // markers[u.id].setZIndexOffset(...)
-             const validPeers = Object.values(peers).filter(p => p.id !== me.id);
-            const all = [me, ...validPeers].filter(u => u && u.lat);
-            const activeIds = all.map(u => u.id);
-            Object.keys(markers).forEach(id => { if(!activeIds.includes(id)) { map.removeLayer(markers[id]); delete markers[id]; } });
-
-            all.forEach(u => {
-                let color = getStatusColor(u.status);
-                const rot = u.head || 0;
-                const extraClass = (u.status === 'CONTACT') ? 'tac-marker-heartbeat' : '';
-                
-                const coneSvg = \`<svg viewBox="0 0 100 100" width="80" height="80" style="overflow:visible;"><path d="M50 50 L10 0 A60 60 0 0 1 90 0 Z" fill="\${color}" fill-opacity="0.3" stroke="\${color}" stroke-width="1" stroke-opacity="0.5" /></svg>\`;
-                const iconHtml = \`<div class="tac-marker-root \${extraClass}"><div class="tac-cone-container" style="transform: rotate(\${rot}deg);">\${coneSvg}</div><div class="tac-circle-id" style="background-color: \${color};"><span>\${u.callsign ? u.callsign.substring(0,3) : 'UNK'}</span></div></div>\`;
-                
-                const icon = L.divIcon({ className: 'custom-div-icon', html: iconHtml, iconSize: [80, 80], iconAnchor: [40, 40] });
-                
-                if (markers[u.id]) { markers[u.id].setLatLng([u.lat, u.lng]); markers[u.id].setIcon(icon); markers[u.id].setZIndexOffset(u.id === me.id ? 900 : 500); } 
-                else { markers[u.id] = L.marker([u.lat, u.lng], { icon: icon, zIndexOffset: u.id === me.id ? 900 : 500 }).addTo(map); }
-            });
-        }
-
-        // --- GESTION CLICK / LONG PRESS ---
-        window.startPress = function(id) {
-            pressTimer = setTimeout(() => {
-                pressTimer = null;
-                sendToApp({ type: 'PING_CLICK', id: id }); 
-            }, 600); 
-        }
-
-        window.endPress = function(id) {
-            if (pressTimer) {
-                clearTimeout(pressTimer);
-                pressTimer = null;
-                const el = document.getElementById('ping-' + id);
-                if (el && el.getAttribute('data-type') !== 'HOSTILE') {
-                     sendToApp({ type: 'PING_CLICK', id: id });
-                }
-            }
-        }
-
-        function updatePings(serverPings, showPings, isHost, myCallsign) {
-            if (!showPings) { pingLayer.clearLayers(); pings = {}; return; }
-            if (!map.hasLayer(pingLayer)) map.addLayer(pingLayer);
-            
-            const currentIds = serverPings.map(p => p.id);
-            Object.keys(pings).forEach(id => { if(!currentIds.includes(id)) { pingLayer.removeLayer(pings[id]); delete pings[id]; } });
-            
-            serverPings.forEach(p => {
-                const canDrag = isHost || (p.sender === myCallsign);
-                const iconChar = getPingIcon(p.type || 'FRIEND');
-                const color = getPingColor(p.type || 'FRIEND');
-                
-                const html = \`
-                    <div id="ping-\${p.id}" data-type="\${p.type}" class="ping-marker-box"
-                         onmousedown="startPress('\${p.id}')" ontouchstart="startPress('\${p.id}')" 
-                         onmouseup="endPress('\${p.id}')" ontouchend="endPress('\${p.id}')">
-                        <div class="ping-label" style="border-color: \${color}">\${p.msg}</div>
-                        <div class="ping-icon">\${iconChar}</div>
-                    </div>
-                \`;
-
-                if (pings[p.id]) {
-                    pings[p.id].setLatLng([p.lat, p.lng]);
-                    if(pings[p.id]._icon) pings[p.id]._icon.innerHTML = html;
-                    if(pings[p.id].dragging) { canDrag ? pings[p.id].dragging.enable() : pings[p.id].dragging.disable(); }
-                } else {
-                    const icon = L.divIcon({ className: 'custom-div-icon', html: html, iconSize: [100, 60], iconAnchor: [50, 50] });
-                    // ZIndexOffset à 2000 pour être SUR que c'est au dessus des marqueurs user (qui sont vers 900)
-                    const m = L.marker([p.lat, p.lng], { icon: icon, draggable: canDrag, zIndexOffset: 2000 });
-                    
-                    if (p.type === 'HOSTILE') {
-                        const d = p.details || {};
-                        const popupContent = \`
-                            <div class="ping-details-popup hostile-info">
-                                <b>ENNEMI IDENTIFIÉ</b>
-                                <div class="hostile-row"><span class="hostile-label">POS:</span> \${d.position || '-'}</div>
-                                <div class="hostile-row"><span class="hostile-label">NAT:</span> \${d.nature || '-'}</div>
-                                <div class="hostile-row"><span class="hostile-label">ATT:</span> \${d.attitude || '-'}</div>
-                                <div class="hostile-row"><span class="hostile-label">VOL:</span> \${d.volume || '-'}</div>
-                                <div class="hostile-row"><span class="hostile-label">ARM:</span> \${d.armes || '-'}</div>
-                                <div class="hostile-row"><span class="hostile-label">DIV:</span> \${d.substances || '-'}</div>
-                            </div>
-                        \`;
-                        m.bindPopup(popupContent, { closeButton: false, offset: [0, -30], className: 'ping-details-popup' });
-                    }
-
-                    m.on('dragend', (e) => sendToApp({ type: 'PING_MOVE', id: p.id, lat: e.target.getLatLng().lat, lng: e.target.getLatLng().lng }));
-                    pings[p.id] = m;
-                    pingLayer.addLayer(m);
-                }
-            });
-        }
-        map.on('click', (e) => sendToApp({ type: 'MAP_CLICK', lat: e.latlng.lat, lng: e.latlng.lng }));
-      </script>
-    </body>
-    </html>
-  `;
-
-  useEffect(() => {
-    if (webViewRef.current) {
-      webViewRef.current.postMessage(JSON.stringify({
-        type: 'UPDATE_MAP', me, peers, pings, mode: mapMode, showTrails, showPings, isHost,
-        userArrowColor, navTargetId, pingMode
-      }));
-    }
-  }, [me, peers, pings, mapMode, showTrails, showPings, isHost, userArrowColor, navTargetId, pingMode]);
-
-  const handleMessage = (event: any) => {
-    try {
-      const data = JSON.parse(event.nativeEvent.data);
-      if (data.type === 'MAP_CLICK') onPing({ lat: data.lat, lng: data.lng });
-      if (data.type === 'PING_CLICK') onPingClick(data.id); 
-      if (data.type === 'PING_MOVE') onPingMove({ ...pings.find(p => p.id === data.id)!, lat: data.lat, lng: data.lng });
-      if (data.type === 'NAV_STOP') { if (onNavStop) onNavStop(); }
-    } catch(e) {}
-  };
-
-  return (
-    <View style={styles.container}>
-      <WebView
-        ref={webViewRef}
-        originWhitelist={['*']}
-        source={{ html: leafletHTML }}
-        style={{ flex: 1, backgroundColor: '#000' }}
-        onMessage={handleMessage}
-        javaScriptEnabled={true}
-        domStorageEnabled={true}
-        startInLoadingState={true}
-        cacheEnabled={true}
-        cacheMode="LOAD_CACHE_ELSE_NETWORK"
-        renderLoading={() => <ActivityIndicator size="large" color="#3b82f6" style={styles.loader} />}
-      />
-    </View>
-  );
+                        {/* BOUTON KICK (HOST ONLY) */}
+                        {currentUserRole === OperatorRole.HOST && (
+                            <TouchableOpacity style={styles.actionBtn} onPress={handleKickPress}>
+                                <View style={[styles.iconContainer, { backgroundColor: 'rgba(239, 68, 68, 0.2)' }]}>
+                                    <MaterialIcons name="person-remove" size={32} color="#ef4444" />
+                                </View>
+                                <Text style={[styles.btnLabel, { color: '#ef4444' }]}>EXCLURE</Text>
+                            </TouchableOpacity>
+                        )}
+                    </View>
+                </View>
+            </View>
+        </Modal>
+    );
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#000' },
-  loader: { position: 'absolute', top: '50%', left: '50%', transform: [{translateX: -25}, {translateY: -25}] }
+    overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'flex-end' },
+    content: { backgroundColor: '#18181b', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, borderTopWidth: 1, borderTopColor: '#333' },
+    header: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
+    title: { fontSize: 22, fontWeight: 'bold', color: 'white', marginLeft: 10, flex: 1 },
+    closeBtn: { padding: 5 },
+    infoRow: { flexDirection: 'row', marginBottom: 10 },
+    infoLabel: { color: '#71717a', width: 60, fontWeight: 'bold' },
+    infoValue: { color: '#d4d4d8', fontWeight: '500' },
+    actionsGrid: { flexDirection: 'row', justifyContent: 'space-around', marginTop: 30, marginBottom: 20 },
+    actionBtn: { alignItems: 'center', width: 100 },
+    iconContainer: { width: 64, height: 64, borderRadius: 32, justifyContent: 'center', alignItems: 'center', marginBottom: 10 },
+    btnLabel: { color: '#d4d4d8', fontSize: 12, fontWeight: 'bold' }
 });
 
-export default TacticalMap;
+export default OperatorActionModal;
