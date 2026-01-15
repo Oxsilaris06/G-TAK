@@ -2,7 +2,7 @@ import './polyfills';
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { 
   StyleSheet, View, Text, TextInput, TouchableOpacity, 
-  SafeAreaView, Platform, Modal, StatusBar as RNStatusBar, Alert, BackHandler, ScrollView, ActivityIndicator,
+  SafeAreaView, Platform, Modal, StatusBar as RNStatusBar, Alert, ScrollView, ActivityIndicator,
   PermissionsAndroid, Animated, PanResponder, FlatList, KeyboardAvoidingView, Vibration
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
@@ -17,8 +17,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Magnetometer } from 'expo-sensors';
-import NetInfo from '@react-native-community/netinfo';
-import * as SplashScreen from 'expo-splash-screen'; // NOUVEAU
+import * as SplashScreen from 'expo-splash-screen';
 
 import { UserData, OperatorStatus, OperatorRole, ViewType, PingData, AppSettings, DEFAULT_SETTINGS, PingType, HostileDetails } from './types';
 import { CONFIG, STATUS_COLORS } from './constants';
@@ -29,17 +28,10 @@ import OperatorCard from './components/OperatorCard';
 import TacticalMap from './components/TacticalMap';
 import SettingsView from './components/SettingsView';
 
-// Empêcher le splash screen de disparaître tant qu'on n'est pas prêt
+// Empêcher le splash screen de disparaître automatiquement
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
-});
-
+// Import JSON sécurisé
 let DEFAULT_MSG_JSON: string[] = [];
 try { DEFAULT_MSG_JSON = require('./msg.json'); } catch (e) { }
 
@@ -143,22 +135,20 @@ const App: React.FC = () => {
     }
   };
 
+  // --- LOGIC PERMISSIONS ---
   const bootstrapPermissions = async () => {
-    console.log("Bootstrapping Permissions...");
     try {
         if (Platform.OS === 'android') {
-            // On ne bloque pas si ça échoue, on log juste
             await PermissionsAndroid.requestMultiple([
                 PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
                 PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION,
-            ]).catch(e => console.warn("Android Perm Error", e));
+            ]).catch(() => {});
         }
 
-        // Tentative de notif avec timeout
-        try {
-            const { status } = await Notifications.getPermissionsAsync();
-            if (status !== 'granted') await Notifications.requestPermissionsAsync();
-        } catch(e) {}
+        const { status: existingStatus } = await Notifications.getPermissionsAsync();
+        if (existingStatus !== 'granted') {
+            await Notifications.requestPermissionsAsync().catch(() => {});
+        }
         
         const locRes = await Location.requestForegroundPermissionsAsync().catch(() => ({status: 'denied'}));
         if (locRes.status !== 'granted') {
@@ -171,7 +161,7 @@ const App: React.FC = () => {
             await requestCameraPermission().catch(() => {});
         }
     } catch (e) {
-        console.warn("Global Perm Error:", e);
+        console.warn("Perms Error", e);
     }
   };
 
@@ -198,7 +188,7 @@ const App: React.FC = () => {
                 });
             }
         );
-      } catch(e) { console.warn("GPS Start Error", e); }
+      } catch(e) {}
   }, []);
 
   const finishLogout = useCallback(() => {
@@ -209,7 +199,54 @@ const App: React.FC = () => {
       setUser(prev => ({...prev, id: '', role: OperatorRole.OPR, status: OperatorStatus.CLEAR, lastMsg: '' }));
   }, []);
 
-  // --- LOGIC VIBRATION CONTACT ---
+  // --- INIT GLOBAL ---
+  useEffect(() => {
+      const initApp = async () => {
+          try {
+              // 1. Config Notifications
+              Notifications.setNotificationHandler({
+                  handleNotification: async () => ({ shouldShowAlert: true, shouldPlaySound: true, shouldSetBadge: false }),
+              });
+
+              // 2. Permissions (avec Timeout)
+              await Promise.race([
+                  bootstrapPermissions(),
+                  new Promise(resolve => setTimeout(resolve, 3000))
+              ]);
+
+              // 3. Config App
+              const s = await configService.init();
+              let msgs = s.quickMessages;
+              if ((!msgs || msgs.length === 0) && Array.isArray(DEFAULT_MSG_JSON)) { msgs = DEFAULT_MSG_JSON; }
+              setSettings(s);
+              setQuickMessagesList(msgs || DEFAULT_SETTINGS.quickMessages);
+              
+              if (s.username) { setUser(prev => ({ ...prev, callsign: s.username })); setLoginInput(s.username); }
+
+          } catch (e) {
+              console.warn("Init Failed", e);
+          } finally {
+              setIsAppReady(true);
+              await SplashScreen.hideAsync().catch(() => {});
+          }
+      };
+      
+      initApp();
+
+      const unsubConfig = configService.subscribe((newSettings) => {
+          setSettings(newSettings);
+          if (newSettings.quickMessages) setQuickMessagesList(newSettings.quickMessages);
+          if (newSettings.username && newSettings.username !== user.callsign) {
+              connectivityService.updateUser({ callsign: newSettings.username });
+              setUser(prev => ({ ...prev, callsign: newSettings.username }));
+          }
+          if (gpsSubscription.current) startGpsTracking(newSettings.gpsUpdateInterval);
+      });
+      const unsubConn = connectivityService.subscribe(handleConnectivityEvent);
+      return () => { unsubConfig(); unsubConn(); };
+  }, []); // Run once
+
+  // --- LOGIC VIBRATION ---
   useEffect(() => {
       const newPeers = peers;
       const oldPeers = prevPeersRef.current;
@@ -226,6 +263,32 @@ const App: React.FC = () => {
       });
       prevPeersRef.current = newPeers;
   }, [peers, user.id]);
+
+  useEffect(() => { 
+      Battery.getBatteryLevelAsync().then(l => setUser(u => ({ ...u, bat: Math.floor(l * 100) }))); 
+      const sub = Battery.addBatteryLevelListener(({ batteryLevel }) => setUser(u => ({ ...u, bat: Math.floor(batteryLevel * 100) }))); 
+      return () => sub && sub.remove(); 
+  }, []);
+  
+  useEffect(() => { 
+      Magnetometer.setUpdateInterval(100); 
+      const sub = Magnetometer.addListener((data) => { 
+          let angle = Math.atan2(data.y, data.x) * (180 / Math.PI) - 90; 
+          if (angle < 0) angle += 360; 
+          setUser(prev => { 
+              if (Math.abs(prev.head - angle) > 3) {
+                  const now = Date.now();
+                  if (now - lastHeadBroadcast.current > 500 && hostId) {
+                      connectivityService.updateUserPosition(prev.lat, prev.lng, Math.floor(angle));
+                      lastHeadBroadcast.current = now;
+                  }
+                  return { ...prev, head: Math.floor(angle) }; 
+              }
+              return prev; 
+          }); 
+      }); 
+      return () => sub && sub.remove(); 
+  }, [hostId]);
 
   const handleConnectivityEvent = useCallback((event: ConnectivityEvent) => {
       switch (event.type) {
@@ -257,9 +320,7 @@ const App: React.FC = () => {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             setPings(prev => [...prev, data.ping]);
             showToast(`ALERTE: ${data.ping.type} - ${data.ping.msg}`);
-            Notifications.scheduleNotificationAsync({
-                content: { title: `TACTIQUE: ${data.ping.type}`, body: `${data.ping.sender} : ${data.ping.msg}`, sound: true }, trigger: null,
-            });
+            Notifications.scheduleNotificationAsync({ content: { title: `TACTIQUE: ${data.ping.type}`, body: `${data.ping.sender} : ${data.ping.msg}`, sound: true }, trigger: null });
             break;
         case 'PING_MOVE': 
             setPings(prev => prev.map(p => p.id === data.id ? { ...p, lat: data.lat, lng: data.lng } : p));
@@ -278,74 +339,6 @@ const App: React.FC = () => {
       }
   };
 
-  // --- INIT CRITIQUE : TIMEOUT DE SÉCURITÉ ---
-  useEffect(() => {
-      const loadResources = async () => {
-          try {
-              // On lance les permissions mais on ne laisse pas bloquer plus de 3 secondes
-              await Promise.race([
-                  bootstrapPermissions(),
-                  new Promise(resolve => setTimeout(resolve, 3000))
-              ]);
-
-              const s = await configService.init();
-              let msgs = s.quickMessages;
-              if ((!msgs || msgs.length === 0) && Array.isArray(DEFAULT_MSG_JSON)) { msgs = DEFAULT_MSG_JSON; }
-              setSettings(s);
-              setQuickMessagesList(msgs || DEFAULT_SETTINGS.quickMessages);
-              
-              if (s.username) { setUser(prev => ({ ...prev, callsign: s.username })); setLoginInput(s.username); }
-          } catch (e) {
-              console.warn("Init Failed", e);
-          } finally {
-              setIsAppReady(true);
-              await SplashScreen.hideAsync().catch(() => {});
-          }
-      };
-      
-      loadResources();
-
-      const unsubConfig = configService.subscribe((newSettings) => {
-          setSettings(newSettings);
-          if (newSettings.quickMessages) setQuickMessagesList(newSettings.quickMessages);
-          if (newSettings.username && newSettings.username !== user.callsign) {
-              connectivityService.updateUser({ callsign: newSettings.username });
-              setUser(prev => ({ ...prev, callsign: newSettings.username }));
-          }
-          if (gpsSubscription.current) startGpsTracking(newSettings.gpsUpdateInterval);
-      });
-      const unsubConn = connectivityService.subscribe(handleConnectivityEvent);
-      return () => { unsubConfig(); unsubConn(); };
-  }, []); // Run once
-
-  // ... (Reste des useEffects inchangés pour Battery, Magnetometer, NetInfo) ...
-  useEffect(() => { 
-      Battery.getBatteryLevelAsync().then(l => setUser(u => ({ ...u, bat: Math.floor(l * 100) }))); 
-      const sub = Battery.addBatteryLevelListener(({ batteryLevel }) => setUser(u => ({ ...u, bat: Math.floor(batteryLevel * 100) }))); 
-      return () => sub && sub.remove(); 
-  }, []);
-  
-  useEffect(() => { 
-      Magnetometer.setUpdateInterval(100); 
-      const sub = Magnetometer.addListener((data) => { 
-          let angle = Math.atan2(data.y, data.x) * (180 / Math.PI) - 90; 
-          if (angle < 0) angle += 360; 
-          setUser(prev => { 
-              if (Math.abs(prev.head - angle) > 3) {
-                  const now = Date.now();
-                  if (now - lastHeadBroadcast.current > 500 && hostId) {
-                      connectivityService.updateUserPosition(prev.lat, prev.lng, Math.floor(angle));
-                      lastHeadBroadcast.current = now;
-                  }
-                  return { ...prev, head: Math.floor(angle) }; 
-              }
-              return prev; 
-          }); 
-      }); 
-      return () => sub && sub.remove(); 
-  }, [hostId]);
-
-  // --- ACTIONS ---
   const startPingCreation = (loc: { lat: number, lng: number }) => { setTempPingLoc(loc); setShowPingMenu(true); };
   const selectPingType = (type: PingType) => { setCurrentPingType(type); setShowPingMenu(false); setPingMsgInput(''); setHostileDetails({}); setShowPingForm(true); };
   const submitPing = () => {
@@ -410,16 +403,7 @@ const App: React.FC = () => {
   };
   const openSettings = () => { setLastView(view); setView('settings'); };
 
-  // --- RENDERS ---
-  
-  // Si l'app charge encore mais que le splash screen est caché (cas limite), on met un loader
-  if (!isAppReady) {
-      return (
-          <View style={[styles.container, styles.centerContainer]}>
-              <ActivityIndicator size="large" color="#3b82f6" />
-          </View>
-      );
-  }
+  if (!isAppReady) return (<View style={[styles.container, styles.centerContainer]}><ActivityIndicator size="large" color="#3b82f6" /><Text style={{color: 'white', marginTop: 20}}>Initialisation...</Text></View>);
 
   const renderLogin = () => (
     <View style={styles.centerContainer}>
@@ -436,95 +420,63 @@ const App: React.FC = () => {
     </View>
   );
 
-  const renderMenu = () => {
-    const isSessionActive = !!hostId;
-    return (
-    <SafeAreaView style={styles.safeArea}>
-      <View style={styles.menuContainer}>
-        <View style={{flexDirection: 'row', justifyContent:'space-between', alignItems:'center', marginBottom: 20}}>
-            <Text style={styles.sectionTitle}>DÉPLOIEMENT</Text>
-            <View style={{flexDirection: 'row', gap: 15}}>
-                <TouchableOpacity onPress={openSettings} style={{padding: 5}}>
-                    <MaterialIcons name="settings" size={24} color="#a1a1aa" />
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => Alert.alert("Déconnexion", "Se déconnecter totalement ?", [{text:"Non"}, {text:"Oui", onPress:handleLogout}])} style={{padding: 5}}>
-                    <MaterialIcons name="power-settings-new" size={24} color="#ef4444" />
-                </TouchableOpacity>
-            </View>
-        </View>
-        <View style={{flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 20, backgroundColor: '#18181b', padding: 10, borderRadius: 8}}>
-                {isServicesReady ? (<MaterialIcons name="check-circle" size={16} color="#22c55e" />) : (<ActivityIndicator size="small" color="#3b82f6" />)}
-                <Text style={{color: '#71717a', fontSize: 10, marginRight: 10}}>SYS</Text>
-                {gpsStatus === 'OK' ? <MaterialIcons name="gps-fixed" size={16} color="#22c55e" /> : <MaterialIcons name="gps-off" size={16} color="#ef4444" />}
-                <Text style={{color: '#71717a', fontSize: 10}}>GPS</Text>
-        </View>
-        
-        {isSessionActive ? (
-            <View>
-                <TouchableOpacity onPress={() => setView('map')} style={[styles.menuCard, {borderColor: '#22c55e', backgroundColor: 'rgba(34, 197, 94, 0.1)'}]}>
-                  <MaterialIcons name="map" size={40} color="#22c55e" />
-                  <View style={{marginLeft: 20}}>
-                    <Text style={[styles.menuCardTitle, {color: '#22c55e'}]}>CARTE TACTIQUE</Text>
-                    <Text style={styles.menuCardSubtitle}>Réseau: {hostId}</Text>
-                  </View>
-                </TouchableOpacity>
-                <View style={styles.divider} />
-                {/* BOUTON QR CODE RESTAURÉ */}
-                <TouchableOpacity onPress={() => setShowQRModal(true)} style={[styles.menuCard, {borderColor: '#d4d4d8', padding: 15, marginBottom: 15}]}>
-                    <MaterialIcons name="qr-code" size={30} color="#d4d4d8" />
-                    <View style={{marginLeft: 20}}>
-                        <Text style={[styles.menuCardTitle, {color: '#d4d4d8', fontSize: 16}]}>AFFICHER QR CODE</Text>
-                        <Text style={styles.menuCardSubtitle}>Partager ID Session</Text>
-                    </View>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => Alert.alert("Fin de Mission", "Voulez-vous vraiment quitter le canal ?", [{text:"Non"}, {text:"Oui", onPress:handleLogout}])} style={[styles.menuCard, {borderColor: '#ef4444', padding: 15}]}>
-                  <MaterialIcons name="logout" size={30} color="#ef4444" />
-                  <View style={{marginLeft: 20}}>
-                    <Text style={[styles.menuCardTitle, {color: '#ef4444', fontSize: 16}]}>QUITTER RÉSEAU</Text>
-                  </View>
-                </TouchableOpacity>
-            </View>
-        ) : (
-            <>
-                <TouchableOpacity onPress={createSession} style={styles.menuCard}>
-                  <MaterialIcons name="add-location-alt" size={40} color="#3b82f6" />
-                  <View style={{marginLeft: 20}}>
-                    <Text style={styles.menuCardTitle}>Ouvrir Carte</Text>
-                    <Text style={styles.menuCardSubtitle}>Hôte (Chef de groupe)</Text>
-                  </View>
-                </TouchableOpacity>
-                <View style={styles.divider} />
-                <View style={styles.joinHeader}>
-                    <Text style={styles.sectionTitle}>REJOINDRE</Text>
-                    <TouchableOpacity onPress={() => setShowScanner(true)} style={styles.scanBtn}>
-                        <MaterialIcons name="qr-code-scanner" size={16} color="#3b82f6" /><Text style={styles.scanBtnText}>SCANNER</Text>
-                    </TouchableOpacity>
-                </View>
-                <TextInput style={styles.inputBox} placeholder="ID GROUPE..." placeholderTextColor="#52525b" value={hostInput} onChangeText={setHostInput} autoCapitalize="characters" />
-                <TouchableOpacity onPress={() => joinSession()} style={styles.joinBtn}>
-                    <Text style={styles.joinBtnText}>REJOINDRE</Text>
-                </TouchableOpacity>
-                {/* BOUTON QR CODE MODE NON CONNECTÉ */}
-                <TouchableOpacity onPress={() => setShowQRModal(true)} style={[styles.joinBtn, {backgroundColor: '#18181b', borderWidth:1, borderColor:'#333', marginTop: 15}]}>
-                    <View style={{flexDirection:'row', alignItems:'center', justifyContent: 'center', gap: 10}}>
-                        <MaterialIcons name="qr-code" size={20} color="#71717a" />
-                        <Text style={[styles.joinBtnText, {color: '#71717a'}]}>MON QR CODE</Text>
-                    </View>
-                </TouchableOpacity>
-            </>
-        )}
-      </View>
-    </SafeAreaView>
-  )};
-
   return (
     <View style={styles.container}>
       <StatusBar style="light" backgroundColor="#050505" />
+      
       {view === 'settings' ? ( <SettingsView onClose={() => setView(lastView)} /> ) : (
         <View style={{flex: 1}}>
             {view === 'login' ? renderLogin() : 
-             view === 'menu' ? renderMenu() : 
-             (view === 'ops' || view === 'map') ? (
+             view === 'menu' ? (
+                <SafeAreaView style={styles.safeArea}>
+                  <View style={styles.menuContainer}>
+                    <View style={{flexDirection: 'row', justifyContent:'space-between', alignItems:'center', marginBottom: 20}}>
+                        <Text style={styles.sectionTitle}>DÉPLOIEMENT</Text>
+                        <View style={{flexDirection: 'row', gap: 15}}>
+                            <TouchableOpacity onPress={openSettings} style={{padding: 5}}><MaterialIcons name="settings" size={24} color="#a1a1aa" /></TouchableOpacity>
+                            <TouchableOpacity onPress={() => Alert.alert("Déconnexion", "Se déconnecter totalement ?", [{text:"Non"}, {text:"Oui", onPress:handleLogout}])} style={{padding: 5}}><MaterialIcons name="power-settings-new" size={24} color="#ef4444" /></TouchableOpacity>
+                        </View>
+                    </View>
+                    <View style={{flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 20, backgroundColor: '#18181b', padding: 10, borderRadius: 8}}>
+                            {isServicesReady ? (<MaterialIcons name="check-circle" size={16} color="#22c55e" />) : (<ActivityIndicator size="small" color="#3b82f6" />)}
+                            <Text style={{color: '#71717a', fontSize: 10, marginRight: 10}}>SYS</Text>
+                            {gpsStatus === 'OK' ? <MaterialIcons name="gps-fixed" size={16} color="#22c55e" /> : <MaterialIcons name="gps-off" size={16} color="#ef4444" />}
+                            <Text style={{color: '#71717a', fontSize: 10}}>GPS</Text>
+                    </View>
+                    {!!hostId ? (
+                        <View>
+                            <TouchableOpacity onPress={() => setView('map')} style={[styles.menuCard, {borderColor: '#22c55e', backgroundColor: 'rgba(34, 197, 94, 0.1)'}]}>
+                              <MaterialIcons name="map" size={40} color="#22c55e" />
+                              <View style={{marginLeft: 20}}><Text style={[styles.menuCardTitle, {color: '#22c55e'}]}>CARTE TACTIQUE</Text><Text style={styles.menuCardSubtitle}>Réseau: {hostId}</Text></View>
+                            </TouchableOpacity>
+                            <View style={styles.divider} />
+                            <TouchableOpacity onPress={() => setShowQRModal(true)} style={[styles.menuCard, {borderColor: '#d4d4d8', padding: 15, marginBottom: 15}]}>
+                                <MaterialIcons name="qr-code" size={30} color="#d4d4d8" />
+                                <View style={{marginLeft: 20}}><Text style={[styles.menuCardTitle, {color: '#d4d4d8', fontSize: 16}]}>AFFICHER QR CODE</Text><Text style={styles.menuCardSubtitle}>Partager ID Session</Text></View>
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={() => Alert.alert("Fin de Mission", "Voulez-vous vraiment quitter le canal ?", [{text:"Non"}, {text:"Oui", onPress:handleLogout}])} style={[styles.menuCard, {borderColor: '#ef4444', padding: 15}]}>
+                              <MaterialIcons name="logout" size={30} color="#ef4444" />
+                              <View style={{marginLeft: 20}}><Text style={[styles.menuCardTitle, {color: '#ef4444', fontSize: 16}]}>QUITTER RÉSEAU</Text></View>
+                            </TouchableOpacity>
+                        </View>
+                    ) : (
+                        <>
+                            <TouchableOpacity onPress={createSession} style={styles.menuCard}>
+                              <MaterialIcons name="add-location-alt" size={40} color="#3b82f6" />
+                              <View style={{marginLeft: 20}}><Text style={styles.menuCardTitle}>Ouvrir Carte</Text><Text style={styles.menuCardSubtitle}>Hôte (Chef de groupe)</Text></View>
+                            </TouchableOpacity>
+                            <View style={styles.divider} />
+                            <View style={styles.joinHeader}><Text style={styles.sectionTitle}>REJOINDRE</Text><TouchableOpacity onPress={() => setShowScanner(true)} style={styles.scanBtn}><MaterialIcons name="qr-code-scanner" size={16} color="#3b82f6" /><Text style={styles.scanBtnText}>SCANNER</Text></TouchableOpacity></View>
+                            <TextInput style={styles.inputBox} placeholder="ID GROUPE..." placeholderTextColor="#52525b" value={hostInput} onChangeText={setHostInput} autoCapitalize="characters" />
+                            <TouchableOpacity onPress={() => joinSession()} style={styles.joinBtn}><Text style={styles.joinBtnText}>REJOINDRE</Text></TouchableOpacity>
+                            <TouchableOpacity onPress={() => setShowQRModal(true)} style={[styles.joinBtn, {backgroundColor: '#18181b', borderWidth:1, borderColor:'#333', marginTop: 15}]}>
+                                <View style={{flexDirection:'row', alignItems:'center', justifyContent: 'center', gap: 10}}><MaterialIcons name="qr-code" size={20} color="#71717a" /><Text style={[styles.joinBtnText, {color: '#71717a'}]}>MON QR CODE</Text></View>
+                            </TouchableOpacity>
+                        </>
+                    )}
+                  </View>
+                </SafeAreaView>
+             ) : (
                  <View style={{flex: 1}}>
                      <View style={{backgroundColor: '#09090b'}}>
                         <SafeAreaView style={styles.header}>
@@ -593,12 +545,12 @@ const App: React.FC = () => {
                         </View>
                      </View>
                  </View>
-             ) : null
+             )
             }
         </View>
       )}
 
-      {/* --- MODALES (Gardées à la fin pour être au dessus) --- */}
+      {/* MODALES */}
       <Modal visible={showQRModal} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
