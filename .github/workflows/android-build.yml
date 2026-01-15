@@ -1,9 +1,8 @@
-name: Build & Release ComTac (Debug)
+name: Build & Release TacSuite (Debug)
 
 on:
   workflow_dispatch:
 
-# ⚠️ Permission requise pour créer la Release
 permissions:
   contents: write
 
@@ -37,8 +36,6 @@ jobs:
       - name: Expo Prebuild
         run: npx expo prebuild --platform android --clean
 
-      # --- ETAPE CRITIQUE : GÉNÉRATION DU BUNDLE JS ---
-      # Correction: Utilisation de index.js au lieu de index.tsx pour éviter le déphasage
       - name: Force Bundle JS
         run: |
           mkdir -p android/app/src/main/assets
@@ -49,7 +46,6 @@ jobs:
             --bundle-output android/app/src/main/assets/index.android.bundle \
             --assets-dest android/app/src/main/res
 
-      # FIX: Use Gradle 8.6 instead of 8.7 (Better compatibility with RN 0.74)
       - name: Fix Gradle Wrapper (Force 8.6-bin)
         run: |
           cd android/gradle/wrapper
@@ -61,20 +57,18 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleDebug -Dorg.gradle.jvmargs="-Xmx4608m -XX:MaxMetaspaceSize=1024m" --no-daemon --stacktrace
 
-      # --- 1. RENOMMAGE DU FICHIER ---
-      - name: Renommer l'APK en ComTac.apk
+      - name: Renommer l'APK en TacSuite.apk
         run: |
-          mv android/app/build/outputs/apk/debug/app-debug.apk ComTac.apk
+          mv android/app/build/outputs/apk/debug/app-debug.apk TacSuite.apk
 
-      # --- 2. MISE A JOUR DE LA RELEASE 'latest' ---
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: latest            # Tag fixe
-          name: "ComTac - Dernière Build"
-          files: ComTac.apk           # Fichier renommé
+          tag_name: latest
+          name: "TacSuite - Dernière Build"
+          files: TacSuite.apk
           draft: false
           prerelease: false
-          overwrite: true             # Écrase l'ancienne version
+          overwrite: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
