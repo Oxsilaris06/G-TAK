@@ -1,18 +1,18 @@
 import 'react-native-get-random-values';
-import { registerGlobals } from 'react-native-webrtc';
 
-// 1. Activation WebRTC (Nécessaire pour le DataChannel de PeerJS)
+// Gestion sécurisée de WebRTC pour éviter le crash au démarrage
 try {
+    const { registerGlobals } = require('react-native-webrtc');
     registerGlobals();
 } catch (e) {
-    console.warn("WebRTC module not found, PeerJS might fail.");
+    console.warn("[Polyfills] WebRTC module not found or failed to initialize. PeerJS might not work.", e);
 }
 
-// 2. Window & Self
+// 2. Window & Self (Compatibilité librairies web)
 if (typeof window === 'undefined') { global.window = global; }
 if (typeof self === 'undefined') { global.self = global; }
 
-// 3. Location (Critique pour PeerJS)
+// 3. Location (Critique pour PeerJS qui vérifie window.location)
 if (!global.window.location) {
     global.window.location = {
         protocol: 'https:', host: 'localhost', hostname: 'localhost',
