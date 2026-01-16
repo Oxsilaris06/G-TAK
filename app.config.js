@@ -3,7 +3,7 @@ export default {
     name: "TacSuite",
     slug: "tacsuite",
     version: "3.3.0",
-    orientation: "default", // Suffisant pour autoriser la rotation sans plugin
+    orientation: "default",
     icon: "./assets/icon.png",
     userInterfaceStyle: "dark",
     splash: {
@@ -21,7 +21,9 @@ export default {
         UIBackgroundModes: ["location", "fetch", "voip"],
         NSLocationAlwaysAndWhenInUseUsageDescription: "Suivi tactique de l'équipe même en arrière-plan.",
         NSLocationWhenInUseUsageDescription: "Affichage position sur carte.",
-        NSCameraUsageDescription: "Scan QR Code."
+        NSCameraUsageDescription: "Scan QR Code.",
+        // AJOUT CRITIQUE POUR LE RÉSEAU LOCAL (Même WiFi)
+        NSLocalNetworkUsageDescription: "Nécessaire pour la connexion P2P entre appareils sur le même réseau WiFi."
       }
     },
     android: {
@@ -42,6 +44,7 @@ export default {
         "INTERNET",
         "ACCESS_NETWORK_STATE",
         "ACCESS_WIFI_STATE",
+        "CHANGE_WIFI_STATE", // Utile pour certaines implémentations WebRTC
         "POST_NOTIFICATIONS"
       ]
     },
