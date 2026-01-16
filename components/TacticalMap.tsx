@@ -14,6 +14,7 @@ interface TacticalMapProps {
   userArrowColor: string;
   navTargetId?: string | null;
   pingMode?: boolean; 
+  nightOpsMode?: boolean; // NOUVEAU
   onPing: (loc: { lat: number; lng: number }) => void;
   onPingMove: (ping: PingData) => void;
   onPingClick: (id: string) => void; 
@@ -21,7 +22,7 @@ interface TacticalMapProps {
 }
 
 const TacticalMap: React.FC<TacticalMapProps> = ({
-  me, peers, pings, mapMode, showTrails, showPings, isHost, userArrowColor, navTargetId, pingMode,
+  me, peers, pings, mapMode, showTrails, showPings, isHost, userArrowColor, navTargetId, pingMode, nightOpsMode,
   onPing, onPingMove, onPingClick, onNavStop
 }) => {
   const webViewRef = useRef<WebView>(null);
@@ -33,13 +34,17 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
       <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
       <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
       <style>
-        body { margin: 0; padding: 0; background: #000; font-family: sans-serif; }
+        body { margin: 0; padding: 0; background: #000; font-family: sans-serif; transition: filter 0.5s ease; }
         #map { width: 100vw; height: 100vh; }
         
+        /* MODE NIGHT OPS INTÉGRAL (Filtre rouge tactique) */
+        body.night-ops {
+            filter: sepia(100%) hue-rotate(-50deg) saturate(300%) contrast(1.2) brightness(0.8);
+        }
+
         .tac-marker-root { position: relative; display: flex; justify-content: center; align-items: center; width: 80px; height: 80px; }
         .tac-cone-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; transition: transform 0.1s linear; pointer-events: none; z-index: 1; }
         
-        /* ICONE UTILISATEUR : Transparence appliquée via rgba background */
         .tac-circle-id { position: absolute; z-index: 10; width: 32px; height: 32px; border-radius: 50%; border: 2px solid white; display: flex; justify-content: center; align-items: center; box-shadow: 0 0 5px rgba(0,0,0,0.5); top: 50%; left: 50%; transform: translate(-50%, -50%); transition: all 0.3s ease; }
         .tac-circle-id span { color: white; font-family: monospace; font-size: 10px; font-weight: 900; text-shadow: 0 1px 2px black; }
         
@@ -137,6 +142,13 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                 if(data.userArrowColor) userArrowColor = data.userArrowColor;
                 pingMode = data.pingMode; 
                 
+                // GESTION DU MODE NIGHT OPS
+                if (data.nightOpsMode) {
+                    document.body.classList.add('night-ops');
+                } else {
+                    document.body.classList.remove('night-ops');
+                }
+                
                 updateMapMode(data.mode);
                 updateMarkers(data.me, data.peers, data.showTrails);
                 updatePings(data.pings, data.showPings, data.isHost, data.me.callsign);
@@ -171,14 +183,12 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
 
             all.forEach(u => {
                 let colorHex = (u.status === 'CONTACT') ? '#ef4444' : (u.status === 'CLEAR') ? '#22c55e' : (u.status === 'APPUI') ? '#eab308' : (u.status === 'BUSY') ? '#a855f7' : userArrowColor;
-                // Transparence constante (0.6)
                 let bgRgba = hexToRgba(colorHex, 0.6);
                 
                 const rot = u.head || 0;
                 const extraClass = (u.status === 'CONTACT') ? 'tac-marker-heartbeat' : '';
                 
                 const coneSvg = \`<svg viewBox="0 0 100 100" width="80" height="80" style="overflow:visible;"><path d="M50 50 L10 0 A60 60 0 0 1 90 0 Z" fill="\${colorHex}" fill-opacity="0.3" stroke="\${colorHex}" stroke-width="1" stroke-opacity="0.5" /></svg>\`;
-                // Application du background RGBA
                 const iconHtml = \`<div class="tac-marker-root \${extraClass}"><div class="tac-cone-container" style="transform: rotate(\${rot}deg);">\${coneSvg}</div><div class="tac-circle-id" style="background-color: \${bgRgba}; border-color: \${colorHex};"><span>\${u.callsign ? u.callsign.substring(0,3) : 'UNK'}</span></div></div>\`;
                 
                 const icon = L.divIcon({ className: 'custom-div-icon', html: iconHtml, iconSize: [80, 80], iconAnchor: [40, 40] });
@@ -231,7 +241,11 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                 \`;
 
                 if (pings[p.id]) {
-                    pings[p.id].setLatLng([p.lat, p.lng]);
+                    // FIX: Si on est en train de drag, on ne force pas la position venant du serveur
+                    // pour éviter le "saute-mouton"
+                    if(!pings[p.id].dragging || !pings[p.id].dragging.enabled()) {
+                        pings[p.id].setLatLng([p.lat, p.lng]);
+                    }
                     if(pings[p.id]._icon) pings[p.id]._icon.innerHTML = html;
                     if(pings[p.id].dragging) { canDrag ? pings[p.id].dragging.enable() : pings[p.id].dragging.disable(); }
                 } else {
@@ -269,19 +283,20 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
     if (webViewRef.current) {
       webViewRef.current.postMessage(JSON.stringify({
         type: 'UPDATE_MAP', me, peers, pings, mode: mapMode, showTrails, showPings, isHost,
-        userArrowColor, navTargetId, pingMode
+        userArrowColor, navTargetId, pingMode, nightOpsMode
       }));
     }
-  }, [me, peers, pings, mapMode, showTrails, showPings, isHost, userArrowColor, navTargetId, pingMode]);
+  }, [me, peers, pings, mapMode, showTrails, showPings, isHost, userArrowColor, navTargetId, pingMode, nightOpsMode]);
 
   const handleMessage = (event: any) => {
     try {
       const data = JSON.parse(event.nativeEvent.data);
       if (data.type === 'MAP_CLICK') onPing({ lat: data.lat, lng: data.lng }); 
       if (data.type === 'PING_CLICK') onPingClick(data.id); 
+      // FIX: On appelle la prop onPingMove qui est maintenant connectée dans App.tsx
       if (data.type === 'PING_MOVE') onPingMove({ ...pings.find(p => p.id === data.id)!, lat: data.lat, lng: data.lng });
       if (data.type === 'NAV_STOP') { if (onNavStop) onNavStop(); }
-      if (data.type === 'COPY_POS') { if(onPingMove) onPingMove({ ...pings.find(p => true)!, msg: 'COPY_TRIGGER', lat:0, lng:0, type:'FRIEND', id: 'COPY_TRIGGER' }); } // Hack to pass up, actually handled in App.tsx protocol data
+      if (data.type === 'COPY_POS') { if(onPingMove) onPingMove({ ...pings.find(p => true)!, msg: 'COPY_TRIGGER', lat:0, lng:0, type:'FRIEND', id: 'COPY_TRIGGER' }); } 
     } catch(e) {}
   };
 
