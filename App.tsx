@@ -20,7 +20,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Magnetometer } from 'expo-sensors';
 import * as SplashScreen from 'expo-splash-screen';
 
-import { UserData, OperatorStatus, OperatorRole, ViewType, PingData, AppSettings, DEFAULT_SETTINGS, PingType, HostileDetails } from './types';
+import { UserData, OperatorStatus, OperatorRole, ViewType, PingData, AppSettings, DEFAULT_SETTINGS, PingType, HostileDetails, LogEntry } from './types';
 import { CONFIG, STATUS_COLORS } from './constants';
 import { configService } from './services/configService';
 import { connectivityService, ConnectivityEvent } from './services/connectivityService'; 
@@ -29,6 +29,7 @@ import OperatorCard from './components/OperatorCard';
 import TacticalMap from './components/TacticalMap';
 import SettingsView from './components/SettingsView';
 import OperatorActionModal from './components/OperatorActionModal';
+import MainCouranteView from './components/MainCouranteView'; // IMPORT
 
 try { SplashScreen.preventAutoHideAsync().catch(() => {}); } catch (e) {}
 
@@ -99,6 +100,10 @@ const App: React.FC = () => {
   const [bannedPeers, setBannedPeers] = useState<string[]>([]);
   
   const [pings, setPings] = useState<PingData[]>([]);
+  // NOUVEAU : State pour la Main Courante
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [showLogs, setShowLogs] = useState(false);
+
   const [hostId, setHostId] = useState<string>('');
   
   const [loginInput, setLoginInput] = useState('');
@@ -148,7 +153,6 @@ const App: React.FC = () => {
       if (settings.disableBackgroundNotifications) return;
       if (appState.current === 'active') return;
       
-      // La notification unique est mise à jour (l'ancienne est supprimée)
       if (lastSysNotifId.current) await Notifications.dismissNotificationAsync(lastSysNotifId.current);
       const id = await Notifications.scheduleNotificationAsync({ content: { title, body, sound: true }, trigger: null });
       lastSysNotifId.current = id;
@@ -250,7 +254,7 @@ const App: React.FC = () => {
   const finishLogout = useCallback(() => {
       connectivityService.cleanup();
       if (gpsSubscription.current) { gpsSubscription.current.remove(); gpsSubscription.current = null; }
-      setPeers({}); setPings([]); setHostId(''); setView('login'); 
+      setPeers({}); setPings([]); setLogs([]); setHostId(''); setView('login'); 
       setIsServicesReady(false); setNavTargetId(null);
       setUser(prev => ({...prev, id: '', role: OperatorRole.OPR, status: OperatorStatus.CLEAR, lastMsg: '' }));
   }, []);
@@ -305,13 +309,21 @@ const App: React.FC = () => {
       
       // LOGIQUE HOTE : SYNC PINGS AUX NOUVEAUX ARRIVANTS
       if (data.type === 'FULL' && user.role === OperatorRole.HOST) {
-          // Un nouveau client vient de se présenter (FULL), on lui envoie les pings actuels
+          // Un nouveau client vient de se présenter (FULL), on lui envoie les pings ET les logs
           connectivityService.sendTo(fromId, { type: 'SYNC_PINGS', pings: pings });
+          connectivityService.sendTo(fromId, { type: 'SYNC_LOGS', logs: logs });
       }
 
       if (data.type === 'SYNC_PINGS' && Array.isArray(data.pings)) {
           setPings(data.pings);
           showToast("Carte Tactique Synchronisée", "info");
+      }
+      else if (data.type === 'SYNC_LOGS' && Array.isArray(data.logs)) {
+          setLogs(data.logs);
+      }
+      else if (data.type === 'LOG_UPDATE' && Array.isArray(data.logs)) {
+          setLogs(data.logs);
+          if (showLogs) showToast("Journal mis à jour", "info");
       }
       else if (data.type === 'PING') {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -325,11 +337,9 @@ const App: React.FC = () => {
       }
       else if ((data.type === 'UPDATE' || data.type === 'UPDATE_USER') && data.user) {
           const u = data.user;
-          // DETECTION CHANGEMENT STATUT POUR NOTIFICATION FILTRÉE
           const currentPeer = peers[u.id];
           if (currentPeer && currentPeer.status !== u.status) {
               const newStatus = u.status;
-              // FILTRE: On ne notifie PAS si le statut passe à CLEAR ou PROGRESSION
               if (newStatus === OperatorStatus.CONTACT || newStatus === OperatorStatus.BUSY) {
                   const msg = `STATUS ${u.callsign}: ${newStatus}`;
                   triggerAppNotification(u.callsign, msg, 'alert');
@@ -346,6 +356,24 @@ const App: React.FC = () => {
       else if (data.type === 'PING_MOVE') setPings(prev => prev.map(p => p.id === data.id ? { ...p, lat: data.lat, lng: data.lng } : p));
       else if (data.type === 'PING_DELETE') setPings(prev => prev.filter(p => p.id !== data.id));
       else if (data.type === 'PING_UPDATE') setPings(prev => prev.map(p => p.id === data.id ? { ...p, msg: data.msg, details: data.details } : p));
+  };
+
+  // --- LOGIC MAIN COURANTE ---
+  const handleAddLog = (entry: LogEntry) => {
+      // Met à jour localement puis diffuse
+      setLogs(prev => {
+          const newLogs = [...prev, entry];
+          connectivityService.broadcast({ type: 'LOG_UPDATE', logs: newLogs });
+          return newLogs;
+      });
+  };
+
+  const handleDeleteLog = (id: string) => {
+      setLogs(prev => {
+          const newLogs = prev.filter(l => l.id !== id);
+          connectivityService.broadcast({ type: 'LOG_UPDATE', logs: newLogs });
+          return newLogs;
+      });
   };
 
   const joinSession = async (id?: string) => {
@@ -449,6 +477,7 @@ const App: React.FC = () => {
                       <TouchableOpacity onPress={handleBackPress}><MaterialIcons name="arrow-back" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
                       <Text style={[styles.headerTitle, nightOpsMode && {color: '#ef4444'}]}>TacSuite</Text>
                       <View style={{flexDirection: 'row', gap: 15}}>
+                          <TouchableOpacity onPress={() => setShowLogs(true)}><MaterialIcons name="history-edu" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
                           <TouchableOpacity onPress={() => setNightOpsMode(!nightOpsMode)}><MaterialIcons name="nightlight-round" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
                           <TouchableOpacity onPress={() => { setLastView(view); setView('settings'); }}><MaterialIcons name="settings" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
                           <TouchableOpacity onPress={() => { setView('map'); setLastOpsView('map'); }}><MaterialIcons name="map" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
@@ -471,6 +500,7 @@ const App: React.FC = () => {
                       <TouchableOpacity onPress={handleBackPress}><MaterialIcons name="arrow-back" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
                       <Text style={[styles.headerTitle, nightOpsMode && {color: '#ef4444'}]}>TacSuite</Text>
                       <View style={{flexDirection: 'row', gap: 15}}>
+                          <TouchableOpacity onPress={() => setShowLogs(true)}><MaterialIcons name="history-edu" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
                           <TouchableOpacity onPress={() => setNightOpsMode(!nightOpsMode)}><MaterialIcons name="nightlight-round" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
                           <TouchableOpacity onPress={() => { setLastView(view); setView('settings'); }}><MaterialIcons name="settings" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
                           <TouchableOpacity onPress={() => { setView('ops'); setLastOpsView('ops'); }}><MaterialIcons name="list" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
@@ -488,7 +518,6 @@ const App: React.FC = () => {
                       onPingClick={(id) => { 
                           const p = pings.find(ping => ping.id === id);
                           if (!p) return;
-                          // Droit d'édition : Soit je suis Hôte, soit c'est mon ping
                           if (user.role === OperatorRole.HOST || p.sender === user.callsign) {
                               setEditingPing(p); setPingMsgInput(p.msg); if (p.details) setHostileDetails(p.details);
                           } else { showToast(`Ping de ${p.sender}`, 'info'); }
@@ -585,6 +614,16 @@ const App: React.FC = () => {
       {/* MODALES & ELEMENTS FLOTTANTS */}
       <OperatorActionModal visible={!!selectedOperatorId} targetOperator={peers[selectedOperatorId || ''] || null} currentUserRole={user.role} onClose={() => setSelectedOperatorId(null)} onKick={handleOperatorActionKick} onNavigate={handleOperatorActionNavigate} />
       
+      {/* NOUVEAU COMPOSANT MAIN COURANTE */}
+      <MainCouranteView 
+        visible={showLogs} 
+        logs={logs} 
+        role={user.role} 
+        onClose={() => setShowLogs(false)} 
+        onAddLog={handleAddLog}
+        onDeleteLog={handleDeleteLog}
+      />
+
       <Modal visible={showQuickMsgModal} animationType="fade" transparent>
           <KeyboardAvoidingView behavior="padding" style={styles.modalOverlay}>
               <View style={[styles.modalContent, {backgroundColor: '#18181b', borderWidth: 1, borderColor: '#333', maxHeight: '80%'}]}>
