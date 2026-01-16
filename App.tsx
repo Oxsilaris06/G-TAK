@@ -115,6 +115,10 @@ const App: React.FC = () => {
   // --- STATE ---
   const [isAppReady, setIsAppReady] = useState(false);
   const [activeNotif, setActiveNotif] = useState<{ id: string, msg: string, type: 'alert' | 'info' | 'success' | 'warning' } | null>(null);
+  
+  // Suppression de l'ancien state toast qui causait confusion
+  // const [toast, setToast] = useState... <--- C'était ici le problème potentiel
+
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [user, setUser] = useState<UserData>({ id: '', callsign: '', role: OperatorRole.OPR, status: OperatorStatus.CLEAR, joinedAt: Date.now(), bat: 100, head: 0, lat: 0, lng: 0, lastMsg: '' });
 
@@ -689,7 +693,6 @@ const App: React.FC = () => {
         onDeleteLog={handleDeleteLog}
       />
 
-      {/* QUICK MSG MODAL */}
       <Modal visible={showQuickMsgModal} animationType="fade" transparent>
           <KeyboardAvoidingView behavior="padding" style={styles.modalOverlay}>
               <View style={[styles.modalContent, {backgroundColor: '#18181b', borderWidth: 1, borderColor: '#333', maxHeight: '80%'}]}>
@@ -706,7 +709,6 @@ const App: React.FC = () => {
           </KeyboardAvoidingView>
       </Modal>
 
-      {/* PING MENU */}
       <Modal visible={showPingMenu} transparent animationType="fade">
           <View style={styles.modalOverlay}>
               <View style={styles.pingMenuContainer}>
@@ -721,7 +723,6 @@ const App: React.FC = () => {
           </View>
       </Modal>
 
-      {/* PING FORM */}
       <Modal visible={showPingForm} transparent animationType="slide">
           <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
               <View style={[styles.modalContent, {width: '90%', maxHeight: '80%'}]}>
@@ -763,9 +764,9 @@ const App: React.FC = () => {
                       </ScrollView>
                   )}
                   <View style={{flexDirection: 'row', justifyContent: 'space-around', width: '100%', marginTop: 20}}>
-                      <TouchableOpacity onPress={() => { setPings(p => p.filter(x => x.id !== editingPing?.id)); connectivityService.broadcast({type:'PING_DELETE', id: editingPing?.id}); setEditingPing(null); }} style={styles.iconBtnDanger}><MaterialIcons name="delete" size={28} color="white" /></TouchableOpacity>
+                      <TouchableOpacity onPress={deletePing} style={styles.iconBtnDanger}><MaterialIcons name="delete" size={28} color="white" /></TouchableOpacity>
                       <TouchableOpacity onPress={() => setEditingPing(null)} style={styles.iconBtnSecondary}><MaterialIcons name="close" size={28} color="white" /></TouchableOpacity>
-                      <TouchableOpacity onPress={() => { const upd = {...editingPing, msg: pingMsgInput, details: hostileDetails} as PingData; setPings(p => p.map(x => x.id === editingPing?.id ? upd : x)); connectivityService.broadcast({type:'PING_UPDATE', id: editingPing?.id, msg: pingMsgInput, details: hostileDetails}); setEditingPing(null); }} style={styles.iconBtnSuccess}><MaterialIcons name="check" size={28} color="white" /></TouchableOpacity>
+                      <TouchableOpacity onPress={savePingEdit} style={styles.iconBtnSuccess}><MaterialIcons name="check" size={28} color="white" /></TouchableOpacity>
                   </View>
               </View>
           </View>
