@@ -1,8 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList, TextInput, Modal, Share, Alert, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import { 
+  View, Text, StyleSheet, TouchableOpacity, FlatList, TextInput, 
+  Modal, Share, Alert, KeyboardAvoidingView, Platform, ScrollView, 
+  Dimensions 
+} from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LogEntry, OperatorRole } from '../types';
 import * as Haptics from 'expo-haptics';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
+import QRCode from 'react-native-qrcode-svg';
 
 interface Props {
     visible: boolean;
@@ -13,7 +20,8 @@ interface Props {
     onDeleteLog: (id: string) => void;
 }
 
-// Couleurs prédéfinies inspirées de PcTac
+const SCREEN_WIDTH = Dimensions.get('window').width;
+
 const PAX_TYPES = [
     { label: 'HOSTILE', color: '#be1b09', textColor: '#ffffff' },
     { label: 'CIVIL/OTAGE', color: '#f1c40f', textColor: '#000000' },
@@ -22,22 +30,74 @@ const PAX_TYPES = [
     { label: 'AUTRE', color: '#9ca3af', textColor: '#000000' }
 ];
 
+// --- TEMPLATE HTML POUR LE PDF ---
+const generateHtml = (logs: LogEntry[]) => {
+  const rows = logs.map(l => `
+    <tr>
+      <td style="color: #3b82f6; font-weight: bold;">${l.heure}</td>
+      <td>
+        <span style="background-color: ${l.paxColor}; color: ${l.paxColor === '#f1c40f' ? 'black' : 'white'}; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 10px;">
+          ${l.pax}
+        </span>
+      </td>
+      <td>${l.lieu || '-'}</td>
+      <td style="font-weight: bold;">${l.action || '-'}</td>
+      <td style="font-style: italic; color: #555;">${l.remarques || ''}</td>
+    </tr>
+  `).join('');
+
+  return `
+    <html>
+      <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no" />
+        <style>
+          body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; padding: 20px; }
+          h1 { text-align: center; border-bottom: 2px solid #333; padding-bottom: 10px; }
+          .meta { margin-bottom: 20px; font-size: 12px; color: #666; text-align: right; }
+          table { width: 100%; border-collapse: collapse; font-size: 12px; }
+          th { background-color: #eee; text-align: left; padding: 8px; border-bottom: 2px solid #ddd; }
+          td { padding: 8px; border-bottom: 1px solid #eee; vertical-align: top; }
+          tr:nth-child(even) { background-color: #f9f9f9; }
+        </style>
+      </head>
+      <body>
+        <h1>MAIN COURANTE TACTIQUE</h1>
+        <div class="meta">Généré le: ${new Date().toLocaleString()} | Entrées: ${logs.length}</div>
+        <table>
+          <thead>
+            <tr>
+              <th width="10%">HEURE</th>
+              <th width="15%">PAX</th>
+              <th width="20%">LIEU</th>
+              <th width="25%">ACTION</th>
+              <th width="30%">REMARQUES</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows}
+          </tbody>
+        </table>
+      </body>
+    </html>
+  `;
+};
+
 const MainCouranteView: React.FC<Props> = ({ visible, logs, role, onClose, onAddLog, onDeleteLog }) => {
-    // Form States
-    const [paxType, setPaxType] = useState(PAX_TYPES[2]); // Default INTER
+    const [paxType, setPaxType] = useState(PAX_TYPES[2]);
     const [customPax, setCustomPax] = useState('');
     const [lieu, setLieu] = useState('');
     const [action, setAction] = useState('');
     const [remarques, setRemarques] = useState('');
     const [manualTime, setManualTime] = useState('');
-
     const listRef = useRef<FlatList>(null);
 
-    // Initialiser l'heure manuelle à l'ouverture
+    // --- QR EXPORT STATES ---
+    const [showQrExport, setShowQrExport] = useState(false);
+    const [qrChunks, setQrChunks] = useState<string[]>([]);
+    const [currentQrIndex, setCurrentQrIndex] = useState(0);
+
     useEffect(() => {
-        if (visible) {
-            updateManualTime();
-        }
+        if (visible) updateManualTime();
     }, [visible]);
 
     const updateManualTime = () => {
@@ -47,7 +107,7 @@ const MainCouranteView: React.FC<Props> = ({ visible, logs, role, onClose, onAdd
 
     const handleAdd = () => {
         if (!action.trim() && !remarques.trim() && !lieu.trim()) {
-            Alert.alert("Erreur", "Veuillez remplir au moins un champ (Lieu, Action ou Remarque).");
+            Alert.alert("Erreur", "Remplissez au moins un champ.");
             return;
         }
 
@@ -64,24 +124,60 @@ const MainCouranteView: React.FC<Props> = ({ visible, logs, role, onClose, onAdd
 
         onAddLog(newEntry);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-
-        // Reset partiel pour faciliter la saisie en chaîne
         setAction('');
         setRemarques('');
-        // On garde le lieu et le pax car souvent identiques dans une séquence
-        
         updateManualTime();
-        
-        // Scroll to bottom
         setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 100);
     };
 
-    const handleShare = async () => {
-        const text = logs.map(l => `[${l.heure}] ${l.pax} ${l.lieu ? '@ ' + l.lieu : ''} : ${l.action} ${l.remarques ? '('+l.remarques+')' : ''}`).join('\n');
+    // --- PDF GENERATION ---
+    const handleExportPDF = async () => {
         try {
-            await Share.share({ message: `MAIN COURANTE TACTIQUE\n\n${text}` });
+            const html = generateHtml(logs);
+            const { uri } = await Print.printToFileAsync({ html });
+            if (Platform.OS === "ios") {
+                await Sharing.shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' });
+            } else {
+                await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: 'Exporter Main Courante' });
+            }
         } catch (error) {
+            Alert.alert("Erreur PDF", "Impossible de générer le fichier.");
             console.error(error);
+        }
+    };
+
+    // --- QR CODE CHUNKING LOGIC (Similaire à PcTac.tsx) ---
+    const prepareQrExport = () => {
+        const data = JSON.stringify(logs);
+        // On découpe en morceaux de 600 caractères pour assurer une bonne lisibilité
+        const CHUNK_SIZE = 600;
+        const totalChunks = Math.ceil(data.length / CHUNK_SIZE);
+        const chunks: string[] = [];
+
+        // Header format: " TacSuiteLog | index | total | data "
+        for (let i = 0; i < totalChunks; i++) {
+            const chunkData = data.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+            chunks.push(`TacLogs|${i + 1}|${totalChunks}|${chunkData}`);
+        }
+
+        setQrChunks(chunks);
+        setCurrentQrIndex(0);
+        setShowQrExport(true);
+    };
+
+    const handleNextQr = () => {
+        if (currentQrIndex < qrChunks.length - 1) {
+            setCurrentQrIndex(prev => prev + 1);
+        } else {
+            setCurrentQrIndex(0); // Loop
+        }
+    };
+
+    const handlePrevQr = () => {
+        if (currentQrIndex > 0) {
+            setCurrentQrIndex(prev => prev - 1);
+        } else {
+            setCurrentQrIndex(qrChunks.length - 1); // Loop back
         }
     };
 
@@ -97,11 +193,16 @@ const MainCouranteView: React.FC<Props> = ({ visible, logs, role, onClose, onAdd
                     </TouchableOpacity>
                     <View style={styles.headerTitleContainer}>
                         <Text style={styles.headerTitle}>MAIN COURANTE</Text>
-                        <Text style={styles.headerSubtitle}>{logs.length} Entrées • {isHost ? 'ÉDITION' : 'LECTURE SEULE'}</Text>
+                        <Text style={styles.headerSubtitle}>{logs.length} Entrées • {isHost ? 'ÉDITION' : 'LECTURE'}</Text>
                     </View>
-                    <TouchableOpacity onPress={handleShare} style={styles.shareBtn}>
-                        <MaterialIcons name="share" size={24} color="#3b82f6" />
-                    </TouchableOpacity>
+                    <View style={{flexDirection: 'row', gap: 10}}>
+                        <TouchableOpacity onPress={handleExportPDF} style={styles.shareBtn}>
+                            <MaterialIcons name="picture-as-pdf" size={24} color="#ef4444" />
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={prepareQrExport} style={styles.shareBtn}>
+                            <MaterialIcons name="qr-code-2" size={24} color="#3b82f6" />
+                        </TouchableOpacity>
+                    </View>
                 </View>
 
                 {/* LISTE DES LOGS */}
@@ -109,7 +210,7 @@ const MainCouranteView: React.FC<Props> = ({ visible, logs, role, onClose, onAdd
                     ref={listRef}
                     data={logs}
                     keyExtractor={item => item.id}
-                    contentContainerStyle={{ padding: 16, paddingBottom: 250 }} // Espace pour le formulaire
+                    contentContainerStyle={{ padding: 16, paddingBottom: 250 }}
                     renderItem={({ item }) => (
                         <View style={styles.logRow}>
                             <View style={styles.timeCol}>
@@ -135,7 +236,7 @@ const MainCouranteView: React.FC<Props> = ({ visible, logs, role, onClose, onAdd
                     ListEmptyComponent={
                         <View style={styles.emptyContainer}>
                             <MaterialIcons name="history-edu" size={48} color="#333" />
-                            <Text style={styles.emptyText}>Aucune entrée dans le journal.</Text>
+                            <Text style={styles.emptyText}>Journal vide.</Text>
                         </View>
                     }
                 />
@@ -158,7 +259,6 @@ const MainCouranteView: React.FC<Props> = ({ visible, logs, role, onClose, onAdd
                                 </View>
                             </View>
 
-                            {/* SÉLECTEUR DE TYPE */}
                             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.typeScroller}>
                                 {PAX_TYPES.map((t, idx) => (
                                     <TouchableOpacity 
@@ -185,6 +285,37 @@ const MainCouranteView: React.FC<Props> = ({ visible, logs, role, onClose, onAdd
                         </View>
                     </KeyboardAvoidingView>
                 )}
+
+                {/* MODAL EXPORT QR SUCCESSIF */}
+                <Modal visible={showQrExport} transparent animationType="fade">
+                    <View style={styles.modalOverlay}>
+                        <View style={styles.qrModalContent}>
+                            <Text style={styles.modalTitle}>EXPORT DATA GAP</Text>
+                            <Text style={styles.qrCounter}>QR {currentQrIndex + 1} / {qrChunks.length}</Text>
+                            
+                            <View style={styles.qrContainer}>
+                                {qrChunks.length > 0 && (
+                                    <QRCode value={qrChunks[currentQrIndex]} size={200} backgroundColor="white" />
+                                )}
+                            </View>
+                            
+                            <Text style={styles.qrHelp}>Scanner séquentiellement avec un autre terminal TacSuite pour importer.</Text>
+
+                            <View style={styles.qrControls}>
+                                <TouchableOpacity onPress={handlePrevQr} style={styles.qrNavBtn}>
+                                    <MaterialIcons name="chevron-left" size={40} color="white" />
+                                </TouchableOpacity>
+                                <TouchableOpacity onPress={handleNextQr} style={styles.qrNavBtn}>
+                                    <MaterialIcons name="chevron-right" size={40} color="white" />
+                                </TouchableOpacity>
+                            </View>
+
+                            <TouchableOpacity onPress={() => setShowQrExport(false)} style={styles.closeQrBtn}>
+                                <Text style={styles.closeQrBtnText}>FERMER</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </Modal>
             </View>
         </Modal>
     );
@@ -228,6 +359,18 @@ const styles = StyleSheet.create({
     inputRow: { flexDirection: 'row', gap: 10, marginBottom: 10 },
     input: { backgroundColor: '#000', color: 'white', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#333', fontSize: 14 },
     submitBtn: { backgroundColor: '#3b82f6', width: 48, justifyContent: 'center', alignItems: 'center', borderRadius: 8 },
+
+    // QR EXPORT STYLES
+    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.95)', justifyContent: 'center', alignItems: 'center' },
+    qrModalContent: { width: '85%', alignItems: 'center', backgroundColor: '#18181b', padding: 20, borderRadius: 20, borderWidth: 1, borderColor: '#333' },
+    modalTitle: { color: 'white', fontSize: 20, fontWeight: '900', marginBottom: 10 },
+    qrCounter: { color: '#3b82f6', fontWeight: 'bold', marginBottom: 20, fontSize: 16 },
+    qrContainer: { padding: 10, backgroundColor: 'white', borderRadius: 10 },
+    qrHelp: { color: '#71717a', textAlign: 'center', marginTop: 20, fontSize: 12 },
+    qrControls: { flexDirection: 'row', justifyContent: 'space-between', width: '80%', marginTop: 20 },
+    qrNavBtn: { backgroundColor: '#27272a', borderRadius: 30, padding: 5 },
+    closeQrBtn: { marginTop: 30, paddingVertical: 12, paddingHorizontal: 30, backgroundColor: '#ef4444', borderRadius: 10 },
+    closeQrBtnText: { color: 'white', fontWeight: 'bold' }
 });
 
 export default MainCouranteView;
