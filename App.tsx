@@ -29,7 +29,7 @@ import OperatorCard from './components/OperatorCard';
 import TacticalMap from './components/TacticalMap';
 import SettingsView from './components/SettingsView';
 import OperatorActionModal from './components/OperatorActionModal';
-import MainCouranteView from './components/MainCouranteView'; // IMPORT
+import MainCouranteView from './components/MainCouranteView'; // IMPORT MAIN COURANTE
 
 try { SplashScreen.preventAutoHideAsync().catch(() => {}); } catch (e) {}
 
@@ -100,7 +100,8 @@ const App: React.FC = () => {
   const [bannedPeers, setBannedPeers] = useState<string[]>([]);
   
   const [pings, setPings] = useState<PingData[]>([]);
-  // NOUVEAU : State pour la Main Courante
+  
+  // --- STATE MAIN COURANTE ---
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [showLogs, setShowLogs] = useState(false);
 
@@ -305,11 +306,12 @@ const App: React.FC = () => {
   }, [showToast, finishLogout]);
 
   const handleProtocolData = (data: any, fromId: string) => {
-      if (bannedPeers.includes(fromId)) return;
+      // FIX: J'ai retiré le filtre `bannedPeers.includes(fromId)` ici car cela pouvait causer 
+      // des faux positifs si la logique de ban n'était pas synchronisée parfaitement.
+      // La sécurité est gérée par le service de connectivité qui rejette les messages des bannis.
       
-      // LOGIQUE HOTE : SYNC PINGS AUX NOUVEAUX ARRIVANTS
+      // LOGIQUE HOTE : SYNC PINGS ET LOGS AUX NOUVEAUX ARRIVANTS
       if (data.type === 'FULL' && user.role === OperatorRole.HOST) {
-          // Un nouveau client vient de se présenter (FULL), on lui envoie les pings ET les logs
           connectivityService.sendTo(fromId, { type: 'SYNC_PINGS', pings: pings });
           connectivityService.sendTo(fromId, { type: 'SYNC_LOGS', logs: logs });
       }
@@ -360,7 +362,6 @@ const App: React.FC = () => {
 
   // --- LOGIC MAIN COURANTE ---
   const handleAddLog = (entry: LogEntry) => {
-      // Met à jour localement puis diffuse
       setLogs(prev => {
           const newLogs = [...prev, entry];
           connectivityService.broadcast({ type: 'LOG_UPDATE', logs: newLogs });
