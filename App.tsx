@@ -20,9 +20,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Magnetometer } from 'expo-sensors';
 import * as SplashScreen from 'expo-splash-screen';
 
-// Suppression de l'import problématique
-// import * as ScreenOrientation from 'expo-screen-orientation';
-
 import { UserData, OperatorStatus, OperatorRole, ViewType, PingData, AppSettings, DEFAULT_SETTINGS, PingType, HostileDetails } from './types';
 import { CONFIG, STATUS_COLORS } from './constants';
 import { configService } from './services/configService';
@@ -150,6 +147,8 @@ const App: React.FC = () => {
   const sendSystemNotification = async (title: string, body: string) => {
       if (settings.disableBackgroundNotifications) return;
       if (appState.current === 'active') return;
+      
+      // La notification unique est mise à jour (l'ancienne est supprimée)
       if (lastSysNotifId.current) await Notifications.dismissNotificationAsync(lastSysNotifId.current);
       const id = await Notifications.scheduleNotificationAsync({ content: { title, body, sound: true }, trigger: null });
       lastSysNotifId.current = id;
@@ -303,7 +302,18 @@ const App: React.FC = () => {
 
   const handleProtocolData = (data: any, fromId: string) => {
       if (bannedPeers.includes(fromId)) return;
-      if (data.type === 'PING') {
+      
+      // LOGIQUE HOTE : SYNC PINGS AUX NOUVEAUX ARRIVANTS
+      if (data.type === 'FULL' && user.role === OperatorRole.HOST) {
+          // Un nouveau client vient de se présenter (FULL), on lui envoie les pings actuels
+          connectivityService.sendTo(fromId, { type: 'SYNC_PINGS', pings: pings });
+      }
+
+      if (data.type === 'SYNC_PINGS' && Array.isArray(data.pings)) {
+          setPings(data.pings);
+          showToast("Carte Tactique Synchronisée", "info");
+      }
+      else if (data.type === 'PING') {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             setPings(prev => [...prev, data.ping]);
             const p = data.ping;
@@ -313,15 +323,26 @@ const App: React.FC = () => {
             triggerAppNotification(p.sender, body, isHostile ? 'alert' : 'info');
             sendSystemNotification(title, body);
       }
-      else if (data.type === 'UPDATE' && data.user && data.user.lastMsg) {
+      else if ((data.type === 'UPDATE' || data.type === 'UPDATE_USER') && data.user) {
           const u = data.user;
-          if (peers[u.id]?.lastMsg !== u.lastMsg) {
+          // DETECTION CHANGEMENT STATUT POUR NOTIFICATION FILTRÉE
+          const currentPeer = peers[u.id];
+          if (currentPeer && currentPeer.status !== u.status) {
+              const newStatus = u.status;
+              // FILTRE: On ne notifie PAS si le statut passe à CLEAR ou PROGRESSION
+              if (newStatus === OperatorStatus.CONTACT || newStatus === OperatorStatus.BUSY) {
+                  const msg = `STATUS ${u.callsign}: ${newStatus}`;
+                  triggerAppNotification(u.callsign, msg, 'alert');
+                  sendSystemNotification("Alerte Statut", msg);
+              }
+          }
+
+          if (currentPeer && currentPeer.lastMsg !== u.lastMsg && u.lastMsg) {
               const msg = `MSG ${u.callsign}: ${u.lastMsg}`;
               triggerAppNotification(u.callsign, msg, 'info');
               sendSystemNotification("Message Tactique", msg);
           }
       }
-      // UPDATE: On met aussi à jour le state local quand on reçoit un move d'un pair
       else if (data.type === 'PING_MOVE') setPings(prev => prev.map(p => p.id === data.id ? { ...p, lat: data.lat, lng: data.lng } : p));
       else if (data.type === 'PING_DELETE') setPings(prev => prev.filter(p => p.id !== data.id));
       else if (data.type === 'PING_UPDATE') setPings(prev => prev.map(p => p.id === data.id ? { ...p, msg: data.msg, details: data.details } : p));
@@ -373,12 +394,8 @@ const App: React.FC = () => {
       setShowPingForm(false); setTempPingLoc(null); setIsPingMode(false);
   };
 
-  // --- NOUVELLE FONCTION POUR LE DRAG AND DROP ---
   const handlePingMove = (updatedPing: PingData) => {
-      // 1. Mise à jour locale immédiate pour éviter le snap-back
       setPings(prev => prev.map(p => p.id === updatedPing.id ? updatedPing : p));
-      
-      // 2. Diffusion au réseau
       connectivityService.broadcast({ 
           type: 'PING_MOVE', 
           id: updatedPing.id, 
@@ -424,7 +441,6 @@ const App: React.FC = () => {
     setTimeout(() => joinSession(data), 500);
   };
 
-  // --- RENDU UI ---
   const renderMainContent = () => (
       <View style={{flex: 1}}>
           <View style={{ flex: 1, display: view === 'ops' ? 'flex' : 'none' }}>
@@ -466,12 +482,13 @@ const App: React.FC = () => {
                       me={user} peers={peers} pings={pings} mapMode={mapMode} showTrails={showTrails} showPings={showPings} 
                       isHost={user.role === OperatorRole.HOST} userArrowColor={settings.userArrowColor} 
                       pingMode={isPingMode} navTargetId={navTargetId}
-                      nightOpsMode={nightOpsMode} // PASSED TO COMPONENT
+                      nightOpsMode={nightOpsMode} 
                       onPing={(loc) => { setTempPingLoc(loc); setShowPingMenu(true); }}
-                      onPingMove={handlePingMove} // CONNECTED HANDLER
+                      onPingMove={handlePingMove} 
                       onPingClick={(id) => { 
                           const p = pings.find(ping => ping.id === id);
                           if (!p) return;
+                          // Droit d'édition : Soit je suis Hôte, soit c'est mon ping
                           if (user.role === OperatorRole.HOST || p.sender === user.callsign) {
                               setEditingPing(p); setPingMsgInput(p.msg); if (p.details) setHostileDetails(p.details);
                           } else { showToast(`Ping de ${p.sender}`, 'info'); }
@@ -674,7 +691,6 @@ const App: React.FC = () => {
 
       {activeNotif && <NavNotification message={`${activeNotif.id}: ${activeNotif.msg}`} type={activeNotif.type} isNightOps={nightOpsMode} onDismiss={() => setActiveNotif(null)} />}
       
-      {/* OVERLAY ROUGE POUR NIGHT OPS (EN PLUS DU FILTRE CSS ET DES STYLES) */}
       {nightOpsMode && <View style={styles.nightOpsOverlay} pointerEvents="none" />}
       
       {toast && ( <View style={[styles.toast, toast.type === 'error' && {backgroundColor: '#ef4444'}]}><Text style={styles.toastText}>{toast.msg}</Text></View> )}
@@ -731,7 +747,6 @@ const styles = StyleSheet.create({
   iconBtnDanger: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#ef4444', justifyContent: 'center', alignItems: 'center', elevation: 5 },
   iconBtnSecondary: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#52525b', justifyContent: 'center', alignItems: 'center', elevation: 5 },
   iconBtnSuccess: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#22c55e', justifyContent: 'center', alignItems: 'center', elevation: 5 },
-  // Overlay augmenté pour Night Ops
   nightOpsOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(127, 29, 29, 0.2)', zIndex: 99999, pointerEvents: 'none' }
 });
 
