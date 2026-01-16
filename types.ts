@@ -46,14 +46,15 @@ export interface PingData {
     timestamp: number;
 }
 
-// --- NOUVEAU : TYPES POUR LA MAIN COURANTE ---
+// --- NOUVEAU : TYPES POUR LA MAIN COURANTE (Adapté de PcTac) ---
 export interface LogEntry {
   id: string;
   heure: string;
-  pax: string; // Nom ou type (ex: 'Alpha', 'Adversaire')
-  paxColor: string; // Code hex pour le badge
+  pax: string;       // Ex: 'Adversaire', 'Alpha', 'Otage'
+  paxColor: string;  // Code couleur Hex
+  paxMode?: 'standard' | 'free'; // Pour compatibilité
   lieu: string;
-  action: string; // Remplace "fenetrePorte" pour être plus générique
+  action: string;    // Remplace fenetrePorte/remarques combinés parfois, ou champ spécifique
   remarques: string;
 }
 
@@ -84,4 +85,4 @@ export const DEFAULT_SETTINGS: AppSettings = {
     disableBackgroundNotifications: false
 };
 
-export type ViewType = 'login' | 'menu' | 'ops' | 'map' | 'settings' | 'logs'; // Ajout de 'logs'
+export type ViewType = 'login' | 'menu' | 'ops' | 'map' | 'settings' | 'logs';
