@@ -9,9 +9,10 @@ interface Props {
     isMe?: boolean;
     me?: UserData;
     style?: any;
+    isNightOps?: boolean; // NOUVEAU
 }
 
-const OperatorCard: React.FC<Props> = ({ user, isMe, me, style }) => {
+const OperatorCard: React.FC<Props> = ({ user, isMe, me, style, isNightOps }) => {
     const getDistance = () => {
         if (!me || !user.lat || !me.lat) return '';
         const R = 6371e3; 
@@ -25,19 +26,24 @@ const OperatorCard: React.FC<Props> = ({ user, isMe, me, style }) => {
         return d > 1000 ? `${(d/1000).toFixed(1)}km` : `${d}m`;
     };
 
-    const statusColor = STATUS_COLORS[user.status] || '#71717a';
+    // Logique de couleur Night Ops : Tout devient rouge
+    const statusColor = isNightOps ? '#ef4444' : (STATUS_COLORS[user.status] || '#71717a');
+    const borderColor = isNightOps ? '#7f1d1d' : statusColor;
+    const bgColor = isNightOps ? '#000000' : '#18181b';
+    const textColor = isNightOps ? '#ef4444' : '#f4f4f5';
+    const metaColor = isNightOps ? '#7f1d1d' : '#71717a';
 
     // THEME COMTAC STRICT : Fond noir #18181b, Bordure subtile #27272a, Texte clair
     return (
-        <View style={[styles.card, { borderColor: statusColor }, style]}>
+        <View style={[styles.card, { borderColor: borderColor, backgroundColor: bgColor }, style]}>
             <View style={styles.header}>
-                <View style={styles.roleTag}>
-                    <Text style={styles.roleText}>{user.role}</Text>
+                <View style={[styles.roleTag, { backgroundColor: isNightOps ? '#7f1d1d' : '#27272a' }]}>
+                    <Text style={[styles.roleText, { color: isNightOps ? '#000' : '#71717a' }]}>{user.role}</Text>
                 </View>
-                <Text style={styles.callsign}>{user.callsign} {isMe ? '(MOI)' : ''}</Text>
+                <Text style={[styles.callsign, { color: textColor }]}>{user.callsign} {isMe ? '(MOI)' : ''}</Text>
                 <View style={styles.battery}>
-                    <Text style={[styles.batText, { color: user.bat < 20 ? '#ef4444' : '#a1a1aa' }]}>{user.bat}%</Text>
-                    <MaterialIcons name="battery-std" size={16} color={user.bat < 20 ? '#ef4444' : '#a1a1aa'} />
+                    <Text style={[styles.batText, { color: user.bat < 20 ? '#ef4444' : metaColor }]}>{user.bat}%</Text>
+                    <MaterialIcons name="battery-std" size={16} color={user.bat < 20 ? '#ef4444' : metaColor} />
                 </View>
             </View>
 
@@ -49,17 +55,17 @@ const OperatorCard: React.FC<Props> = ({ user, isMe, me, style }) => {
                 
                 {!isMe && (
                     <View style={styles.infoRow}>
-                        <MaterialIcons name="near-me" size={12} color="#71717a" />
-                        <Text style={styles.distText}>{getDistance()}</Text>
+                        <MaterialIcons name="near-me" size={12} color={metaColor} />
+                        <Text style={[styles.distText, { color: metaColor }]}>{getDistance()}</Text>
                     </View>
                 )}
             </View>
 
             {/* Zonne de Message */}
             {user.lastMsg ? (
-                <View style={styles.messageBox}>
-                    <MaterialIcons name="chat-bubble" size={14} color="#000" style={{marginRight: 5}} />
-                    <Text style={styles.messageText}>{user.lastMsg}</Text>
+                <View style={[styles.messageBox, isNightOps && { backgroundColor: '#7f1d1d' }]}>
+                    <MaterialIcons name="chat-bubble" size={14} color={isNightOps ? '#000' : '#000'} style={{marginRight: 5}} />
+                    <Text style={[styles.messageText, isNightOps && { color: '#000' }]}>{user.lastMsg}</Text>
                 </View>
             ) : null}
         </View>
