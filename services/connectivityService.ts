@@ -1,6 +1,6 @@
 import Peer, { DataConnection } from 'peerjs';
 import { CONFIG } from '../constants';
-import { UserData, OperatorRole, OperatorStatus } from '../types';
+import { UserData, OperatorRole, OperatorStatus, LogEntry } from '../types';
 
 export type ConnectivityEvent = 
   | { type: 'PEER_OPEN'; id: string }
@@ -23,7 +23,6 @@ class ConnectivityService {
   
   private keepAliveInterval: any = null;
 
-  // --- GESTION DES ABONNEMENTS ---
   public subscribe(listener: Listener): () => void {
     this.listeners.push(listener);
     return () => {
@@ -35,8 +34,8 @@ class ConnectivityService {
     this.listeners.forEach(l => l(event));
   }
 
-  // --- INITIALISATION & CONNEXION ---
   public async init(user: UserData, role: OperatorRole, targetHostId?: string, forceId?: string) {
+    // Vérification de sécurité pour éviter le re-init destructif
     if (this.peer && !this.peer.destroyed && this.user?.role === role && (!targetHostId || this.hostId === targetHostId)) {
         return;
     }
@@ -44,6 +43,8 @@ class ConnectivityService {
     this.cleanup(); 
     this.user = { ...user, role };
     
+    // Le filtre ID était soupçonné ici. Notez que generateShortId ne fait que de l'aléatoire.
+    // L'absence de targetHostId pour un client provoquera une erreur plus bas, ce qui est normal.
     const myId = forceId || (role === OperatorRole.HOST ? this.generateShortId() : undefined);
     console.log(`[Connectivity] Init TacSuite Link: ${myId || 'AUTO'}`);
 
@@ -72,13 +73,15 @@ class ConnectivityService {
       
       this.peer.on('error', (err: any) => {
         console.error('[Connectivity] Peer Error:', err);
+        // Gestion plus souple des erreurs réseau pour le cas "Même WiFi"
         if (err.type === 'peer-unavailable') {
-             this.notify({ type: 'TOAST', msg: 'Hôte introuvable', level: 'error' });
+             this.notify({ type: 'TOAST', msg: 'Hôte introuvable (Vérifiez le réseau)', level: 'error' });
              this.notify({ type: 'DISCONNECTED', reason: 'NO_HOST' });
         } else if (err.type === 'unavailable-id') {
-           this.notify({ type: 'TOAST', msg: 'ID indisponible, nouvel essai...', level: 'info' });
+           // Retry auto si ID pris (rare mais possible)
            setTimeout(() => this.init(user, role, targetHostId), 1000);
-        } else if (err.type === 'network' || err.type === 'disconnected') {
+        } else {
+            // Tentative de reconnexion générique
             this.peer?.reconnect();
         }
       });
@@ -105,11 +108,11 @@ class ConnectivityService {
       this.connections[targetId].close();
     }
 
+    // reliable: true est crucial pour la Main Courante (Logs)
     const conn = this.peer.connect(targetId, { reliable: true, serialization: 'json' });
     this.setupDataConnection(conn);
   }
 
-  // --- GESTION DES HANDLERS ---
   private handleIncomingConnection(conn: DataConnection) {
     conn.on('open', () => {
       this.connections[conn.peer] = conn;
@@ -132,7 +135,6 @@ class ConnectivityService {
     conn.on('open', () => {
         if (conn.peer === this.hostId) {
              this.notify({ type: 'HOST_CONNECTED', hostId: conn.peer });
-             // Client envoie son état complet à l'hôte
              conn.send({ type: 'FULL', user: this.user });
         }
     });
@@ -175,6 +177,8 @@ class ConnectivityService {
         break;
         
       case 'KICK':
+        // C'est ici que la logique de Kick s'applique au niveau réseau.
+        // Si fromId n'est pas le HOST, on ignore (sécurité basique)
         if (fromId === this.hostId) {
             this.cleanup();
             this.notify({ type: 'DISCONNECTED', reason: 'KICKED' });
@@ -183,7 +187,6 @@ class ConnectivityService {
     }
   }
 
-  // --- ACTIONS ---
   public broadcast(data: any) {
     if (!this.user) return;
     const payload = { ...data, from: this.user.id };
