@@ -37,7 +37,6 @@ class ConnectivityService {
 
   // --- INITIALISATION & CONNEXION ---
   public async init(user: UserData, role: OperatorRole, targetHostId?: string, forceId?: string) {
-    // Si déjà connecté avec le même rôle et ID, ne rien faire pour éviter coupure
     if (this.peer && !this.peer.destroyed && this.user?.role === role && (!targetHostId || this.hostId === targetHostId)) {
         return;
     }
@@ -80,7 +79,6 @@ class ConnectivityService {
            this.notify({ type: 'TOAST', msg: 'ID indisponible, nouvel essai...', level: 'info' });
            setTimeout(() => this.init(user, role, targetHostId), 1000);
         } else if (err.type === 'network' || err.type === 'disconnected') {
-            // Tentative de reconnexion silencieuse
             this.peer?.reconnect();
         }
       });
@@ -103,7 +101,6 @@ class ConnectivityService {
 
     this.hostId = targetId;
     
-    // Fermer ancienne connexion si existante
     if (this.connections[targetId]) {
       this.connections[targetId].close();
     }
@@ -128,7 +125,6 @@ class ConnectivityService {
     this.connections[conn.peer] = conn;
 
     conn.on('data', (data: any) => {
-      // KeepAlive packet ?
       if (data && data.type === 'PING_ALIVE') return; 
       this.handleProtocolData(data, conn.peer);
     });
@@ -136,6 +132,7 @@ class ConnectivityService {
     conn.on('open', () => {
         if (conn.peer === this.hostId) {
              this.notify({ type: 'HOST_CONNECTED', hostId: conn.peer });
+             // Client envoie son état complet à l'hôte
              conn.send({ type: 'FULL', user: this.user });
         }
     });
@@ -228,8 +225,6 @@ class ConnectivityService {
       this.notify({ type: 'PEERS_UPDATED', peers: this.peersMap });
   }
 
-  // --- KEEP ALIVE ---
-  // Envoie un petit paquet périodique pour garder les tunnels WebRTC ouverts
   private startKeepAlive() {
       if (this.keepAliveInterval) clearInterval(this.keepAliveInterval);
       this.keepAliveInterval = setInterval(() => {
