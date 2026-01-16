@@ -46,10 +46,21 @@ export interface PingData {
     timestamp: number;
 }
 
+// --- NOUVEAU : TYPES POUR LA MAIN COURANTE ---
+export interface LogEntry {
+  id: string;
+  heure: string;
+  pax: string; // Nom ou type (ex: 'Alpha', 'Adversaire')
+  paxColor: string; // Code hex pour le badge
+  lieu: string;
+  action: string; // Remplace "fenetrePorte" pour être plus générique
+  remarques: string;
+}
+
 export interface AppSettings {
     username: string;
     gpsUpdateInterval: number;
-    orientationUpdateInterval: number; // NOUVEAU PARAMETRE
+    orientationUpdateInterval: number;
     userArrowColor: string;
     quickMessages: string[];
     disableBackgroundNotifications?: boolean;
@@ -58,7 +69,7 @@ export interface AppSettings {
 export const DEFAULT_SETTINGS: AppSettings = {
     username: '',
     gpsUpdateInterval: 2000,
-    orientationUpdateInterval: 500, // Par défaut 500ms
+    orientationUpdateInterval: 500,
     userArrowColor: '#3b82f6',
     quickMessages: [
         "RAS / Effacer",
@@ -73,4 +84,4 @@ export const DEFAULT_SETTINGS: AppSettings = {
     disableBackgroundNotifications: false
 };
 
-export type ViewType = 'login' | 'menu' | 'ops' | 'map' | 'settings';
+export type ViewType = 'login' | 'menu' | 'ops' | 'map' | 'settings' | 'logs'; // Ajout de 'logs'
