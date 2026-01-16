@@ -321,6 +321,7 @@ const App: React.FC = () => {
               sendSystemNotification("Message Tactique", msg);
           }
       }
+      // UPDATE: On met aussi à jour le state local quand on reçoit un move d'un pair
       else if (data.type === 'PING_MOVE') setPings(prev => prev.map(p => p.id === data.id ? { ...p, lat: data.lat, lng: data.lng } : p));
       else if (data.type === 'PING_DELETE') setPings(prev => prev.filter(p => p.id !== data.id));
       else if (data.type === 'PING_UPDATE') setPings(prev => prev.map(p => p.id === data.id ? { ...p, msg: data.msg, details: data.details } : p));
@@ -372,6 +373,20 @@ const App: React.FC = () => {
       setShowPingForm(false); setTempPingLoc(null); setIsPingMode(false);
   };
 
+  // --- NOUVELLE FONCTION POUR LE DRAG AND DROP ---
+  const handlePingMove = (updatedPing: PingData) => {
+      // 1. Mise à jour locale immédiate pour éviter le snap-back
+      setPings(prev => prev.map(p => p.id === updatedPing.id ? updatedPing : p));
+      
+      // 2. Diffusion au réseau
+      connectivityService.broadcast({ 
+          type: 'PING_MOVE', 
+          id: updatedPing.id, 
+          lat: updatedPing.lat, 
+          lng: updatedPing.lng 
+      });
+  };
+
   const savePingEdit = () => {
       if (!editingPing) return;
       const updatedPing = { ...editingPing, msg: pingMsgInput, details: editingPing.type === 'HOSTILE' ? hostileDetails : undefined };
@@ -403,7 +418,6 @@ const App: React.FC = () => {
       setShowPingForm(true); 
   };
 
-  // FONCTION RESTAUREE
   const handleScannerBarCodeScanned = ({ data }: any) => {
     setShowScanner(false);
     setHostInput(data);
@@ -416,20 +430,20 @@ const App: React.FC = () => {
           <View style={{ flex: 1, display: view === 'ops' ? 'flex' : 'none' }}>
               <SafeAreaView style={styles.header}>
                   <View style={styles.headerContent}>
-                      <TouchableOpacity onPress={handleBackPress}><MaterialIcons name="arrow-back" size={24} color="white" /></TouchableOpacity>
-                      <Text style={styles.headerTitle}>TacSuite</Text>
+                      <TouchableOpacity onPress={handleBackPress}><MaterialIcons name="arrow-back" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
+                      <Text style={[styles.headerTitle, nightOpsMode && {color: '#ef4444'}]}>TacSuite</Text>
                       <View style={{flexDirection: 'row', gap: 15}}>
                           <TouchableOpacity onPress={() => setNightOpsMode(!nightOpsMode)}><MaterialIcons name="nightlight-round" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
-                          <TouchableOpacity onPress={() => setView('settings')}><MaterialIcons name="settings" size={24} color="white" /></TouchableOpacity>
-                          <TouchableOpacity onPress={() => { setView('map'); setLastOpsView('map'); }}><MaterialIcons name="map" size={24} color="white" /></TouchableOpacity>
+                          <TouchableOpacity onPress={() => { setLastView(view); setView('settings'); }}><MaterialIcons name="settings" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
+                          <TouchableOpacity onPress={() => { setView('map'); setLastOpsView('map'); }}><MaterialIcons name="map" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
                       </View>
                   </View>
               </SafeAreaView>
               <ScrollView contentContainerStyle={styles.grid}>
-                  <OperatorCard user={user} isMe style={{ width: '100%' }} />
+                  <OperatorCard user={user} isMe style={{ width: '100%' }} isNightOps={nightOpsMode} />
                   {Object.values(peers).filter(p => p.id !== user.id).map(p => (
                       <TouchableOpacity key={p.id} onLongPress={() => setSelectedOperatorId(p.id)} activeOpacity={0.8} style={{ width: '100%' }}>
-                          <OperatorCard user={p} me={user} style={{ width: '100%' }} />
+                          <OperatorCard user={p} me={user} style={{ width: '100%' }} isNightOps={nightOpsMode} />
                       </TouchableOpacity>
                   ))}
               </ScrollView>
@@ -438,12 +452,12 @@ const App: React.FC = () => {
           <View style={{ flex: 1, display: view === 'map' ? 'flex' : 'none' }}>
               <SafeAreaView style={styles.header}>
                   <View style={styles.headerContent}>
-                      <TouchableOpacity onPress={handleBackPress}><MaterialIcons name="arrow-back" size={24} color="white" /></TouchableOpacity>
-                      <Text style={styles.headerTitle}>TacSuite</Text>
+                      <TouchableOpacity onPress={handleBackPress}><MaterialIcons name="arrow-back" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
+                      <Text style={[styles.headerTitle, nightOpsMode && {color: '#ef4444'}]}>TacSuite</Text>
                       <View style={{flexDirection: 'row', gap: 15}}>
                           <TouchableOpacity onPress={() => setNightOpsMode(!nightOpsMode)}><MaterialIcons name="nightlight-round" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
-                          <TouchableOpacity onPress={() => setView('settings')}><MaterialIcons name="settings" size={24} color="white" /></TouchableOpacity>
-                          <TouchableOpacity onPress={() => { setView('ops'); setLastOpsView('ops'); }}><MaterialIcons name="list" size={24} color="white" /></TouchableOpacity>
+                          <TouchableOpacity onPress={() => { setLastView(view); setView('settings'); }}><MaterialIcons name="settings" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
+                          <TouchableOpacity onPress={() => { setView('ops'); setLastOpsView('ops'); }}><MaterialIcons name="list" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
                       </View>
                   </View>
               </SafeAreaView>
@@ -452,8 +466,9 @@ const App: React.FC = () => {
                       me={user} peers={peers} pings={pings} mapMode={mapMode} showTrails={showTrails} showPings={showPings} 
                       isHost={user.role === OperatorRole.HOST} userArrowColor={settings.userArrowColor} 
                       pingMode={isPingMode} navTargetId={navTargetId}
+                      nightOpsMode={nightOpsMode} // PASSED TO COMPONENT
                       onPing={(loc) => { setTempPingLoc(loc); setShowPingMenu(true); }}
-                      onPingMove={(p) => {}} 
+                      onPingMove={handlePingMove} // CONNECTED HANDLER
                       onPingClick={(id) => { 
                           const p = pings.find(ping => ping.id === id);
                           if (!p) return;
@@ -464,23 +479,23 @@ const App: React.FC = () => {
                       onNavStop={() => setNavTargetId(null)} 
                   />
                   <View style={styles.mapControls}>
-                      <TouchableOpacity onPress={() => setMapMode(m => m === 'dark' ? 'light' : m === 'light' ? 'satellite' : 'dark')} style={styles.mapBtn}><MaterialIcons name={mapMode === 'dark' ? 'dark-mode' : mapMode === 'light' ? 'light-mode' : 'satellite'} size={24} color="#d4d4d8" /></TouchableOpacity>
-                      <TouchableOpacity onPress={() => setShowTrails(!showTrails)} style={styles.mapBtn}><MaterialIcons name={showTrails ? 'visibility' : 'visibility-off'} size={24} color="#d4d4d8" /></TouchableOpacity>
-                      <TouchableOpacity onPress={() => setShowPings(!showPings)} style={styles.mapBtn}><MaterialIcons name={showPings ? 'location-on' : 'location-off'} size={24} color="#d4d4d8" /></TouchableOpacity>
-                      <TouchableOpacity onPress={() => setIsPingMode(!isPingMode)} style={[styles.mapBtn, isPingMode ? {backgroundColor: '#dc2626', borderColor: '#f87171'} : null]}><MaterialIcons name="ads-click" size={24} color="white" /></TouchableOpacity>
+                      <TouchableOpacity onPress={() => setMapMode(m => m === 'dark' ? 'light' : m === 'light' ? 'satellite' : 'dark')} style={[styles.mapBtn, nightOpsMode && {borderColor: '#7f1d1d', backgroundColor: '#000'}]}><MaterialIcons name={mapMode === 'dark' ? 'dark-mode' : mapMode === 'light' ? 'light-mode' : 'satellite'} size={24} color={nightOpsMode ? "#ef4444" : "#d4d4d8"} /></TouchableOpacity>
+                      <TouchableOpacity onPress={() => setShowTrails(!showTrails)} style={[styles.mapBtn, nightOpsMode && {borderColor: '#7f1d1d', backgroundColor: '#000'}]}><MaterialIcons name={showTrails ? 'visibility' : 'visibility-off'} size={24} color={nightOpsMode ? "#ef4444" : "#d4d4d8"} /></TouchableOpacity>
+                      <TouchableOpacity onPress={() => setShowPings(!showPings)} style={[styles.mapBtn, nightOpsMode && {borderColor: '#7f1d1d', backgroundColor: '#000'}]}><MaterialIcons name={showPings ? 'location-on' : 'location-off'} size={24} color={nightOpsMode ? "#ef4444" : "#d4d4d8"} /></TouchableOpacity>
+                      <TouchableOpacity onPress={() => setIsPingMode(!isPingMode)} style={[styles.mapBtn, isPingMode ? {backgroundColor: '#dc2626', borderColor: '#f87171'} : null, nightOpsMode && {borderColor: '#7f1d1d', backgroundColor: isPingMode ? '#7f1d1d' : '#000'}]}><MaterialIcons name="ads-click" size={24} color="white" /></TouchableOpacity>
                   </View>
               </View>
           </View>
 
-          <View style={styles.footer}>
+          <View style={[styles.footer, nightOpsMode && {borderTopColor: '#7f1d1d'}]}>
                 <View style={styles.statusRow}>
                   {[OperatorStatus.PROGRESSION, OperatorStatus.CONTACT, OperatorStatus.CLEAR].map(s => (
-                      <TouchableOpacity key={s} onPress={() => handleChangeStatus(s)} style={[styles.statusBtn, user.status === s ? { backgroundColor: STATUS_COLORS[s], borderColor: 'white' } : null]}>
-                          <Text style={[styles.statusBtnText, user.status === s ? {color:'white'} : null]}>{s}</Text>
+                      <TouchableOpacity key={s} onPress={() => handleChangeStatus(s)} style={[styles.statusBtn, user.status === s ? { backgroundColor: STATUS_COLORS[s], borderColor: 'white' } : null, nightOpsMode && {borderColor: '#7f1d1d', backgroundColor: user.status === s ? '#7f1d1d' : '#000'}]}>
+                          <Text style={[styles.statusBtnText, user.status === s ? {color:'white'} : null, nightOpsMode && {color: '#ef4444'}]}>{s}</Text>
                       </TouchableOpacity>
                   ))}
-                  <TouchableOpacity onPress={() => setShowQuickMsgModal(true)} style={[styles.statusBtn, {borderColor: '#06b6d4'}]}><Text style={[styles.statusBtnText, {color: '#06b6d4'}]}>MSG</Text></TouchableOpacity>
-                  <TouchableOpacity onPress={() => setShowQRModal(true)} style={[styles.statusBtn, {borderColor: '#d4d4d8'}]}><MaterialIcons name="qr-code-2" size={16} color="#d4d4d8" /></TouchableOpacity>
+                  <TouchableOpacity onPress={() => setShowQuickMsgModal(true)} style={[styles.statusBtn, {borderColor: '#06b6d4'}, nightOpsMode && {borderColor: '#ef4444'}]}><Text style={[styles.statusBtnText, {color: '#06b6d4'}, nightOpsMode && {color: '#ef4444'}]}>MSG</Text></TouchableOpacity>
+                  <TouchableOpacity onPress={() => setShowQRModal(true)} style={[styles.statusBtn, {borderColor: '#d4d4d8'}, nightOpsMode && {borderColor: '#ef4444'}]}><MaterialIcons name="qr-code-2" size={16} color={nightOpsMode ? "#ef4444" : "#d4d4d8"} /></TouchableOpacity>
               </View>
           </View>
       </View>
@@ -518,7 +533,7 @@ const App: React.FC = () => {
           <View style={styles.menuContainer}>
             <View style={{flexDirection: 'row', justifyContent:'space-between', marginBottom: 20}}>
                 <Text style={styles.sectionTitle}>MENU PRINCIPAL</Text>
-                <TouchableOpacity onPress={() => setView('settings')}><MaterialIcons name="settings" size={24} color="white" /></TouchableOpacity>
+                <TouchableOpacity onPress={() => { setLastView('menu'); setView('settings'); }}><MaterialIcons name="settings" size={24} color="white" /></TouchableOpacity>
             </View>
             {hostId ? (
                 <>
@@ -659,6 +674,7 @@ const App: React.FC = () => {
 
       {activeNotif && <NavNotification message={`${activeNotif.id}: ${activeNotif.msg}`} type={activeNotif.type} isNightOps={nightOpsMode} onDismiss={() => setActiveNotif(null)} />}
       
+      {/* OVERLAY ROUGE POUR NIGHT OPS (EN PLUS DU FILTRE CSS ET DES STYLES) */}
       {nightOpsMode && <View style={styles.nightOpsOverlay} pointerEvents="none" />}
       
       {toast && ( <View style={[styles.toast, toast.type === 'error' && {backgroundColor: '#ef4444'}]}><Text style={styles.toastText}>{toast.msg}</Text></View> )}
@@ -715,7 +731,8 @@ const styles = StyleSheet.create({
   iconBtnDanger: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#ef4444', justifyContent: 'center', alignItems: 'center', elevation: 5 },
   iconBtnSecondary: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#52525b', justifyContent: 'center', alignItems: 'center', elevation: 5 },
   iconBtnSuccess: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#22c55e', justifyContent: 'center', alignItems: 'center', elevation: 5 },
-  nightOpsOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(255, 0, 0, 0.15)', zIndex: 99999, pointerEvents: 'none' }
+  // Overlay augmenté pour Night Ops
+  nightOpsOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(127, 29, 29, 0.2)', zIndex: 99999, pointerEvents: 'none' }
 });
 
 export default App;
