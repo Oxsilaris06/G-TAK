@@ -3,7 +3,7 @@ import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { 
   StyleSheet, View, Text, TextInput, TouchableOpacity, 
   SafeAreaView, Platform, Modal, StatusBar as RNStatusBar, Alert, ScrollView, ActivityIndicator,
-  PermissionsAndroid, Animated, PanResponder, FlatList, KeyboardAvoidingView, AppState, Dimensions
+  PermissionsAndroid, Animated, PanResponder, FlatList, KeyboardAvoidingView, AppState
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import QRCode from 'react-native-qrcode-svg';
@@ -19,7 +19,9 @@ import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Magnetometer } from 'expo-sensors';
 import * as SplashScreen from 'expo-splash-screen';
-import * as ScreenOrientation from 'expo-screen-orientation';
+
+// Suppression de l'import problématique
+// import * as ScreenOrientation from 'expo-screen-orientation';
 
 import { UserData, OperatorStatus, OperatorRole, ViewType, PingData, AppSettings, DEFAULT_SETTINGS, PingType, HostileDetails } from './types';
 import { CONFIG, STATUS_COLORS } from './constants';
@@ -69,7 +71,7 @@ const NavNotification = ({ message, type, isNightOps, onDismiss }: { message: st
         }
     })).current;
 
-    const bgColor = isNightOps ? '#330000' : (type === 'alert' ? '#7f1d1d' : '#18181b');
+    const bgColor = isNightOps ? '#000' : (type === 'alert' ? '#7f1d1d' : '#18181b');
     const borderColor = isNightOps ? '#ef4444' : (type === 'alert' ? '#ef4444' : '#06b6d4');
     const textColor = isNightOps ? '#ef4444' : 'white';
 
@@ -93,8 +95,8 @@ const App: React.FC = () => {
   const [user, setUser] = useState<UserData>({ id: '', callsign: '', role: OperatorRole.OPR, status: OperatorStatus.CLEAR, joinedAt: Date.now(), bat: 100, head: 0, lat: 0, lng: 0, lastMsg: '' });
 
   const [view, setView] = useState<ViewType>('login');
+  const [lastView, setLastView] = useState<ViewType>('menu'); 
   const [lastOpsView, setLastOpsView] = useState<ViewType>('map');
-  const [showSettings, setShowSettings] = useState(false); // Gestion Paramètres en Modale
 
   const [peers, setPeers] = useState<Record<string, UserData>>({});
   const [bannedPeers, setBannedPeers] = useState<string[]>([]);
@@ -138,15 +140,6 @@ const App: React.FC = () => {
   const gpsSubscription = useRef<Location.LocationSubscription | null>(null);
   const appState = useRef(AppState.currentState);
 
-  // Layout responsive
-  const [dimensions, setDimensions] = useState(Dimensions.get('window'));
-  useEffect(() => {
-      const subscription = Dimensions.addEventListener('change', ({ window }) => setDimensions(window));
-      ScreenOrientation.unlockAsync();
-      return () => subscription.remove();
-  }, []);
-  const isLandscape = dimensions.width > dimensions.height;
-
   const showToast = useCallback((msg: string, type: 'info' | 'error' = 'info') => {
     setToast({ msg, type });
     if (type === 'error') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -170,7 +163,7 @@ const App: React.FC = () => {
   const copyToClipboard = async () => { await Clipboard.setStringAsync(hostId || user.id || ''); showToast("ID Copié"); };
 
   const handleBackPress = () => {
-      if (showSettings) { setShowSettings(false); return; } // Ferme Settings sans quitter
+      if (view === 'settings') { setView(lastView); return; }
       if (view === 'ops' || view === 'map') {
           Alert.alert("Déconnexion", "Quitter la session ?", [{ text: "Annuler", style: "cancel" }, { text: "Confirmer", style: "destructive", onPress: handleLogout }]);
       } else { setView('login'); }
@@ -410,7 +403,7 @@ const App: React.FC = () => {
       setShowPingForm(true); 
   };
 
-  // --- RESTAURATION DE LA FONCTION MANQUANTE ---
+  // FONCTION RESTAUREE
   const handleScannerBarCodeScanned = ({ data }: any) => {
     setShowScanner(false);
     setHostInput(data);
@@ -427,7 +420,7 @@ const App: React.FC = () => {
                       <Text style={styles.headerTitle}>TacSuite</Text>
                       <View style={{flexDirection: 'row', gap: 15}}>
                           <TouchableOpacity onPress={() => setNightOpsMode(!nightOpsMode)}><MaterialIcons name="nightlight-round" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
-                          <TouchableOpacity onPress={() => setShowSettings(true)}><MaterialIcons name="settings" size={24} color="white" /></TouchableOpacity>
+                          <TouchableOpacity onPress={() => setView('settings')}><MaterialIcons name="settings" size={24} color="white" /></TouchableOpacity>
                           <TouchableOpacity onPress={() => { setView('map'); setLastOpsView('map'); }}><MaterialIcons name="map" size={24} color="white" /></TouchableOpacity>
                       </View>
                   </View>
@@ -443,29 +436,18 @@ const App: React.FC = () => {
           </View>
 
           <View style={{ flex: 1, display: view === 'map' ? 'flex' : 'none' }}>
-              {!isLandscape && (
-                  <SafeAreaView style={styles.header}>
-                      <View style={styles.headerContent}>
-                          <TouchableOpacity onPress={handleBackPress}><MaterialIcons name="arrow-back" size={24} color="white" /></TouchableOpacity>
-                          <Text style={styles.headerTitle}>TacSuite</Text>
-                          <View style={{flexDirection: 'row', gap: 15}}>
-                              <TouchableOpacity onPress={() => setNightOpsMode(!nightOpsMode)}><MaterialIcons name="nightlight-round" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
-                              <TouchableOpacity onPress={() => setShowSettings(true)}><MaterialIcons name="settings" size={24} color="white" /></TouchableOpacity>
-                              <TouchableOpacity onPress={() => { setView('ops'); setLastOpsView('ops'); }}><MaterialIcons name="list" size={24} color="white" /></TouchableOpacity>
-                          </View>
+              <SafeAreaView style={styles.header}>
+                  <View style={styles.headerContent}>
+                      <TouchableOpacity onPress={handleBackPress}><MaterialIcons name="arrow-back" size={24} color="white" /></TouchableOpacity>
+                      <Text style={styles.headerTitle}>TacSuite</Text>
+                      <View style={{flexDirection: 'row', gap: 15}}>
+                          <TouchableOpacity onPress={() => setNightOpsMode(!nightOpsMode)}><MaterialIcons name="nightlight-round" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
+                          <TouchableOpacity onPress={() => setView('settings')}><MaterialIcons name="settings" size={24} color="white" /></TouchableOpacity>
+                          <TouchableOpacity onPress={() => { setView('ops'); setLastOpsView('ops'); }}><MaterialIcons name="list" size={24} color="white" /></TouchableOpacity>
                       </View>
-                  </SafeAreaView>
-              )}
+                  </View>
+              </SafeAreaView>
               <View style={{flex: 1}}>
-                  {/* BOUTONS FLOTTANTS SI PAYSAGE POUR GAGNER DE LA PLACE */}
-                  {isLandscape && (
-                      <View style={styles.landscapeControls}>
-                          <TouchableOpacity onPress={handleBackPress} style={styles.floatBtn}><MaterialIcons name="arrow-back" size={20} color="white" /></TouchableOpacity>
-                          <TouchableOpacity onPress={() => setNightOpsMode(!nightOpsMode)} style={styles.floatBtn}><MaterialIcons name="nightlight-round" size={20} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
-                          <TouchableOpacity onPress={() => setShowSettings(true)} style={styles.floatBtn}><MaterialIcons name="settings" size={20} color="white" /></TouchableOpacity>
-                          <TouchableOpacity onPress={() => { setView('ops'); setLastOpsView('ops'); }} style={styles.floatBtn}><MaterialIcons name="list" size={20} color="white" /></TouchableOpacity>
-                      </View>
-                  )}
                   <TacticalMap 
                       me={user} peers={peers} pings={pings} mapMode={mapMode} showTrails={showTrails} showPings={showPings} 
                       isHost={user.role === OperatorRole.HOST} userArrowColor={settings.userArrowColor} 
@@ -490,7 +472,7 @@ const App: React.FC = () => {
               </View>
           </View>
 
-          <View style={[styles.footer, isLandscape && {display: 'none'}]}>
+          <View style={styles.footer}>
                 <View style={styles.statusRow}>
                   {[OperatorStatus.PROGRESSION, OperatorStatus.CONTACT, OperatorStatus.CLEAR].map(s => (
                       <TouchableOpacity key={s} onPress={() => handleChangeStatus(s)} style={[styles.statusBtn, user.status === s ? { backgroundColor: STATUS_COLORS[s], borderColor: 'white' } : null]}>
@@ -516,12 +498,8 @@ const App: React.FC = () => {
   return (
     <View style={styles.container}>
       <StatusBar style="light" backgroundColor="#050505" />
-      {/* Settings en Modale pour préserver la session */}
-      <Modal visible={showSettings} animationType="slide" onRequestClose={() => setShowSettings(false)}>
-          <SettingsView onClose={() => setShowSettings(false)} />
-      </Modal>
-
-      {view === 'login' ? (
+      {view === 'settings' ? <SettingsView onClose={() => setView(lastView)} /> : 
+       view === 'login' ? (
         <View style={styles.centerContainer}>
           <MaterialIcons name="login" size={80} color="#3b82f6" style={{opacity: 0.8, marginBottom: 30}} />
           <Text style={styles.title}>Tac<Text style={{color: '#3b82f6'}}>Suite</Text></Text>
@@ -540,7 +518,7 @@ const App: React.FC = () => {
           <View style={styles.menuContainer}>
             <View style={{flexDirection: 'row', justifyContent:'space-between', marginBottom: 20}}>
                 <Text style={styles.sectionTitle}>MENU PRINCIPAL</Text>
-                <TouchableOpacity onPress={() => setShowSettings(true)}><MaterialIcons name="settings" size={24} color="white" /></TouchableOpacity>
+                <TouchableOpacity onPress={() => setView('settings')}><MaterialIcons name="settings" size={24} color="white" /></TouchableOpacity>
             </View>
             {hostId ? (
                 <>
@@ -617,7 +595,7 @@ const App: React.FC = () => {
                           <TextInput style={styles.detailInput} placeholder="Attitude" placeholderTextColor="#52525b" value={hostileDetails.attitude} onChangeText={t => setHostileDetails({...hostileDetails, attitude: t})} />
                           <TextInput style={styles.detailInput} placeholder="Volume" placeholderTextColor="#52525b" value={hostileDetails.volume} onChangeText={t => setHostileDetails({...hostileDetails, volume: t})} />
                           <TextInput style={styles.detailInput} placeholder="Armement" placeholderTextColor="#52525b" value={hostileDetails.armes} onChangeText={t => setHostileDetails({...hostileDetails, armes: t})} />
-                          <TextInput style={styles.detailInput} placeholder="Substances" placeholderTextColor="#52525b" value={hostileDetails.substances} onChangeText={t => setHostileDetails({...hostileDetails, substances: t})} />
+                          <TextInput style={styles.detailInput} placeholder="Substances / Tenue" placeholderTextColor="#52525b" value={hostileDetails.substances} onChangeText={t => setHostileDetails({...hostileDetails, substances: t})} />
                       </ScrollView>
                   )}
                   <View style={{flexDirection: 'row', gap: 10, marginTop: 10}}>
@@ -681,7 +659,6 @@ const App: React.FC = () => {
 
       {activeNotif && <NavNotification message={`${activeNotif.id}: ${activeNotif.msg}`} type={activeNotif.type} isNightOps={nightOpsMode} onDismiss={() => setActiveNotif(null)} />}
       
-      {/* FILTRE NIGHT OPS RENFORCÉ */}
       {nightOpsMode && <View style={styles.nightOpsOverlay} pointerEvents="none" />}
       
       {toast && ( <View style={[styles.toast, toast.type === 'error' && {backgroundColor: '#ef4444'}]}><Text style={styles.toastText}>{toast.msg}</Text></View> )}
@@ -738,11 +715,7 @@ const styles = StyleSheet.create({
   iconBtnDanger: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#ef4444', justifyContent: 'center', alignItems: 'center', elevation: 5 },
   iconBtnSecondary: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#52525b', justifyContent: 'center', alignItems: 'center', elevation: 5 },
   iconBtnSuccess: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#22c55e', justifyContent: 'center', alignItems: 'center', elevation: 5 },
-  
-  // NOUVEAUX STYLES PAYSAGE / NIGHT OPS
-  nightOpsOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(50, 0, 0, 0.45)', zIndex: 99999, pointerEvents: 'none' },
-  landscapeControls: { position: 'absolute', left: 16, top: '50%', transform: [{translateY: -100}], gap: 12, zIndex: 2000 },
-  floatBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#18181b', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', shadowColor: "#000", shadowOffset: {width: 0, height: 2}, shadowOpacity: 0.5, shadowRadius: 3, elevation: 5 }
+  nightOpsOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(255, 0, 0, 0.15)', zIndex: 99999, pointerEvents: 'none' }
 });
 
 export default App;
