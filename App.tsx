@@ -18,7 +18,6 @@ import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Magnetometer } from 'expo-sensors';
 import * as SplashScreen from 'expo-splash-screen';
-import NetInfo from '@react-native-community/netinfo'; // AJOUT CRITIQUE POUR LA RÉSILIENCE
 
 import { UserData, OperatorStatus, OperatorRole, ViewType, PingData, AppSettings, DEFAULT_SETTINGS, PingType, HostileDetails, LogEntry } from './types';
 import { CONFIG, STATUS_COLORS } from './constants';
@@ -130,22 +129,16 @@ const App: React.FC = () => {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [hostId, setHostId] = useState<string>('');
   
-  // États Réseau Avancés
-  const [isOffline, setIsOffline] = useState(false);
-  const [isMigrating, setIsMigrating] = useState(false);
-  
-  // Refs pour accès synchrone dans les listeners (CRUCIAL)
+  // Refs pour accès synchrone dans les listeners
   const pingsRef = useRef(pings);
   const logsRef = useRef(logs);
   const peersRef = useRef(peers);
   const userRef = useRef(user);
-  const hostIdRef = useRef(hostId); // Ref pour hostId aussi pour la reconnexion
 
   useEffect(() => { pingsRef.current = pings; }, [pings]);
   useEffect(() => { logsRef.current = logs; }, [logs]);
   useEffect(() => { peersRef.current = peers; }, [peers]);
   useEffect(() => { userRef.current = user; }, [user]);
-  useEffect(() => { hostIdRef.current = hostId; }, [hostId]);
 
   // Inputs & UI State
   const [loginInput, setLoginInput] = useState('');
@@ -205,6 +198,12 @@ const App: React.FC = () => {
       triggerAppNotification('TOAST', msg, type);
   };
 
+  // --- ACTIONS GLOBALES ---
+  const copyToClipboard = async () => { 
+      await Clipboard.setStringAsync(hostId || user.id || ''); 
+      showToast("ID Copié", "success"); 
+  };
+
   const handleBackPress = () => {
       if (view === 'settings') { setView(lastView); return; }
       if (view === 'ops' || view === 'map') {
@@ -212,34 +211,7 @@ const App: React.FC = () => {
       } else { setView('login'); }
   };
 
-  // --- RÉSILIENCE RÉSEAU (Inspiré de App (1).tsx (2).txt) ---
-  // Surveille le changement 4G <-> WiFi pour relancer la connexion proprement
-  useEffect(() => {
-    const unsubscribe = NetInfo.addEventListener(state => {
-      const offline = !state.isConnected || !state.isInternetReachable;
-      
-      // Si on revient en ligne après une coupure ET qu'on est loggué
-      if (isOffline && !offline && view !== 'login' && hostIdRef.current) {
-          showToast("Réseau retrouvé - Stabilisation...", "success");
-          
-          // On laisse 1s pour que l'IP soit stable, puis on réinit le service
-          // avec le MÊME ID utilisateur pour que les pairs nous retrouvent
-          setTimeout(() => {
-              console.log(`[Network] Restoring session for ${userRef.current.id}`);
-              connectivityService.init(
-                  userRef.current, 
-                  userRef.current.role, 
-                  userRef.current.role === OperatorRole.OPR ? hostIdRef.current : undefined,
-                  userRef.current.id // FORCE ID EXISTANT
-              );
-          }, 1500);
-      }
-      setIsOffline(!!offline);
-    });
-    return unsubscribe;
-  }, [isOffline, view]);
-
-  // --- INITIALISATION APP ---
+  // --- INITIALISATION ---
   useEffect(() => {
       let mounted = true;
       const subscription = AppState.addEventListener('change', nextAppState => {
@@ -276,7 +248,6 @@ const App: React.FC = () => {
           if (gpsSubscription.current) startGpsTracking(newSettings.gpsUpdateInterval);
       });
 
-      // CONNEXION ABONNEMENT
       const unsubConn = connectivityService.subscribe((event) => {
           handleConnectivityEvent(event);
       });
@@ -299,13 +270,12 @@ const App: React.FC = () => {
       } catch (e) {}
   };
 
-  // --- LOGIQUE RÉSEAU (Event Handler) ---
+  // --- LOGIQUE RÉSEAU ---
   const handleConnectivityEvent = (event: ConnectivityEvent) => {
       switch (event.type) {
           case 'PEER_OPEN': 
               setUser(prev => ({ ...prev, id: event.id })); 
               setIsServicesReady(true); 
-              setIsMigrating(false);
               break;
           
           case 'PEERS_UPDATED': 
@@ -327,7 +297,6 @@ const App: React.FC = () => {
           case 'HOST_CONNECTED': 
               setHostId(event.hostId); 
               showToast("Connecté au réseau tactique", "success");
-              setIsMigrating(false);
               break;
           
           case 'RECONNECTING':
@@ -348,7 +317,7 @@ const App: React.FC = () => {
                   finishLogout(); 
               }
               else if (event.reason === 'NO_HOST') { 
-                  if(!isMigrating) showToast("Lien Hôte perdu. En attente...", "error"); 
+                  showToast("Lien Hôte perdu. En attente...", "error"); 
               }
               else if (event.reason === 'NETWORK_ERROR') {
                   showToast("Erreur réseau critique.", "error");
@@ -356,13 +325,11 @@ const App: React.FC = () => {
               break;
           
           case 'MIGRATION_START':
-              setIsMigrating(true);
               showToast("Hôte perdu. Élection en cours...", "warning");
               break;
               
           case 'NEW_HOST_PROMOTED':
               setHostId(event.hostId);
-              setIsMigrating(false);
               if (event.hostId === userRef.current.id) {
                   setUser(prev => ({ ...prev, role: OperatorRole.HOST }));
                   Alert.alert("Promotion", "Vous êtes le nouveau Chef de Session (Hôte).");
@@ -373,31 +340,28 @@ const App: React.FC = () => {
       }
   };
 
-  // --- TRAITEMENT DONNÉES (Protocol) ---
   const handleProtocolData = (data: any, fromId: string) => {
-      // SYNC HOST -> CLIENT
+      // SYNC HOST
       if (data.type === 'FULL' && userRef.current.role === OperatorRole.HOST) {
           connectivityService.sendTo(fromId, { type: 'SYNC_PINGS', pings: pingsRef.current });
           connectivityService.sendTo(fromId, { type: 'SYNC_LOGS', logs: logsRef.current });
       }
 
-      // RECEPTION DONNÉES
+      // SYNC DATA
       else if (data.type === 'SYNC_PINGS' && Array.isArray(data.pings)) {
           setPings(data.pings);
       }
       else if (data.type === 'SYNC_LOGS' && Array.isArray(data.logs)) {
           setLogs(data.logs);
       }
+
+      // PINGS & ALERTS
       else if (data.type === 'PING') {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             setPings(prev => [...prev, data.ping]);
             const p = data.ping;
             const isHostile = p.type === 'HOSTILE';
-            triggerAppNotification(
-                p.sender, 
-                `${p.type === 'HOSTILE' ? 'CONTACT' : 'INFO'}: ${p.msg}`, 
-                isHostile ? 'alert' : 'info'
-            );
+            triggerAppNotification(p.sender, `${p.type === 'HOSTILE' ? 'CONTACT' : 'INFO'}: ${p.msg}`, isHostile ? 'alert' : 'info');
             sendSystemNotification(isHostile ? "⚠️ CONTACT" : "Info Tactique", `${p.sender}: ${p.msg}`);
       }
       else if (data.type === 'PING_MOVE') {
@@ -413,10 +377,11 @@ const App: React.FC = () => {
           setLogs(data.logs);
           if (showLogs) showToast("Main Courante mise à jour", "info");
       }
+      
+      // USER UPDATES
       else if ((data.type === 'UPDATE' || data.type === 'UPDATE_USER') && data.user) {
           const u = data.user;
-          const currentPeer = peersRef.current[u.id];
-          
+          const currentPeer = peersRef.current[u.id]; 
           if (currentPeer && currentPeer.status !== u.status) {
               if (u.status === OperatorStatus.CONTACT || u.status === OperatorStatus.BUSY) {
                   triggerAppNotification(u.callsign, `STATUT: ${u.status}`, 'alert');
@@ -443,10 +408,7 @@ const App: React.FC = () => {
                 setGpsStatus('OK');
                 setUser(prev => {
                     const gpsHead = (speed && speed > 1 && heading !== null) ? heading : prev.head;
-                    if (!lastLocationRef.current || 
-                        Math.abs(latitude - lastLocationRef.current.lat) > 0.0001 || 
-                        Math.abs(longitude - lastLocationRef.current.lng) > 0.0001) {
-                        
+                    if (!lastLocationRef.current || Math.abs(latitude - lastLocationRef.current.lat) > 0.0001 || Math.abs(longitude - lastLocationRef.current.lng) > 0.0001) {
                         connectivityService.updateUserPosition(latitude, longitude, gpsHead);
                         lastLocationRef.current = { lat: latitude, lng: longitude };
                     }
@@ -486,7 +448,6 @@ const App: React.FC = () => {
       return () => sub && sub.remove(); 
   }, [hostId, settings.orientationUpdateInterval]);
 
-  // ACTIONS
   const joinSession = async (id?: string) => {
       const finalId = id || hostInput.toUpperCase();
       if (!finalId) return;
@@ -588,8 +549,6 @@ const App: React.FC = () => {
                       </View>
                   </View>
               </SafeAreaView>
-              {isOffline && <View style={{backgroundColor: '#ef4444', padding: 5, alignItems: 'center'}}><Text style={{color:'white', fontWeight:'bold'}}>RÉSEAU PERDU - RECONNEXION...</Text></View>}
-              {isMigrating && <View style={{backgroundColor: '#eab308', padding: 5, alignItems: 'center'}}><Text style={{color:'black', fontWeight:'bold'}}>MIGRATION HÔTE EN COURS...</Text></View>}
               <ScrollView contentContainerStyle={styles.grid}>
                   <OperatorCard user={user} isMe style={{ width: '100%' }} isNightOps={nightOpsMode} />
                   {Object.values(peers).filter(p => p.id !== user.id).map(p => (
@@ -721,7 +680,6 @@ const App: React.FC = () => {
       {/* MODALES & ELEMENTS FLOTTANTS */}
       <OperatorActionModal visible={!!selectedOperatorId} targetOperator={peers[selectedOperatorId || ''] || null} currentUserRole={user.role} onClose={() => setSelectedOperatorId(null)} onKick={handleOperatorActionKick} onNavigate={handleOperatorActionNavigate} />
       
-      {/* NOUVEAU COMPOSANT MAIN COURANTE */}
       <MainCouranteView 
         visible={showLogs} 
         logs={logs} 
@@ -731,34 +689,39 @@ const App: React.FC = () => {
         onDeleteLog={handleDeleteLog}
       />
 
+      {/* QUICK MSG MODAL */}
       <Modal visible={showQuickMsgModal} animationType="fade" transparent>
           <KeyboardAvoidingView behavior="padding" style={styles.modalOverlay}>
               <View style={[styles.modalContent, {backgroundColor: '#18181b', borderWidth: 1, borderColor: '#333', maxHeight: '80%'}]}>
                   <Text style={[styles.modalTitle, {color: '#06b6d4', marginBottom: 15}]}>MESSAGE RAPIDE</Text>
                   <View style={{flexDirection: 'row', marginBottom: 15, width: '100%'}}>
                       <TextInput style={[styles.pingInput, {flex: 1, marginBottom: 0, textAlign: 'left'}]} placeholder="Message libre..." placeholderTextColor="#52525b" value={freeMsgInput} onChangeText={setFreeMsgInput} />
-                      <TouchableOpacity onPress={() => handleSendQuickMessage(freeMsgInput)} style={[styles.modalBtn, {backgroundColor: '#06b6d4', marginLeft: 10, flex: 0, width: 50}]}><MaterialIcons name="send" size={20} color="white" /></TouchableOpacity>
+                      <TouchableOpacity onPress={() => { setUser(prev => ({...prev, lastMsg: freeMsgInput})); connectivityService.updateUser({lastMsg: freeMsgInput}); setShowQuickMsgModal(false); setFreeMsgInput(''); showToast("Message envoyé", "success"); }} style={[styles.modalBtn, {backgroundColor: '#06b6d4', marginLeft: 10, flex: 0, width: 50}]}><MaterialIcons name="send" size={20} color="white" /></TouchableOpacity>
                   </View>
-                  <FlatList data={quickMessagesList} keyExtractor={(item, index) => index.toString()} renderItem={({item}) => (<TouchableOpacity onPress={() => handleSendQuickMessage(item.includes("Effacer") ? "" : item)} style={styles.quickMsgItem}><Text style={styles.quickMsgText}>{item}</Text></TouchableOpacity>)} ItemSeparatorComponent={() => <View style={{height: 1, backgroundColor: '#27272a'}} />} />
+                  <FlatList data={quickMessagesList} keyExtractor={(item, index) => index.toString()} renderItem={({item}) => (
+                      <TouchableOpacity onPress={() => { setUser(prev => ({...prev, lastMsg: item.includes("Effacer") ? "" : item})); connectivityService.updateUser({lastMsg: item.includes("Effacer") ? "" : item}); setShowQuickMsgModal(false); showToast("Message mis à jour", "info"); }} style={styles.quickMsgItem}><Text style={styles.quickMsgText}>{item}</Text></TouchableOpacity>
+                  )} ItemSeparatorComponent={() => <View style={{height: 1, backgroundColor: '#27272a'}} />} />
                   <TouchableOpacity onPress={() => setShowQuickMsgModal(false)} style={[styles.closeBtn, {backgroundColor: '#27272a', marginTop: 15}]}><Text style={{color: '#a1a1aa'}}>ANNULER</Text></TouchableOpacity>
               </View>
           </KeyboardAvoidingView>
       </Modal>
 
+      {/* PING MENU */}
       <Modal visible={showPingMenu} transparent animationType="fade">
           <View style={styles.modalOverlay}>
               <View style={styles.pingMenuContainer}>
                   <Text style={styles.modalTitle}>TYPE DE MARQUEUR</Text>
                   <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 15, justifyContent: 'center'}}>
-                      <TouchableOpacity onPress={() => selectPingType('HOSTILE')} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(239, 68, 68, 0.2)', borderColor: '#ef4444'}]}><MaterialIcons name="warning" size={30} color="#ef4444" /><Text style={{color: '#ef4444', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>ADVERSAIRE</Text></TouchableOpacity>
-                      <TouchableOpacity onPress={() => selectPingType('FRIEND')} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(34, 197, 94, 0.2)', borderColor: '#22c55e'}]}><MaterialIcons name="shield" size={30} color="#22c55e" /><Text style={{color: '#22c55e', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>AMI</Text></TouchableOpacity>
-                      <TouchableOpacity onPress={() => selectPingType('INTEL')} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(234, 179, 8, 0.2)', borderColor: '#eab308'}]}><MaterialIcons name="visibility" size={30} color="#eab308" /><Text style={{color: '#eab308', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>RENS</Text></TouchableOpacity>
+                      <TouchableOpacity onPress={() => { setCurrentPingType('HOSTILE'); setShowPingMenu(false); setPingMsgInput(''); setHostileDetails({position: tempPingLoc ? `${tempPingLoc.lat.toFixed(5)}, ${tempPingLoc.lng.toFixed(5)}` : '', nature: '', attitude: '', volume: '', armes: '', substances: ''}); setShowPingForm(true); }} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(239, 68, 68, 0.2)', borderColor: '#ef4444'}]}><MaterialIcons name="warning" size={30} color="#ef4444" /><Text style={{color: '#ef4444', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>ADVERSAIRE</Text></TouchableOpacity>
+                      <TouchableOpacity onPress={() => { setCurrentPingType('FRIEND'); setShowPingMenu(false); setPingMsgInput(''); setShowPingForm(true); }} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(34, 197, 94, 0.2)', borderColor: '#22c55e'}]}><MaterialIcons name="shield" size={30} color="#22c55e" /><Text style={{color: '#22c55e', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>AMI</Text></TouchableOpacity>
+                      <TouchableOpacity onPress={() => { setCurrentPingType('INTEL'); setShowPingMenu(false); setPingMsgInput(''); setShowPingForm(true); }} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(234, 179, 8, 0.2)', borderColor: '#eab308'}]}><MaterialIcons name="visibility" size={30} color="#eab308" /><Text style={{color: '#eab308', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>RENS</Text></TouchableOpacity>
                   </View>
                   <TouchableOpacity onPress={() => setShowPingMenu(false)} style={[styles.closeBtn, {marginTop: 20, backgroundColor: '#27272a'}]}><Text style={{color:'white'}}>ANNULER</Text></TouchableOpacity>
               </View>
           </View>
       </Modal>
 
+      {/* PING FORM */}
       <Modal visible={showPingForm} transparent animationType="slide">
           <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
               <View style={[styles.modalContent, {width: '90%', maxHeight: '80%'}]}>
@@ -800,9 +763,9 @@ const App: React.FC = () => {
                       </ScrollView>
                   )}
                   <View style={{flexDirection: 'row', justifyContent: 'space-around', width: '100%', marginTop: 20}}>
-                      <TouchableOpacity onPress={deletePing} style={styles.iconBtnDanger}><MaterialIcons name="delete" size={28} color="white" /></TouchableOpacity>
+                      <TouchableOpacity onPress={() => { setPings(p => p.filter(x => x.id !== editingPing?.id)); connectivityService.broadcast({type:'PING_DELETE', id: editingPing?.id}); setEditingPing(null); }} style={styles.iconBtnDanger}><MaterialIcons name="delete" size={28} color="white" /></TouchableOpacity>
                       <TouchableOpacity onPress={() => setEditingPing(null)} style={styles.iconBtnSecondary}><MaterialIcons name="close" size={28} color="white" /></TouchableOpacity>
-                      <TouchableOpacity onPress={savePingEdit} style={styles.iconBtnSuccess}><MaterialIcons name="check" size={28} color="white" /></TouchableOpacity>
+                      <TouchableOpacity onPress={() => { const upd = {...editingPing, msg: pingMsgInput, details: hostileDetails} as PingData; setPings(p => p.map(x => x.id === editingPing?.id ? upd : x)); connectivityService.broadcast({type:'PING_UPDATE', id: editingPing?.id, msg: pingMsgInput, details: hostileDetails}); setEditingPing(null); }} style={styles.iconBtnSuccess}><MaterialIcons name="check" size={28} color="white" /></TouchableOpacity>
                   </View>
               </View>
           </View>
@@ -838,9 +801,10 @@ const App: React.FC = () => {
       {/* ALERTS ET NOTIFICATIONS FLOTTANTES */}
       {activeNotif && <NavNotification message={`${activeNotif.id ? activeNotif.id + ': ' : ''}${activeNotif.msg}`} type={activeNotif.type} isNightOps={nightOpsMode} onDismiss={() => setActiveNotif(null)} />}
       
-      {/* OVERLAY ROUGE POUR NIGHT OPS */}
+      {/* OVERLAY ROUGE POUR NIGHT OPS (EN PLUS DU FILTRE CSS ET DES STYLES) */}
       {nightOpsMode && <View style={styles.nightOpsOverlay} pointerEvents="none" />}
       
+      {toast && ( <View style={[styles.toast, toast.type === 'error' && {backgroundColor: '#ef4444'}]}><Text style={styles.toastText}>{toast.msg}</Text></View> )}
     </View>
   );
 };
