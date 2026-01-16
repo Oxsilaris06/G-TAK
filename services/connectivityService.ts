@@ -14,12 +14,12 @@ export type ConnectivityEvent =
 
 type Listener = (event: ConnectivityEvent) => void;
 
-// CONFIGURATION ROBUSTE
+// CONFIGURATION ROBUSTE INTERNE
+// Ces délais gèrent la résilience de la couche application (au-dessus de WebRTC)
 const RECONNECT_DELAY_MS = 2000;
-const MAX_RECONNECT_ATTEMPTS = 10; // Plus agressif
+const MAX_RECONNECT_ATTEMPTS = 15; // Augmenté pour les zones à faible couverture
 const HEARTBEAT_INTERVAL_MS = 3000;
-const HEARTBEAT_TIMEOUT_MS = 8000; // Si pas de réponse en 8s, on considère mort
-const BANNED_PEERS_KEY = 'tacsuite_banned_peers'; // Pourrait être persisté si besoin
+const HEARTBEAT_TIMEOUT_MS = 10000; // Un peu plus tolérant (10s) pour les latences 4G/VPN
 
 class ConnectivityService {
   private peer: Peer | null = null;
@@ -60,7 +60,7 @@ class ConnectivityService {
         }
     }
 
-    this.cleanup(false); // Nettoyage partiel (garde pas les bans si on veut, ici on reset sauf ban)
+    this.cleanup(false); // Nettoyage partiel
     this.user = { ...user, role };
     this.role = role;
     this.targetHostId = targetHostId || null;
@@ -73,20 +73,9 @@ class ConnectivityService {
     console.log(`[Connectivity] Creating Peer... Role: ${this.role}, ID: ${myId || 'Auto'}`);
 
     try {
-        // Configuration PeerJS optimisée pour mobile
-        this.peer = new Peer(myId, {
-            ...CONFIG.PEER_CONFIG,
-            debug: 2, // Niv 2: Warnings & Errors. Niv 3: All logs
-            secure: true,
-            config: {
-                iceServers: [
-                    { urls: 'stun:stun.l.google.com:19302' },
-                    { urls: 'stun:stun1.l.google.com:19302' },
-                    // Ajouter un serveur TURN ici pour une vraie prod hors LAN si NAT strict
-                ],
-                iceTransportPolicy: 'all', // 'relay' forcerait TURN, 'all' permet STUN (P2P direct)
-            }
-        } as any);
+        // Utilisation stricte de la config centralisée dans constants.ts
+        // Cette config contient maintenant les serveurs STUN multiples et les optimisations ICE
+        this.peer = new Peer(myId, CONFIG.PEER_CONFIG as any);
 
         this.setupPeerListeners();
 
@@ -130,6 +119,7 @@ class ConnectivityService {
 
     this.peer.on('disconnected', () => {
         console.warn('[Connectivity] Peer Disconnected (Signal Server Lost)');
+        // On ne détruit pas l'objet Peer, on tente juste de se reconnecter au serveur de signalisation
         if (!this.peer?.destroyed) {
             this.handleReconnect();
         }
@@ -145,20 +135,25 @@ class ConnectivityService {
         
         switch (err.type) {
             case 'peer-unavailable':
-                this.notify({ type: 'TOAST', msg: 'Hôte introuvable / hors ligne', level: 'error' });
+                this.notify({ type: 'TOAST', msg: 'Cible introuvable (Vérifiez ID)', level: 'error' });
                 if (this.role === OperatorRole.OPR) {
                     this.notify({ type: 'DISCONNECTED', reason: 'NO_HOST' });
                 }
                 break;
             case 'unavailable-id':
-                this.notify({ type: 'TOAST', msg: 'ID Session indisponible (déjà pris ?)', level: 'error' });
+                // Retry auto avec un nouvel ID aléatoire si collision
+                this.notify({ type: 'TOAST', msg: 'ID non dispo, nouvel essai...', level: 'info' });
+                setTimeout(() => this.connectPeer(), 1000); 
                 break;
             case 'network':
             case 'webrtc':
+            case 'server-error':
+            case 'socket-error':
+            case 'socket-closed':
+                // Erreurs critiques de transport -> Reconnexion agressive
                 this.handleReconnect();
                 break;
             default:
-                // Erreurs mineures ou fatales
                 break;
         }
     });
@@ -167,21 +162,26 @@ class ConnectivityService {
   // --- LOGIQUE DE RECONNEXION INTELLIGENTE ---
   private handleReconnect() {
       if (this.isReconnecting) return;
+      
+      // Si max tentatives atteintes, on déclare la mort réseau
       if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
           console.error('[Connectivity] Max reconnect attempts reached.');
           this.notify({ type: 'DISCONNECTED', reason: 'NETWORK_ERROR' });
-          this.cleanup(true);
+          // On ne cleanup pas tout de suite, on laisse l'utilisateur réessayer manuellement via l'UI
           return;
       }
 
       this.isReconnecting = true;
       this.reconnectAttempts++;
-      const delay = Math.min(RECONNECT_DELAY_MS * Math.pow(1.5, this.reconnectAttempts), 10000);
+      
+      // Backoff exponentiel : 2s, 3s, 4.5s... plafonné à 15s
+      const delay = Math.min(RECONNECT_DELAY_MS * Math.pow(1.5, this.reconnectAttempts), 15000);
 
       console.log(`[Connectivity] Reconnecting in ${delay}ms (Attempt ${this.reconnectAttempts})...`);
       this.notify({ type: 'RECONNECTING', attempt: this.reconnectAttempts });
 
       setTimeout(() => {
+          this.isReconnecting = false; // Reset flag pour permettre nouvelle tentative si celle-ci échoue
           if (this.peer && !this.peer.destroyed) {
               this.peer.reconnect();
           } else {
@@ -200,7 +200,7 @@ class ConnectivityService {
       
       console.log(`[Connectivity] Connecting to Host: ${targetId}`);
       
-      // Ferme l'ancienne connexion si elle existe
+      // Ferme l'ancienne connexion si elle existe pour éviter les doublons
       if (this.connections[targetId]) {
           this.connections[targetId].close();
           delete this.connections[targetId];
@@ -208,8 +208,8 @@ class ConnectivityService {
 
       const conn = this.peer.connect(targetId, {
           reliable: true,
-          serialization: 'json', // Plus compatible que binary
-          metadata: { role: 'OPR', version: '3.3.0' }
+          serialization: 'json', // CRUCIAL pour compatibilité multi-plateforme
+          metadata: { role: 'OPR', version: '3.3.0', platform: typeof navigator !== 'undefined' ? navigator.userAgent : 'native' }
       });
 
       this.setupDataConnection(conn);
@@ -220,11 +220,10 @@ class ConnectivityService {
       console.log(`[Connectivity] Incoming connection from: ${conn.peer}`);
       
       conn.on('open', () => {
-          // Si je suis HOST, j'envoie le state actuel
+          // Si je suis HOST, j'envoie le state actuel immédiatement
           if (this.role === OperatorRole.HOST) {
               const peerList = Object.values(this.peersMap);
               conn.send({ type: 'SYNC', list: peerList });
-              // SYNC_PINGS et SYNC_LOGS sont envoyés par App.tsx sur réception du 'FULL'
           }
       });
 
@@ -236,10 +235,10 @@ class ConnectivityService {
       this.lastHeartbeat[conn.peer] = Date.now(); // Init heartbeat
 
       conn.on('data', (data: any) => {
-          this.lastHeartbeat[conn.peer] = Date.now(); // Reset timeout
+          this.lastHeartbeat[conn.peer] = Date.now(); // Reset timeout sur réception de N'IMPORTE QUOI
           
           if (data && data.type === 'HEARTBEAT') {
-              // Répondre pong si nécessaire, ou juste ack
+              // Simple Keep-Alive, pas de traitement métier
               return; 
           }
           
@@ -251,7 +250,7 @@ class ConnectivityService {
           
           if (this.role === OperatorRole.OPR && conn.peer === this.hostId) {
               this.notify({ type: 'HOST_CONNECTED', hostId: conn.peer });
-              // Client envoie son profil complet
+              // Client envoie son profil complet dès que le tunnel est ouvert
               conn.send({ type: 'FULL', user: this.user });
               this.startHeartbeatLoop();
           }
@@ -264,7 +263,8 @@ class ConnectivityService {
 
       conn.on('error', (err) => {
           console.warn(`[Connectivity] Connection Error with ${conn.peer}:`, err);
-          conn.close(); // Force clean close
+          // On ne ferme pas tout de suite, WebRTC peut récupérer parfois.
+          // Le Heartbeat fera le ménage si c'est vraiment mort.
       });
   }
 
@@ -280,7 +280,8 @@ class ConnectivityService {
           // Tentative de reconnexion automatique au Host
           if (this.targetHostId) {
              this.notify({ type: 'TOAST', msg: 'Connexion Hôte perdue, tentative...', level: 'error' });
-             this.handleReconnect();
+             // On attend un peu avant de reconnecter pour laisser le temps au réseau de stabiliser
+             setTimeout(() => this.connectToHost(this.targetHostId!), 1000);
           } else {
              this.notify({ type: 'DISCONNECTED', reason: 'NO_HOST' });
           }
@@ -389,8 +390,6 @@ class ConnectivityService {
       this.user.head = head;
       if(this.user.id) this.peersMap[this.user.id] = this.user;
       
-      // Optimisation: Pas de broadcast systématique si peu de changement? 
-      // Ici on broadcast toujours pour le temps réel
       this.broadcast({ type: 'UPDATE', user: this.user });
   }
 
@@ -419,8 +418,9 @@ class ConnectivityService {
           // 2. Vérifier Timeout
           Object.keys(this.connections).forEach(peerId => {
               const last = this.lastHeartbeat[peerId] || now;
+              // Si silence radio > Timeout, on considère le lien mort
               if (now - last > HEARTBEAT_TIMEOUT_MS) {
-                  console.warn(`[Connectivity] Peer Timeout: ${peerId}`);
+                  console.warn(`[Connectivity] Peer Timeout: ${peerId} (Last seen: ${now - last}ms ago)`);
                   const conn = this.connections[peerId];
                   if (conn) conn.close(); // Force close
                   this.handlePeerDisconnection(peerId);
