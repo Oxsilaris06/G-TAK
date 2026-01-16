@@ -14,7 +14,7 @@ interface TacticalMapProps {
   userArrowColor: string;
   navTargetId?: string | null;
   pingMode?: boolean; 
-  nightOpsMode?: boolean; // NOUVEAU
+  nightOpsMode?: boolean;
   onPing: (loc: { lat: number; lng: number }) => void;
   onPingMove: (ping: PingData) => void;
   onPingClick: (id: string) => void; 
@@ -37,7 +37,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         body { margin: 0; padding: 0; background: #000; font-family: sans-serif; transition: filter 0.5s ease; }
         #map { width: 100vw; height: 100vh; }
         
-        /* MODE NIGHT OPS INTÉGRAL (Filtre rouge tactique) */
         body.night-ops {
             filter: sepia(100%) hue-rotate(-50deg) saturate(300%) contrast(1.2) brightness(0.8);
         }
@@ -63,6 +62,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         .hostile-label { color: #a1a1aa; font-weight: bold; }
         
         .copy-btn { margin-left: 5px; background: none; border: none; font-size: 14px; cursor: pointer; }
+        .edit-btn { display: block; width: 100%; margin-top: 8px; background: #333; color: white; border: 1px solid #555; padding: 5px; border-radius: 4px; font-size: 10px; cursor: pointer; font-weight: bold; }
 
         #compass { position: absolute; top: 20px; left: 20px; width: 60px; height: 60px; z-index: 9999; background: rgba(0,0,0,0.6); border-radius: 50%; border: 2px solid rgba(255,255,255,0.2); display: flex; justify-content: center; align-items: center; backdrop-filter: blur(2px); pointer-events: none; }
         #compass-indicator { position: absolute; top: -5px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 8px solid #ef4444; z-index: 20; }
@@ -92,12 +92,10 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         map.createPane('pingPane'); map.getPane('pingPane').style.zIndex = 800;
 
         const markers = {};
-        const trails = {}; 
         const pingLayer = L.layerGroup().addTo(map);
         let pings = {};
         let userArrowColor = '#3b82f6';
         let pingMode = false;
-        let pressTimer;
         let lastMePos = null;
         let autoCentered = false;
 
@@ -142,7 +140,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                 if(data.userArrowColor) userArrowColor = data.userArrowColor;
                 pingMode = data.pingMode; 
                 
-                // GESTION DU MODE NIGHT OPS
                 if (data.nightOpsMode) {
                     document.body.classList.add('night-ops');
                 } else {
@@ -202,19 +199,11 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                 }
             });
         }
-
-        window.startPress = function(id) {
-            pressTimer = setTimeout(() => { pressTimer = null; sendToApp({ type: 'PING_CLICK', id: id }); }, 600); 
-        }
-
-        window.endPress = function(id) {
-            if (pressTimer) {
-                clearTimeout(pressTimer); pressTimer = null;
-                const el = document.getElementById('ping-' + id);
-                if (el && el.getAttribute('data-type') !== 'HOSTILE') { sendToApp({ type: 'PING_CLICK', id: id }); }
-            }
-        }
         
+        window.editPing = function(id) {
+            sendToApp({ type: 'PING_CLICK', id: id });
+        }
+
         window.copyPos = function(pos) {
             sendToApp({ type: 'COPY_POS', text: pos });
         }
@@ -231,18 +220,16 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                 const iconChar = getPingIcon(p.type || 'FRIEND');
                 const color = getPingColor(p.type || 'FRIEND');
                 
+                // CORRECTIF: Suppression des écouteurs manuels (onmousedown etc.)
+                // Utilisation de l'événement natif 'click' de Leaflet qui gère proprement le drag vs click
                 const html = \`
-                    <div id="ping-\${p.id}" data-type="\${p.type}" class="ping-marker-box"
-                         onmousedown="startPress('\${p.id}')" ontouchstart="startPress('\${p.id}')" 
-                         onmouseup="endPress('\${p.id}')" ontouchend="endPress('\${p.id}')">
+                    <div id="ping-\${p.id}" data-type="\${p.type}" class="ping-marker-box">
                         <div class="ping-label" style="border-color: \${color}">\${p.msg}</div>
                         <div class="ping-icon">\${iconChar}</div>
                     </div>
                 \`;
 
                 if (pings[p.id]) {
-                    // FIX: Si on est en train de drag, on ne force pas la position venant du serveur
-                    // pour éviter le "saute-mouton"
                     if(!pings[p.id].dragging || !pings[p.id].dragging.enabled()) {
                         pings[p.id].setLatLng([p.lat, p.lng]);
                     }
@@ -263,9 +250,16 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                                 <div class="hostile-row"><span class="hostile-label">VOL:</span> \${d.volume || '-'}</div>
                                 <div class="hostile-row"><span class="hostile-label">ARM:</span> \${d.armes || '-'}</div>
                                 <div class="hostile-row"><span class="hostile-label">DIV:</span> \${d.substances || '-'}</div>
+                                \${canDrag ? \`<button class="edit-btn" onclick="editPing('\${p.id}')">ÉDITER / SUPPRIMER</button>\` : ''}
                             </div>
                         \`;
                         m.bindPopup(popupContent, { closeButton: false, offset: [0, -30], className: 'ping-details-popup' });
+                    } else {
+                        // Pour les amis/rens, le click ouvre l'édition.
+                        // Leaflet supprime l'event click si on drag, donc ça résout le problème du drag & drop qui ouvrait la modale.
+                        m.on('click', () => {
+                            sendToApp({ type: 'PING_CLICK', id: p.id });
+                        });
                     }
 
                     m.on('dragend', (e) => sendToApp({ type: 'PING_MOVE', id: p.id, lat: e.target.getLatLng().lat, lng: e.target.getLatLng().lng }));
@@ -293,7 +287,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
       const data = JSON.parse(event.nativeEvent.data);
       if (data.type === 'MAP_CLICK') onPing({ lat: data.lat, lng: data.lng }); 
       if (data.type === 'PING_CLICK') onPingClick(data.id); 
-      // FIX: On appelle la prop onPingMove qui est maintenant connectée dans App.tsx
       if (data.type === 'PING_MOVE') onPingMove({ ...pings.find(p => p.id === data.id)!, lat: data.lat, lng: data.lng });
       if (data.type === 'NAV_STOP') { if (onNavStop) onNavStop(); }
       if (data.type === 'COPY_POS') { if(onPingMove) onPingMove({ ...pings.find(p => true)!, msg: 'COPY_TRIGGER', lat:0, lng:0, type:'FRIEND', id: 'COPY_TRIGGER' }); } 
