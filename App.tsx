@@ -19,6 +19,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Magnetometer } from 'expo-sensors';
 import * as SplashScreen from 'expo-splash-screen';
 
+// --- IMPORTS LOCAUX ---
 import { UserData, OperatorStatus, OperatorRole, ViewType, PingData, AppSettings, DEFAULT_SETTINGS, PingType, HostileDetails, LogEntry } from './types';
 import { CONFIG, STATUS_COLORS } from './constants';
 import { configService } from './services/configService';
@@ -31,6 +32,7 @@ import OperatorActionModal from './components/OperatorActionModal';
 import MainCouranteView from './components/MainCouranteView';
 import PrivacyConsentModal from './components/PrivacyConsentModal';
 
+// --- CONFIG INITIALE ---
 try { SplashScreen.preventAutoHideAsync().catch(() => {}); } catch (e) {}
 
 Notifications.setNotificationHandler({
@@ -40,6 +42,9 @@ Notifications.setNotificationHandler({
     shouldSetBadge: false,
   }),
 });
+
+let DEFAULT_MSG_JSON: string[] = [];
+try { DEFAULT_MSG_JSON = require('./msg.json'); } catch (e) {}
 
 // --- COMPOSANT NOTIFICATION FLOTTANTE ---
 const NavNotification = ({ message, type, isNightOps, onDismiss }: { message: string, type: 'alert' | 'info' | 'success' | 'warning', isNightOps: boolean, onDismiss: () => void }) => {
@@ -112,13 +117,10 @@ const NavNotification = ({ message, type, isNightOps, onDismiss }: { message: st
 const App: React.FC = () => {
   useKeepAwake();
   
-  // --- STATE ---
+  // --- STATE GESTION ---
   const [isAppReady, setIsAppReady] = useState(false);
   const [activeNotif, setActiveNotif] = useState<{ id: string, msg: string, type: 'alert' | 'info' | 'success' | 'warning' } | null>(null);
   
-  // Suppression de l'ancien state toast qui causait confusion
-  // const [toast, setToast] = useState... <--- C'était ici le problème potentiel
-
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [user, setUser] = useState<UserData>({ id: '', callsign: '', role: OperatorRole.OPR, status: OperatorStatus.CLEAR, joinedAt: Date.now(), bat: 100, head: 0, lat: 0, lng: 0, lastMsg: '' });
 
@@ -127,13 +129,13 @@ const App: React.FC = () => {
   const [lastView, setLastView] = useState<ViewType>('menu'); 
   const [lastOpsView, setLastOpsView] = useState<ViewType>('map');
 
-  // Données
+  // Données Session
   const [peers, setPeers] = useState<Record<string, UserData>>({});
   const [pings, setPings] = useState<PingData[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [hostId, setHostId] = useState<string>('');
   
-  // Refs pour accès synchrone dans les listeners
+  // REFS POUR ACCÈS SYNCHRONE (Vital pour éviter les stale closures dans les listeners)
   const pingsRef = useRef(pings);
   const logsRef = useRef(logs);
   const peersRef = useRef(peers);
@@ -144,7 +146,7 @@ const App: React.FC = () => {
   useEffect(() => { peersRef.current = peers; }, [peers]);
   useEffect(() => { userRef.current = user; }, [user]);
 
-  // Inputs & UI State
+  // UI State & Formulaires
   const [loginInput, setLoginInput] = useState('');
   const [hostInput, setHostInput] = useState('');
   const [mapMode, setMapMode] = useState<'dark' | 'light' | 'satellite'>('satellite');
@@ -154,14 +156,13 @@ const App: React.FC = () => {
   const [nightOpsMode, setNightOpsMode] = useState(false);
   const [showLogs, setShowLogs] = useState(false);
   
-  // Modales
   const [showQRModal, setShowQRModal] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
+  const [hasCameraPermission, setHasCameraPermission] = useState(false);
   const [showQuickMsgModal, setShowQuickMsgModal] = useState(false);
   const [showPingMenu, setShowPingMenu] = useState(false);
   const [showPingForm, setShowPingForm] = useState(false);
   
-  // Formulaires
   const [freeMsgInput, setFreeMsgInput] = useState(''); 
   const [quickMessagesList, setQuickMessagesList] = useState<string[]>([]);
   const [tempPingLoc, setTempPingLoc] = useState<any>(null);
@@ -172,6 +173,7 @@ const App: React.FC = () => {
   const [editingPing, setEditingPing] = useState<PingData | null>(null);
   const [selectedOperatorId, setSelectedOperatorId] = useState<string | null>(null);
   const [navTargetId, setNavTargetId] = useState<string | null>(null);
+  const [bannedPeers, setBannedPeers] = useState<string[]>([]); // Manquait dans la version précédente
 
   // System
   const [isServicesReady, setIsServicesReady] = useState(false);
@@ -215,7 +217,7 @@ const App: React.FC = () => {
       } else { setView('login'); }
   };
 
-  // --- INITIALISATION ---
+  // --- INITIALISATION APP ---
   useEffect(() => {
       let mounted = true;
       const subscription = AppState.addEventListener('change', nextAppState => {
@@ -271,10 +273,17 @@ const App: React.FC = () => {
           }
           const { status } = await Location.getForegroundPermissionsAsync();
           if (status === 'granted') { await Location.requestBackgroundPermissionsAsync().catch(() => {}); setGpsStatus('OK'); }
+          const camStatus = await Camera.getCameraPermissionsAsync();
+          setHasCameraPermission(camStatus.status === 'granted');
       } catch (e) {}
   };
 
-  // --- LOGIQUE RÉSEAU ---
+  const requestCamera = async () => {
+      const res = await Camera.requestCameraPermissionsAsync();
+      setHasCameraPermission(res.status === 'granted');
+  };
+
+  // --- LOGIQUE RÉSEAU (Event Handler) ---
   const handleConnectivityEvent = (event: ConnectivityEvent) => {
       switch (event.type) {
           case 'PEER_OPEN': 
@@ -345,6 +354,8 @@ const App: React.FC = () => {
   };
 
   const handleProtocolData = (data: any, fromId: string) => {
+      if (bannedPeers.includes(fromId)) return;
+
       // SYNC HOST
       if (data.type === 'FULL' && userRef.current.role === OperatorRole.HOST) {
           connectivityService.sendTo(fromId, { type: 'SYNC_PINGS', pings: pingsRef.current });
@@ -805,7 +816,7 @@ const App: React.FC = () => {
       {/* OVERLAY ROUGE POUR NIGHT OPS (EN PLUS DU FILTRE CSS ET DES STYLES) */}
       {nightOpsMode && <View style={styles.nightOpsOverlay} pointerEvents="none" />}
       
-      {toast && ( <View style={[styles.toast, toast.type === 'error' && {backgroundColor: '#ef4444'}]}><Text style={styles.toastText}>{toast.msg}</Text></View> )}
+      {/* SUPPRESSION DE L'ANCIEN RENDU DE TOAST QUI CAUSAIT L'ERREUR */}
     </View>
   );
 };
