@@ -36,14 +36,18 @@ const MainCouranteView: React.FC<Props> = ({ visible, logs, role, onClose, onAdd
     // Initialiser l'heure manuelle à l'ouverture
     useEffect(() => {
         if (visible) {
-            const now = new Date();
-            setManualTime(`${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`);
+            updateManualTime();
         }
     }, [visible]);
 
+    const updateManualTime = () => {
+        const now = new Date();
+        setManualTime(`${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`);
+    };
+
     const handleAdd = () => {
-        if (!action.trim() && !remarques.trim()) {
-            Alert.alert("Erreur", "L'action ou une remarque est requise.");
+        if (!action.trim() && !remarques.trim() && !lieu.trim()) {
+            Alert.alert("Erreur", "Veuillez remplir au moins un champ (Lieu, Action ou Remarque).");
             return;
         }
 
@@ -52,6 +56,7 @@ const MainCouranteView: React.FC<Props> = ({ visible, logs, role, onClose, onAdd
             heure: manualTime || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             pax: customPax.trim() || paxType.label,
             paxColor: paxType.color,
+            paxMode: customPax.trim() ? 'free' : 'standard',
             lieu: lieu.trim(),
             action: action.trim(),
             remarques: remarques.trim()
@@ -65,16 +70,14 @@ const MainCouranteView: React.FC<Props> = ({ visible, logs, role, onClose, onAdd
         setRemarques('');
         // On garde le lieu et le pax car souvent identiques dans une séquence
         
-        // Update time for next entry
-        const now = new Date();
-        setManualTime(`${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`);
+        updateManualTime();
         
         // Scroll to bottom
         setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 100);
     };
 
     const handleShare = async () => {
-        const text = logs.map(l => `[${l.heure}] ${l.pax} @ ${l.lieu || 'N/A'} : ${l.action} ${l.remarques ? '('+l.remarques+')' : ''}`).join('\n');
+        const text = logs.map(l => `[${l.heure}] ${l.pax} ${l.lieu ? '@ ' + l.lieu : ''} : ${l.action} ${l.remarques ? '('+l.remarques+')' : ''}`).join('\n');
         try {
             await Share.share({ message: `MAIN COURANTE TACTIQUE\n\n${text}` });
         } catch (error) {
@@ -106,7 +109,7 @@ const MainCouranteView: React.FC<Props> = ({ visible, logs, role, onClose, onAdd
                     ref={listRef}
                     data={logs}
                     keyExtractor={item => item.id}
-                    contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
+                    contentContainerStyle={{ padding: 16, paddingBottom: 250 }} // Espace pour le formulaire
                     renderItem={({ item }) => (
                         <View style={styles.logRow}>
                             <View style={styles.timeCol}>
@@ -115,11 +118,11 @@ const MainCouranteView: React.FC<Props> = ({ visible, logs, role, onClose, onAdd
                             <View style={styles.contentCol}>
                                 <View style={styles.topRow}>
                                     <View style={[styles.paxBadge, { backgroundColor: item.paxColor }]}>
-                                        <Text style={styles.paxText}>{item.pax}</Text>
+                                        <Text style={[styles.paxText, { color: item.paxColor === '#f1c40f' ? 'black' : 'white' }]}>{item.pax}</Text>
                                     </View>
                                     {item.lieu ? <Text style={styles.lieuText}>📍 {item.lieu}</Text> : null}
                                 </View>
-                                <Text style={styles.actionText}>{item.action}</Text>
+                                {item.action ? <Text style={styles.actionText}>{item.action}</Text> : null}
                                 {item.remarques ? <Text style={styles.remarquesText}>📝 {item.remarques}</Text> : null}
                             </View>
                             {isHost && (
@@ -139,18 +142,20 @@ const MainCouranteView: React.FC<Props> = ({ visible, logs, role, onClose, onAdd
 
                 {/* FORMULAIRE (HOST ONLY) */}
                 {isHost && (
-                    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}>
+                    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.formWrapper}>
                         <View style={styles.formContainer}>
                             <View style={styles.formHeader}>
                                 <Text style={styles.formLabel}>NOUVELLE ENTRÉE</Text>
-                                <TextInput 
-                                    style={styles.timeInput} 
-                                    value={manualTime} 
-                                    onChangeText={setManualTime} 
-                                    placeholder="HH:MM"
-                                    placeholderTextColor="#555"
-                                    keyboardType="numbers-and-punctuation"
-                                />
+                                <View style={{flexDirection: 'row', alignItems: 'center'}}>
+                                    <MaterialIcons name="access-time" size={14} color="#555" style={{marginRight: 4}}/>
+                                    <TextInput 
+                                        style={styles.timeInput} 
+                                        value={manualTime} 
+                                        onChangeText={setManualTime} 
+                                        placeholder="HH:MM"
+                                        placeholderTextColor="#555"
+                                    />
+                                </View>
                             </View>
 
                             {/* SÉLECTEUR DE TYPE */}
@@ -158,16 +163,16 @@ const MainCouranteView: React.FC<Props> = ({ visible, logs, role, onClose, onAdd
                                 {PAX_TYPES.map((t, idx) => (
                                     <TouchableOpacity 
                                         key={idx} 
-                                        style={[styles.typeBtn, paxType.label === t.label && styles.typeBtnSelected, { borderColor: t.color }]} 
+                                        style={[styles.typeBtn, paxType.label === t.label && styles.typeBtnSelected, { borderColor: t.color, backgroundColor: paxType.label === t.label ? t.color : 'transparent' }]} 
                                         onPress={() => { setPaxType(t); setCustomPax(''); }}
                                     >
-                                        <Text style={[styles.typeBtnText, { color: t.color }]}>{t.label}</Text>
+                                        <Text style={[styles.typeBtnText, { color: paxType.label === t.label ? (t.color === '#f1c40f' ? 'black' : 'white') : t.color }]}>{t.label}</Text>
                                     </TouchableOpacity>
                                 ))}
                             </ScrollView>
 
                             <View style={styles.inputRow}>
-                                <TextInput style={[styles.input, { flex: 1 }]} placeholder="Lieu (Salon, Toit...)" placeholderTextColor="#52525b" value={lieu} onChangeText={setLieu} />
+                                <TextInput style={[styles.input, { flex: 1 }]} placeholder="Lieu..." placeholderTextColor="#52525b" value={lieu} onChangeText={setLieu} />
                                 <TextInput style={[styles.input, { flex: 1.5 }]} placeholder="Action / Événement" placeholderTextColor="#52525b" value={action} onChangeText={setAction} />
                             </View>
                             
@@ -204,24 +209,25 @@ const styles = StyleSheet.create({
     lieuText: { color: '#a1a1aa', fontSize: 11, fontWeight: 'bold' },
     actionText: { color: '#e4e4e7', fontSize: 14, fontWeight: '500' },
     remarquesText: { color: '#71717a', fontSize: 12, fontStyle: 'italic', marginTop: 2 },
-    deleteBtn: { padding: 5, justifyContent: 'center' },
+    deleteBtn: { padding: 5, justifyContent: 'center', marginLeft: 10 },
 
     emptyContainer: { alignItems: 'center', marginTop: 50, opacity: 0.5 },
     emptyText: { color: '#52525b', marginTop: 10 },
 
-    formContainer: { backgroundColor: '#18181b', padding: 16, borderTopWidth: 1, borderTopColor: '#333' },
+    formWrapper: { position: 'absolute', bottom: 0, left: 0, right: 0 },
+    formContainer: { backgroundColor: '#141415', padding: 16, borderTopWidth: 1, borderTopColor: '#333', paddingBottom: Platform.OS === 'ios' ? 40 : 16 },
     formHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
     formLabel: { color: '#71717a', fontSize: 10, fontWeight: 'bold', letterSpacing: 1 },
-    timeInput: { color: '#3b82f6', fontWeight: 'bold', backgroundColor: '#000', padding: 4, borderRadius: 4, textAlign: 'center', minWidth: 60 },
+    timeInput: { color: '#3b82f6', fontWeight: 'bold', backgroundColor: '#000', paddingVertical: 2, paddingHorizontal: 6, borderRadius: 4, textAlign: 'center', minWidth: 50, fontSize: 12 },
     
     typeScroller: { flexDirection: 'row', marginBottom: 10, maxHeight: 40 },
-    typeBtn: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 15, borderWidth: 1, marginRight: 8, backgroundColor: 'rgba(0,0,0,0.3)' },
-    typeBtnSelected: { backgroundColor: 'rgba(255,255,255,0.1)' },
+    typeBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 15, borderWidth: 1, marginRight: 8, justifyContent: 'center' },
+    typeBtnSelected: { },
     typeBtnText: { fontSize: 10, fontWeight: 'bold' },
 
     inputRow: { flexDirection: 'row', gap: 10, marginBottom: 10 },
-    input: { backgroundColor: '#000', color: 'white', padding: 10, borderRadius: 8, borderWidth: 1, borderColor: '#333', fontSize: 14 },
-    submitBtn: { backgroundColor: '#3b82f6', width: 44, justifyContent: 'center', alignItems: 'center', borderRadius: 8 },
+    input: { backgroundColor: '#000', color: 'white', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#333', fontSize: 14 },
+    submitBtn: { backgroundColor: '#3b82f6', width: 48, justifyContent: 'center', alignItems: 'center', borderRadius: 8 },
 });
 
 export default MainCouranteView;
