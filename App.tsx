@@ -20,7 +20,6 @@ import { Magnetometer } from 'expo-sensors';
 import * as SplashScreen from 'expo-splash-screen';
 import * as Battery from 'expo-battery';
 
-// --- IMPORTS LOCAUX ---
 import { UserData, OperatorStatus, OperatorRole, ViewType, PingData, AppSettings, DEFAULT_SETTINGS, PingType, HostileDetails, LogEntry } from './types';
 import { CONFIG, STATUS_COLORS } from './constants';
 import { configService } from './services/configService';
@@ -33,7 +32,6 @@ import OperatorActionModal from './components/OperatorActionModal';
 import MainCouranteView from './components/MainCouranteView';
 import PrivacyConsentModal from './components/PrivacyConsentModal';
 
-// --- CONFIG INITIALE ---
 try { SplashScreen.preventAutoHideAsync().catch(() => {}); } catch (e) {}
 
 Notifications.setNotificationHandler({
@@ -43,9 +41,6 @@ Notifications.setNotificationHandler({
     shouldSetBadge: false,
   }),
 });
-
-let DEFAULT_MSG_JSON: string[] = [];
-try { DEFAULT_MSG_JSON = require('./msg.json'); } catch (e) {}
 
 // --- COMPOSANT NOTIFICATION FLOTTANTE ---
 const NavNotification = ({ message, type, isNightOps, onDismiss }: { message: string, type: 'alert' | 'info' | 'success' | 'warning', isNightOps: boolean, onDismiss: () => void }) => {
