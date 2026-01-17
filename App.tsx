@@ -141,7 +141,7 @@ const App: React.FC = () => {
 
   const triggerTacticalNotification = async (title: string, body: string) => {
       if (AppState.currentState !== 'background' || settings.disableBackgroundNotifications) return;
-      
+      await Notifications.dismissAllNotificationsAsync();
       await Notifications.scheduleNotificationAsync({
           content: { 
               title, 
@@ -304,6 +304,11 @@ const App: React.FC = () => {
 
   const handleProtocolData = (data: any, fromId: string) => {
       const senderName = peersRef.current[fromId]?.callsign || fromId.substring(0,4);
+      
+      if (data.type === 'HELLO' && user.role === OperatorRole.HOST) {
+          connectivityService.sendTo(fromId, { type: 'SYNC_PINGS', pings: pingsRef.current });
+          connectivityService.sendTo(fromId, { type: 'SYNC_LOGS', logs: logsRef.current });
+      }
 
       if (data.type === 'PING') {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -316,11 +321,8 @@ const App: React.FC = () => {
                     `${senderName} - Contact`, 
                     `Position GPS: ${data.ping.lat.toFixed(5)}, ${data.ping.lng.toFixed(5)}`
                 );
-            } else if (data.ping.msg.toLowerCase().includes("renfort") || data.ping.msg.toLowerCase().includes("soutien")) {
-                triggerTacticalNotification(
-                    `${senderName} - Demande de renfort`, 
-                    `Urgence signalée à ${data.ping.lat.toFixed(5)}, ${data.ping.lng.toFixed(5)}`
-                );
+            } else {
+                 triggerTacticalNotification(`${senderName} - Marqueur`, `${data.ping.msg}`);
             }
       }
       
@@ -338,13 +340,11 @@ const App: React.FC = () => {
           setLogs(data.logs);
       }
       
-      // MODIFICATION ICI : Écouter à la fois UPDATE_USER (position) et UPDATE (statut/msg)
       else if ((data.type === 'UPDATE_USER' || data.type === 'UPDATE') && data.user) {
           const u = data.user as UserData;
           const prevStatus = peersRef.current[u.id]?.status;
           const prevMsg = peersRef.current[u.id]?.lastMsg;
 
-          // --- LOGIQUE NOTIFICATION STATUS ---
           if (u.status === 'CONTACT' && prevStatus !== 'CONTACT') {
               showToast(`${u.callsign} : CONTACT !`, 'alert');
               triggerTacticalNotification(
@@ -359,15 +359,10 @@ const App: React.FC = () => {
               }
           }
 
-          // --- LOGIQUE NOTIFICATION MESSAGES ---
           if (u.lastMsg && u.lastMsg !== prevMsg) {
              if(u.lastMsg !== 'RAS / Effacer' && u.lastMsg !== '') {
                  showToast(`${u.callsign}: ${u.lastMsg}`, 'info');
-                 // Ajout notification système pour les messages
-                 triggerTacticalNotification(
-                     `${u.callsign} - Message`,
-                     u.lastMsg
-                 );
+                 triggerTacticalNotification(`${u.callsign} - Message`, u.lastMsg);
              }
           }
       }
@@ -508,10 +503,17 @@ const App: React.FC = () => {
           const φ2 = target.lat * Math.PI/180;
           const Δφ = (target.lat-user.lat) * Math.PI/180;
           const Δλ = (target.lng-user.lng) * Math.PI/180;
-          const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ/2) * Math.sin(Δλ/2);
+          const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ/2) * Math.sin(Δλ/2)
           const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
           const distM = R * c;
           
+          // ARRÊT AUTOMATIQUE DE NAVIGATION SI < 10m
+          if (distM < 10) {
+              setNavTargetId(null);
+              showToast("Arrivé à destination", "success");
+              return;
+          }
+
           const speed = 1.4; 
           const seconds = distM / speed;
           const min = Math.round(seconds / 60);
@@ -525,21 +527,48 @@ const App: React.FC = () => {
       }
   }, [navTargetId, user.lat, user.lng, peers]);
 
+  // Nouvelle fonction pour gérer le header avec navigation intégrée
+  const renderHeader = () => {
+      if (navTargetId && navInfo) {
+          return (
+             <View style={styles.headerContent}>
+                 <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
+                     <MaterialIcons name="navigation" size={24} color="#06b6d4" />
+                     <View>
+                        <Text style={{color:'#06b6d4', fontWeight:'bold', fontSize: 16}}>RALLIEMENT</Text>
+                        <Text style={{color:'white', fontSize: 12}}>{peers[navTargetId]?.callsign} - {navInfo.dist} - {navInfo.time}</Text>
+                     </View>
+                 </View>
+                 <TouchableOpacity onPress={() => setNavTargetId(null)} style={{padding: 8}}>
+                     <MaterialIcons name="close" size={28} color="white" />
+                 </TouchableOpacity>
+             </View>
+          );
+      }
+      return (
+          <View style={styles.headerContent}>
+              <TouchableOpacity onPress={handleBackPress}><MaterialIcons name="arrow-back" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
+              <Text style={[styles.headerTitle, nightOpsMode && {color: '#ef4444'}]}>Praxis</Text>
+              <View style={{flexDirection: 'row', gap: 15}}>
+                  <TouchableOpacity onPress={() => setShowLogs(true)}><MaterialIcons name="history-edu" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
+                  <TouchableOpacity onPress={() => setNightOpsMode(!nightOpsMode)}><MaterialIcons name="nightlight-round" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
+                  <TouchableOpacity onPress={() => { setLastView(view); setView('settings'); }}><MaterialIcons name="settings" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
+                  <TouchableOpacity onPress={() => { 
+                      if(view === 'map') { setView('ops'); setLastOpsView('ops'); }
+                      else { setView('map'); setLastOpsView('map'); }
+                  }}>
+                      <MaterialIcons name={view === 'map' ? "list" : "map"} size={24} color={nightOpsMode ? "#ef4444" : "white"} />
+                  </TouchableOpacity>
+              </View>
+          </View>
+      );
+  };
+
   const renderMainContent = () => (
       <View style={{flex: 1}}>
+          <SafeAreaView style={styles.header}>{renderHeader()}</SafeAreaView>
+
           <View style={{ flex: 1, display: view === 'ops' ? 'flex' : 'none' }}>
-              <SafeAreaView style={styles.header}>
-                  <View style={styles.headerContent}>
-                      <TouchableOpacity onPress={handleBackPress}><MaterialIcons name="arrow-back" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
-                      <Text style={[styles.headerTitle, nightOpsMode && {color: '#ef4444'}]}>Praxis</Text>
-                      <View style={{flexDirection: 'row', gap: 15}}>
-                          <TouchableOpacity onPress={() => setShowLogs(true)}><MaterialIcons name="history-edu" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
-                          <TouchableOpacity onPress={() => setNightOpsMode(!nightOpsMode)}><MaterialIcons name="nightlight-round" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
-                          <TouchableOpacity onPress={() => { setLastView(view); setView('settings'); }}><MaterialIcons name="settings" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
-                          <TouchableOpacity onPress={() => { setView('map'); setLastOpsView('map'); }}><MaterialIcons name="map" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
-                      </View>
-                  </View>
-              </SafeAreaView>
               <ScrollView contentContainerStyle={styles.grid}>
                   <OperatorCard user={user} isMe style={{ width: '100%' }} isNightOps={nightOpsMode} />
                   {Object.values(peers).filter(p => p.id !== user.id).map(p => (
@@ -551,18 +580,6 @@ const App: React.FC = () => {
           </View>
 
           <View style={{ flex: 1, display: view === 'map' ? 'flex' : 'none' }}>
-              <SafeAreaView style={styles.header}>
-                  <View style={styles.headerContent}>
-                      <TouchableOpacity onPress={handleBackPress}><MaterialIcons name="arrow-back" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
-                      <Text style={[styles.headerTitle, nightOpsMode && {color: '#ef4444'}]}>Praxis</Text>
-                      <View style={{flexDirection: 'row', gap: 15}}>
-                          <TouchableOpacity onPress={() => setShowLogs(true)}><MaterialIcons name="history-edu" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
-                          <TouchableOpacity onPress={() => setNightOpsMode(!nightOpsMode)}><MaterialIcons name="nightlight-round" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
-                          <TouchableOpacity onPress={() => { setLastView(view); setView('settings'); }}><MaterialIcons name="settings" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
-                          <TouchableOpacity onPress={() => { setView('ops'); setLastOpsView('ops'); }}><MaterialIcons name="list" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
-                      </View>
-                  </View>
-              </SafeAreaView>
               <View style={{flex: 1}}>
                   <TacticalMap 
                       me={user} peers={peers} pings={pings} 
@@ -581,10 +598,25 @@ const App: React.FC = () => {
                       onPingClick={(id) => { 
                           const p = pings.find(ping => ping.id === id);
                           if (!p) return;
+                          if (p.type === 'HOSTILE') {
+                              // Afficher le caneva en lecture (ou pré-rempli pour modification si c'est le sien)
+                              setEditingPing(p);
+                              setPingMsgInput(p.msg);
+                              if (p.details) setHostileDetails(p.details);
+                              setCurrentPingType('HOSTILE');
+                              setShowPingForm(true); 
+                          } else {
+                              showToast(`Ping de ${p.sender}`, 'info');
+                          }
+                      }}
+                      onPingLongPress={(id) => {
+                          const p = pings.find(ping => ping.id === id);
+                          if (!p) return;
                           if (user.role === OperatorRole.HOST || p.sender === user.callsign) {
-                              setEditingPing(p); setPingMsgInput(p.msg); if (p.details) setHostileDetails(p.details);
-                          } else { showToast(`Ping de ${p.sender}`, 'info'); }
-                      }} 
+                             setEditingPing(p); setPingMsgInput(p.msg); if(p.details) setHostileDetails(p.details);
+                             // Ici on ouvre la petite modale d'actions (Edit/Delete)
+                          }
+                      }}
                       onNavStop={() => setNavTargetId(null)} 
                       onMapMoveEnd={(center, zoom) => setMapState({...center, zoom})} 
                   />
@@ -594,28 +626,6 @@ const App: React.FC = () => {
                       <TouchableOpacity onPress={() => setShowPings(!showPings)} style={[styles.mapBtn, nightOpsMode && {borderColor: '#7f1d1d', backgroundColor: '#000'}]}><MaterialIcons name={showPings ? 'location-on' : 'location-off'} size={24} color={nightOpsMode ? "#ef4444" : "#d4d4d8"} /></TouchableOpacity>
                       <TouchableOpacity onPress={() => setIsPingMode(!isPingMode)} style={[styles.mapBtn, isPingMode ? {backgroundColor: '#dc2626', borderColor: '#f87171'} : null, nightOpsMode && {borderColor: '#7f1d1d', backgroundColor: isPingMode ? '#7f1d1d' : '#000'}]}><MaterialIcons name="ads-click" size={24} color="white" /></TouchableOpacity>
                   </View>
-
-                  {navTargetId && navInfo && (
-                      <View style={[styles.navModal, nightOpsMode && {backgroundColor: 'rgba(0,0,0,0.8)', borderColor: '#7f1d1d'}]}>
-                          <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
-                              <View>
-                                  <Text style={[styles.navTitle, nightOpsMode && {color:'#ef4444'}]}>RALLIEMENT</Text>
-                                  <Text style={[styles.navSubtitle, nightOpsMode && {color:'#ef4444'}]}>Vers: {peers[navTargetId]?.callsign || 'Inconnu'}</Text>
-                              </View>
-                              <TouchableOpacity onPress={() => setNavTargetId(null)} style={{padding: 5}}><MaterialIcons name="close" size={20} color={nightOpsMode ? '#ef4444' : 'white'}/></TouchableOpacity>
-                          </View>
-                          <View style={{flexDirection: 'row', gap: 15, marginTop: 10}}>
-                              <View style={styles.navStat}>
-                                  <MaterialIcons name="straighten" size={16} color="#3b82f6" />
-                                  <Text style={styles.navValue}>{navInfo.dist}</Text>
-                              </View>
-                              <View style={styles.navStat}>
-                                  <MaterialIcons name="timer" size={16} color="#3b82f6" />
-                                  <Text style={styles.navValue}>{navInfo.time}</Text>
-                              </View>
-                          </View>
-                      </View>
-                  )}
               </View>
           </View>
 
@@ -710,7 +720,7 @@ const App: React.FC = () => {
       <Modal visible={showQuickMsgModal} animationType="fade" transparent><KeyboardAvoidingView behavior="padding" style={styles.modalOverlay}><View style={[styles.modalContent, {backgroundColor: '#18181b', borderWidth: 1, borderColor: '#333', maxHeight: '80%'}]}><Text style={[styles.modalTitle, {color: '#06b6d4', marginBottom: 15}]}>MESSAGE RAPIDE</Text><View style={{flexDirection: 'row', marginBottom: 15, width: '100%'}}><TextInput style={[styles.pingInput, {flex: 1, marginBottom: 0, textAlign: 'left'}]} placeholder="Message libre..." placeholderTextColor="#52525b" value={freeMsgInput} onChangeText={setFreeMsgInput} /><TouchableOpacity onPress={() => handleSendQuickMessage(freeMsgInput)} style={[styles.modalBtn, {backgroundColor: '#06b6d4', marginLeft: 10, flex: 0, width: 50}]}><MaterialIcons name="send" size={20} color="white" /></TouchableOpacity></View><FlatList data={quickMessagesList} keyExtractor={(item, index) => index.toString()} renderItem={({item}) => (<TouchableOpacity onPress={() => handleSendQuickMessage(item.includes("Effacer") ? "" : item)} style={styles.quickMsgItem}><Text style={styles.quickMsgText}>{item}</Text></TouchableOpacity>)} ItemSeparatorComponent={() => <View style={{height: 1, backgroundColor: '#27272a'}} />} /><TouchableOpacity onPress={() => setShowQuickMsgModal(false)} style={[styles.closeBtn, {backgroundColor: '#27272a', marginTop: 15}]}><Text style={{color: '#a1a1aa'}}>ANNULER</Text></TouchableOpacity></View></KeyboardAvoidingView></Modal>
       <Modal visible={showPingMenu} transparent animationType="fade"><View style={styles.modalOverlay}><View style={styles.pingMenuContainer}><Text style={styles.modalTitle}>TYPE DE MARQUEUR</Text><View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 15, justifyContent: 'center'}}><TouchableOpacity onPress={() => { setCurrentPingType('HOSTILE'); setShowPingMenu(false); setPingMsgInput(''); setHostileDetails({position: tempPingLoc ? `${tempPingLoc.lat.toFixed(5)}, ${tempPingLoc.lng.toFixed(5)}` : '', nature: '', attitude: '', volume: '', armes: '', substances: ''}); setShowPingForm(true); }} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(239, 68, 68, 0.2)', borderColor: '#ef4444'}]}><MaterialIcons name="warning" size={30} color="#ef4444" /><Text style={{color: '#ef4444', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>ADVERSAIRE</Text></TouchableOpacity><TouchableOpacity onPress={() => { setCurrentPingType('FRIEND'); setShowPingMenu(false); setPingMsgInput(''); setShowPingForm(true); }} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(34, 197, 94, 0.2)', borderColor: '#22c55e'}]}><MaterialIcons name="shield" size={30} color="#22c55e" /><Text style={{color: '#22c55e', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>AMI</Text></TouchableOpacity><TouchableOpacity onPress={() => { setCurrentPingType('INTEL'); setShowPingMenu(false); setPingMsgInput(''); setShowPingForm(true); }} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(234, 179, 8, 0.2)', borderColor: '#eab308'}]}><MaterialIcons name="visibility" size={30} color="#eab308" /><Text style={{color: '#eab308', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>RENS</Text></TouchableOpacity></View><TouchableOpacity onPress={() => setShowPingMenu(false)} style={[styles.closeBtn, {marginTop: 20, backgroundColor: '#27272a'}]}><Text style={{color:'white'}}>ANNULER</Text></TouchableOpacity></View></View></Modal>
       <Modal visible={showPingForm} transparent animationType="slide"><KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}><View style={[styles.modalContent, {width: '90%', maxHeight: '80%'}]}><Text style={[styles.modalTitle, {color: currentPingType === 'HOSTILE' ? '#ef4444' : currentPingType === 'FRIEND' ? '#22c55e' : '#eab308'}]}>{currentPingType === 'HOSTILE' ? 'ADVERSAIRE' : currentPingType === 'FRIEND' ? 'AMI' : 'RENS'}</Text><Text style={styles.label}>Message</Text><TextInput style={styles.pingInput} placeholder="Titre / Info" placeholderTextColor="#52525b" value={pingMsgInput} onChangeText={setPingMsgInput} autoFocus={currentPingType !== 'HOSTILE'} />{currentPingType === 'HOSTILE' && (<ScrollView style={{width: '100%', maxHeight: 300, marginBottom: 10}}><Text style={[styles.label, {color: '#ef4444', marginTop: 10}]}>Détails Tactiques (Caneva)</Text><TextInput style={styles.detailInput} placeholder="Position" placeholderTextColor="#52525b" value={hostileDetails.position} onChangeText={t => setHostileDetails({...hostileDetails, position: t})} /><TextInput style={styles.detailInput} placeholder="Nature" placeholderTextColor="#52525b" value={hostileDetails.nature} onChangeText={t => setHostileDetails({...hostileDetails, nature: t})} /><TextInput style={styles.detailInput} placeholder="Attitude" placeholderTextColor="#52525b" value={hostileDetails.attitude} onChangeText={t => setHostileDetails({...hostileDetails, attitude: t})} /><TextInput style={styles.detailInput} placeholder="Volume" placeholderTextColor="#52525b" value={hostileDetails.volume} onChangeText={t => setHostileDetails({...hostileDetails, volume: t})} /><TextInput style={styles.detailInput} placeholder="Armement" placeholderTextColor="#52525b" value={hostileDetails.armes} onChangeText={t => setHostileDetails({...hostileDetails, armes: t})} /><TextInput style={styles.detailInput} placeholder="Substances / Tenue" placeholderTextColor="#52525b" value={hostileDetails.substances} onChangeText={t => setHostileDetails({...hostileDetails, substances: t})} /></ScrollView>)}<View style={{flexDirection: 'row', gap: 10, marginTop: 10}}><TouchableOpacity onPress={() => setShowPingForm(false)} style={[styles.modalBtn, {backgroundColor: '#27272a'}]}><Text style={{color: 'white'}}>ANNULER</Text></TouchableOpacity><TouchableOpacity onPress={submitPing} style={[styles.modalBtn, {backgroundColor: '#3b82f6'}]}><Text style={{color: 'white', fontWeight: 'bold'}}>VALIDER</Text></TouchableOpacity></View></View></KeyboardAvoidingView></Modal>
-      <Modal visible={!!editingPing} transparent animationType="slide"><View style={styles.modalOverlay}><View style={[styles.modalContent, {width: '90%'}]}><Text style={styles.modalTitle}>MODIFICATION</Text><TextInput style={styles.pingInput} value={pingMsgInput} onChangeText={setPingMsgInput} />{editingPing?.type === 'HOSTILE' && (<ScrollView style={{width: '100%', maxHeight: 200, marginBottom: 15}}><TextInput style={styles.detailInput} placeholder="Position" value={hostileDetails.position} onChangeText={t => setHostileDetails({...hostileDetails, position: t})} /><TextInput style={styles.detailInput} placeholder="Nature" value={hostileDetails.nature} onChangeText={t => setHostileDetails({...hostileDetails, nature: t})} /><TextInput style={styles.detailInput} placeholder="Attitude" value={hostileDetails.attitude} onChangeText={t => setHostileDetails({...hostileDetails, attitude: t})} /><TextInput style={styles.detailInput} placeholder="Volume" value={hostileDetails.volume} onChangeText={t => setHostileDetails({...hostileDetails, volume: t})} /><TextInput style={styles.detailInput} placeholder="Armement" value={hostileDetails.armes} onChangeText={t => setHostileDetails({...hostileDetails, armes: t})} /><TextInput style={styles.detailInput} placeholder="Substances" value={hostileDetails.substances} onChangeText={t => setHostileDetails({...hostileDetails, substances: t})} /></ScrollView>)}<View style={{flexDirection: 'row', justifyContent: 'space-around', width: '100%', marginTop: 20}}><TouchableOpacity onPress={deletePing} style={styles.iconBtnDanger}><MaterialIcons name="delete" size={28} color="white" /></TouchableOpacity><TouchableOpacity onPress={() => setEditingPing(null)} style={styles.iconBtnSecondary}><MaterialIcons name="close" size={28} color="white" /></TouchableOpacity><TouchableOpacity onPress={savePingEdit} style={styles.iconBtnSuccess}><MaterialIcons name="check" size={28} color="white" /></TouchableOpacity></View></View></View></Modal>
+      <Modal visible={!!editingPing && !showPingForm} transparent animationType="slide"><View style={styles.modalOverlay}><View style={[styles.modalContent, {width: '90%'}]}><Text style={styles.modalTitle}>MODIFICATION</Text><TextInput style={styles.pingInput} value={pingMsgInput} onChangeText={setPingMsgInput} />{editingPing?.type === 'HOSTILE' && (<ScrollView style={{width: '100%', maxHeight: 200, marginBottom: 15}}><TextInput style={styles.detailInput} placeholder="Position" value={hostileDetails.position} onChangeText={t => setHostileDetails({...hostileDetails, position: t})} /><TextInput style={styles.detailInput} placeholder="Nature" value={hostileDetails.nature} onChangeText={t => setHostileDetails({...hostileDetails, nature: t})} /><TextInput style={styles.detailInput} placeholder="Attitude" value={hostileDetails.attitude} onChangeText={t => setHostileDetails({...hostileDetails, attitude: t})} /><TextInput style={styles.detailInput} placeholder="Volume" value={hostileDetails.volume} onChangeText={t => setHostileDetails({...hostileDetails, volume: t})} /><TextInput style={styles.detailInput} placeholder="Armement" value={hostileDetails.armes} onChangeText={t => setHostileDetails({...hostileDetails, armes: t})} /><TextInput style={styles.detailInput} placeholder="Substances" value={hostileDetails.substances} onChangeText={t => setHostileDetails({...hostileDetails, substances: t})} /></ScrollView>)}<View style={{flexDirection: 'row', justifyContent: 'space-around', width: '100%', marginTop: 20}}><TouchableOpacity onPress={deletePing} style={styles.iconBtnDanger}><MaterialIcons name="delete" size={28} color="white" /></TouchableOpacity><TouchableOpacity onPress={() => setEditingPing(null)} style={styles.iconBtnSecondary}><MaterialIcons name="close" size={28} color="white" /></TouchableOpacity><TouchableOpacity onPress={savePingEdit} style={styles.iconBtnSuccess}><MaterialIcons name="check" size={28} color="white" /></TouchableOpacity></View></View></View></Modal>
       <Modal visible={showQRModal} animationType="slide" transparent><View style={styles.modalOverlay}><View style={styles.modalContent}><Text style={styles.modalTitle}>MON IDENTITY TAG</Text><View style={{padding: 20, backgroundColor: 'white', borderRadius: 10, marginVertical: 20}}><QRCode value={hostId || user.id || 'NO_ID'} size={200} backgroundColor="white" color="black" /></View><TouchableOpacity onPress={copyToClipboard} style={{flexDirection:'row', alignItems:'center', backgroundColor: '#f4f4f5', padding: 10, borderRadius: 8}}><Text style={[styles.qrId, {marginTop: 0, marginRight: 10, color:'black'}]}>{hostId || user.id}</Text><MaterialIcons name="content-copy" size={20} color="#3b82f6" /></TouchableOpacity><TouchableOpacity onPress={() => setShowQRModal(false)} style={styles.closeBtn}><Text style={styles.closeBtnText}>FERMER</Text></TouchableOpacity></View></View></Modal>
       <Modal visible={showScanner} animationType="slide"><View style={{flex: 1, backgroundColor: 'black'}}><CameraView style={{flex: 1}} onBarcodeScanned={handleScannerBarCodeScanned} barcodeScannerSettings={{barcodeTypes: ["qr"]}} /><View style={{position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center'}}><View style={{width: 250, height: 250, borderWidth: 2, borderColor: '#3b82f6', backgroundColor: 'transparent'}} /><Text style={{color: 'white', marginTop: 20, backgroundColor: 'rgba(0,0,0,0.5)', padding: 5}}>Visez le QR Code de l'Hôte</Text></View><TouchableOpacity onPress={() => setShowScanner(false)} style={styles.scannerClose}><MaterialIcons name="close" size={30} color="white" /></TouchableOpacity></View></Modal>
 
