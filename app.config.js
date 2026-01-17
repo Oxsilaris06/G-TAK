@@ -31,12 +31,12 @@ export default {
         "expo-build-properties",
         {
           android: {
-            // Configuration stable pour supporter les dépendances actuelles
+            // Configuration Kotlin/SDK pour Expo 51 Standard
             kotlinVersion: "1.9.23",
             compileSdkVersion: 34,
             targetSdkVersion: 34,
             buildToolsVersion: "34.0.0",
-            // On garde l'ancienne architecture pour garantir la compatibilité WebRTC 118
+            // On reste sur l'ancienne architecture pour garantir la compatibilité WebRTC 118
             newArchEnabled: false
           }
         }
