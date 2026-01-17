@@ -20,20 +20,18 @@ interface TacticalMapProps {
   onPing: (loc: { lat: number; lng: number }) => void;
   onPingMove: (ping: PingData) => void;
   onPingClick: (id: string) => void; 
+  onPingLongPress: (id: string) => void; // Nouveau callback
   onNavStop: () => void;
   onMapMoveEnd?: (center: {lat: number, lng: number}, zoom: number) => void;
 }
 
 const TacticalMap: React.FC<TacticalMapProps> = ({
   me, peers, pings, mapMode, customMapUrl, showTrails, showPings, isHost, userArrowColor, navTargetId, pingMode, nightOpsMode, initialCenter,
-  onPing, onPingMove, onPingClick, onNavStop, onMapMoveEnd
+  onPing, onPingMove, onPingClick, onPingLongPress, onNavStop, onMapMoveEnd
 }) => {
   const webViewRef = useRef<WebView>(null);
 
-  // MEMOIZATION CRITIQUE : Le HTML ne doit jamais changer après le premier rendu
-  // Sinon la WebView se recharge et la carte "saute".
   const leafletHTML = useMemo(() => {
-      // Valeurs par défaut safe pour l'initialisation
       const startLat = initialCenter ? initialCenter.lat : 48.85;
       const startLng = initialCenter ? initialCenter.lng : 2.35;
       const startZoom = initialCenter ? initialCenter.zoom : 13;
@@ -105,11 +103,10 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         let navLine = null;
         
         let pings = {};
-        let userArrowColor = '#3b82f6'; // Défaut, sera mis à jour par React
+        let userArrowColor = '#3b82f6';
         let pingMode = false;
         let lastMePos = null;
-        // Si on a fourni un centre initial, on considère qu'on est déjà centré
-        let autoCentered = ${initialAutoCentered}; 
+        let autoCentered = ${initialAutoCentered};
 
         function hexToRgba(hex, alpha) {
             let r = parseInt(hex.slice(1, 3), 16),
@@ -128,10 +125,16 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
             sendToApp({ type: 'MAP_MOVE_END', center: {lat: center.lat, lng: center.lng}, zoom: map.getZoom() });
         });
 
+        // Gestion Single Click (Navigation mode Ping)
         map.on('click', (e) => {
             if (pingMode) {
                 sendToApp({ type: 'MAP_CLICK', lat: e.latlng.lat, lng: e.latlng.lng });
             }
+        });
+
+        // Gestion Double Click (Ouverture modale Ping)
+        map.on('dblclick', (e) => {
+             sendToApp({ type: 'MAP_DBLCLICK', lat: e.latlng.lat, lng: e.latlng.lng });
         });
 
         function handleData(data) {
@@ -153,7 +156,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                     if(el) el.style.transform = 'rotate(' + rot + 'deg)';
                 }
 
-                // Auto-center au premier fix GPS valide si pas déjà centré
                 if (!autoCentered && data.me && data.me.lat !== 0 && data.me.lng !== 0) {
                      map.setView([data.me.lat, data.me.lng], 16);
                      autoCentered = true;
@@ -186,7 +188,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
             
             Object.keys(markers).forEach(id => { if(!activeIds.includes(id)) { map.removeLayer(markers[id]); delete markers[id]; } });
             
-            // Nettoyage trails
             Object.keys(trailPolylines).forEach(id => { 
                 if(!activeIds.includes(id)) { 
                     map.removeLayer(trailPolylines[id]); 
@@ -293,6 +294,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                     const m = L.marker([p.lat, p.lng], { icon: icon, draggable: canDrag, pane: 'pingPane' });
                     
                     m.on('click', () => sendToApp({ type: 'PING_CLICK', id: p.id }));
+                    m.on('contextmenu', () => sendToApp({ type: 'PING_LONG_PRESS', id: p.id }));
                     m.on('dragend', (e) => sendToApp({ type: 'PING_MOVE', id: p.id, lat: e.target.getLatLng().lat, lng: e.target.getLatLng().lng }));
                     
                     pings[p.id] = m;
@@ -304,12 +306,10 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
     </body>
     </html>
   `;
-  // Le tableau de dépendances vide [] garantit que le HTML n'est généré qu'UNE SEULE fois au montage.
   }, []); 
 
   useEffect(() => {
     if (webViewRef.current) {
-      // Toutes les mises à jour passent par ici (Bridge JS) sans recharger la page
       webViewRef.current.postMessage(JSON.stringify({
         type: 'UPDATE_MAP', me, peers, pings, mode: mapMode, customMapUrl,
         showTrails, showPings, isHost,
@@ -322,7 +322,9 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
     try {
       const data = JSON.parse(event.nativeEvent.data);
       if (data.type === 'MAP_CLICK') onPing({ lat: data.lat, lng: data.lng }); 
+      if (data.type === 'MAP_DBLCLICK') onPing({ lat: data.lat, lng: data.lng }); 
       if (data.type === 'PING_CLICK') onPingClick(data.id); 
+      if (data.type === 'PING_LONG_PRESS') onPingLongPress(data.id);
       if (data.type === 'PING_MOVE') onPingMove({ ...pings.find(p => p.id === data.id)!, lat: data.lat, lng: data.lng });
       if (data.type === 'NAV_STOP') { if (onNavStop) onNavStop(); }
       if (data.type === 'MAP_MOVE_END' && onMapMoveEnd) onMapMoveEnd(data.center, data.zoom);
