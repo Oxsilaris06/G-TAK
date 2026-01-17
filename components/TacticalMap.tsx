@@ -90,9 +90,15 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
 
         map.createPane('userPane'); map.getPane('userPane').style.zIndex = 600;
         map.createPane('pingPane'); map.getPane('pingPane').style.zIndex = 800;
+        map.createPane('trailPane'); map.getPane('trailPane').style.zIndex = 400;
 
         const markers = {};
+        const trails = {}; // Storage for trail data: { userId: [ [lat,lng], ... ] }
+        const trailPolylines = {}; // Storage for Leaflet Polyline objects
+        
         const pingLayer = L.layerGroup().addTo(map);
+        let navLine = null; // Line for navigation/rally
+        
         let pings = {};
         let userArrowColor = '#3b82f6';
         let pingMode = false;
@@ -149,7 +155,8 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                 updateMapMode(data.mode);
                 updateMarkers(data.me, data.peers, data.showTrails);
                 updatePings(data.pings, data.showPings, data.isHost, data.me.callsign);
-                
+                updateNavigation(data.me, data.navTargetId, data.peers);
+
                 if(data.me && typeof data.me.head === 'number') {
                     const rot = -data.me.head;
                     const el = document.getElementById('compass-rose');
@@ -172,14 +179,77 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
             if (currentLayer !== newLayer) { map.removeLayer(currentLayer); newLayer.addTo(map); currentLayer = newLayer; }
         }
 
+        function updateNavigation(me, targetId, peers) {
+             if (navLine) { map.removeLayer(navLine); navLine = null; }
+             if (!targetId || !me || !me.lat) return;
+
+             const target = peers[targetId];
+             if (target && target.lat) {
+                 // Draw dashed line for rally point
+                 navLine = L.polyline([[me.lat, me.lng], [target.lat, target.lng]], {
+                     color: '#06b6d4',
+                     weight: 3,
+                     dashArray: '10, 10',
+                     opacity: 0.8
+                 }).addTo(map);
+                 // Add a small animation effect if possible or just static
+             }
+        }
+
         function updateMarkers(me, peers, showTrails) {
             const validPeers = Object.values(peers).filter(p => p.id !== me.id);
             const all = [me, ...validPeers].filter(u => u && u.lat);
             const activeIds = all.map(u => u.id);
+            
+            // Cleanup markers
             Object.keys(markers).forEach(id => { if(!activeIds.includes(id)) { map.removeLayer(markers[id]); delete markers[id]; } });
+            
+            // Cleanup Trails if user gone
+            Object.keys(trailPolylines).forEach(id => { 
+                if(!activeIds.includes(id)) { 
+                    map.removeLayer(trailPolylines[id]); 
+                    delete trailPolylines[id]; 
+                    delete trails[id]; 
+                } 
+            });
+
+            // Toggle Trail Visibility
+            if (!showTrails) {
+                Object.values(trailPolylines).forEach(p => map.removeLayer(p));
+            }
 
             all.forEach(u => {
                 let colorHex = (u.status === 'CONTACT') ? '#ef4444' : (u.status === 'CLEAR') ? '#22c55e' : (u.status === 'APPUI') ? '#eab308' : (u.status === 'BUSY') ? '#a855f7' : userArrowColor;
+                
+                // --- TRAIL LOGIC ---
+                if (showTrails) {
+                    if (!trails[u.id]) trails[u.id] = [];
+                    const history = trails[u.id];
+                    const newPt = [u.lat, u.lng];
+                    
+                    // Add point if moved significantly (> 5m) or first point
+                    const lastPt = history.length > 0 ? history[history.length - 1] : null;
+                    if (!lastPt || Math.abs(lastPt[0] - newPt[0]) > 0.00005 || Math.abs(lastPt[1] - newPt[1]) > 0.00005) {
+                        history.push(newPt);
+                        if (history.length > 50) history.shift(); // Keep last 50 points
+                    }
+
+                    if (trailPolylines[u.id]) {
+                        trailPolylines[u.id].setLatLngs(history);
+                        trailPolylines[u.id].setStyle({ color: colorHex });
+                        if (!map.hasLayer(trailPolylines[u.id])) trailPolylines[u.id].addTo(map);
+                    } else {
+                        trailPolylines[u.id] = L.polyline(history, { 
+                            color: colorHex, 
+                            weight: 2, 
+                            opacity: 0.6, 
+                            dashArray: '4, 4',
+                            pane: 'trailPane' 
+                        }).addTo(map);
+                    }
+                }
+                // ----------------
+
                 let bgRgba = hexToRgba(colorHex, 0.6);
                 
                 const rot = u.head || 0;
@@ -220,8 +290,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                 const iconChar = getPingIcon(p.type || 'FRIEND');
                 const color = getPingColor(p.type || 'FRIEND');
                 
-                // CORRECTIF: Suppression des écouteurs manuels (onmousedown etc.)
-                // Utilisation de l'événement natif 'click' de Leaflet qui gère proprement le drag vs click
                 const html = \`
                     <div id="ping-\${p.id}" data-type="\${p.type}" class="ping-marker-box">
                         <div class="ping-label" style="border-color: \${color}">\${p.msg}</div>
@@ -236,7 +304,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                     if(pings[p.id]._icon) pings[p.id]._icon.innerHTML = html;
                     if(pings[p.id].dragging) { canDrag ? pings[p.id].dragging.enable() : pings[p.id].dragging.disable(); }
                 } else {
-                    const icon = L.divIcon({ className: 'custom-div-icon', html: html, iconSize: [100, 60], iconAnchor: [50, 50] });
+                    const icon = L.divIcon({ className: 'custom-div-icon', html: iconHtml, iconSize: [100, 60], iconAnchor: [50, 50] });
                     const m = L.marker([p.lat, p.lng], { icon: icon, draggable: canDrag, pane: 'pingPane' });
                     
                     if (p.type === 'HOSTILE') {
@@ -255,8 +323,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                         \`;
                         m.bindPopup(popupContent, { closeButton: false, offset: [0, -30], className: 'ping-details-popup' });
                     } else {
-                        // Pour les amis/rens, le click ouvre l'édition.
-                        // Leaflet supprime l'event click si on drag, donc ça résout le problème du drag & drop qui ouvrait la modale.
                         m.on('click', () => {
                             sendToApp({ type: 'PING_CLICK', id: p.id });
                         });
