@@ -3,8 +3,8 @@ import { Modal, View, Text, StyleSheet, TouchableOpacity, ScrollView, Linking, P
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialIcons } from '@expo/vector-icons';
 
-// Clé de stockage pour savoir si l'utilisateur a déjà accepté
-const CONSENT_KEY = 'ComTac_GDPR_Consent_v1';
+// Clé de stockage mise à jour pour Praxis
+const CONSENT_KEY = 'Praxis_GDPR_Consent_v1';
 
 interface PrivacyConsentModalProps {
   onConsentGiven: () => void; // Fonction appelée quand l'utilisateur accepte
@@ -40,7 +40,7 @@ export default function PrivacyConsentModal({ onConsentGiven }: PrivacyConsentMo
       if (Platform.OS === 'android') {
           Alert.alert(
               "Configuration Tactique Requise",
-              "Pour que les boutons physiques (Volume, Casque) fonctionnent écran éteint, vous devez activer le service 'ComTac Hardware Control' dans les paramètres d'Accessibilité qui vont s'ouvrir.",
+              "Pour que les boutons physiques fonctionnent écran éteint, vous devez activer les services d'accessibilité pour Praxis si demandé.",
               [
                   {
                       text: "PLUS TARD",
@@ -70,8 +70,8 @@ export default function PrivacyConsentModal({ onConsentGiven }: PrivacyConsentMo
   };
 
   const openPrivacyPolicy = () => {
-    // Lien vers le fichier hébergé sur GitHub
-    Linking.openURL('https://github.com/oxsilaris06/comtac/blob/main/PRIVACY.md');
+    // Lien mis à jour vers le dépôt g-tak
+    Linking.openURL('https://github.com/oxsilaris06/g-tak/blob/main/PRIVACY.md');
   };
 
   return (
@@ -93,7 +93,7 @@ export default function PrivacyConsentModal({ onConsentGiven }: PrivacyConsentMo
           
           <ScrollView style={styles.scrollView} indicatorStyle="white">
             <Text style={styles.modalText}>
-              Bienvenue dans ComTac. Pour assurer le fonctionnement tactique de l'application, l'accès aux capteurs suivants est requis :
+              Bienvenue dans Praxis. Pour assurer le fonctionnement tactique de l'application, l'accès aux capteurs suivants est requis :
             </Text>
 
             <View style={styles.bulletPoint}>
