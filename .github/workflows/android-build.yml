@@ -37,10 +37,12 @@ jobs:
       - name: Expo Prebuild
         run: npx expo prebuild --platform android --clean
 
-      - name: Upgrade Gradle Wrapper to 8.10.2
+      # Passage à Gradle 8.8 : Version maximale compatible avec React Native 0.73.x
+      # La version 8.10+ casse les références internes (serviceOf) du plugin React Native.
+      - name: Upgrade Gradle Wrapper to 8.8
         run: |
           cd android
-          ./gradlew wrapper --gradle-version 8.10.2 --distribution-type all
+          ./gradlew wrapper --gradle-version 8.8 --distribution-type all
 
       - name: Build Android APK
         run: |
