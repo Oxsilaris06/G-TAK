@@ -53,17 +53,18 @@ const NavNotification = ({ message, type, isNightOps, onDismiss }: { message: st
     const opacityAnim = useRef(new Animated.Value(0)).current;
     
     useEffect(() => {
+        // FIX: useNativeDriver: false pour éviter le conflit "JS driven animation on native node"
         Animated.parallel([
-            Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true }),
-            Animated.timing(opacityAnim, { toValue: 1, duration: 200, useNativeDriver: true })
+            Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: false }),
+            Animated.timing(opacityAnim, { toValue: 1, duration: 200, useNativeDriver: false })
         ]).start();
 
         let pulseAnim: Animated.CompositeAnimation | null = null;
         if (type === 'alert') {
             pulseAnim = Animated.loop(
                 Animated.sequence([
-                    Animated.timing(scaleAnim, { toValue: 1.05, duration: 300, useNativeDriver: true }),
-                    Animated.timing(scaleAnim, { toValue: 1, duration: 300, useNativeDriver: true })
+                    Animated.timing(scaleAnim, { toValue: 1.05, duration: 300, useNativeDriver: false }),
+                    Animated.timing(scaleAnim, { toValue: 1, duration: 300, useNativeDriver: false })
                 ])
             );
             pulseAnim.start();
@@ -77,7 +78,7 @@ const NavNotification = ({ message, type, isNightOps, onDismiss }: { message: st
     }, [type]);
 
     const handleDismiss = () => {
-        Animated.timing(opacityAnim, { toValue: 0, duration: 200, useNativeDriver: true }).start(onDismiss);
+        Animated.timing(opacityAnim, { toValue: 0, duration: 200, useNativeDriver: false }).start(onDismiss);
     };
 
     const panResponder = useRef(PanResponder.create({
@@ -135,7 +136,7 @@ const App: React.FC = () => {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [hostId, setHostId] = useState<string>('');
   
-  // REFS POUR ACCÈS SYNCHRONE (Vital pour éviter les stale closures dans les listeners)
+  // REFS POUR ACCÈS SYNCHRONE
   const pingsRef = useRef(pings);
   const logsRef = useRef(logs);
   const peersRef = useRef(peers);
@@ -173,7 +174,7 @@ const App: React.FC = () => {
   const [editingPing, setEditingPing] = useState<PingData | null>(null);
   const [selectedOperatorId, setSelectedOperatorId] = useState<string | null>(null);
   const [navTargetId, setNavTargetId] = useState<string | null>(null);
-  const [bannedPeers, setBannedPeers] = useState<string[]>([]); // Manquait dans la version précédente
+  const [bannedPeers, setBannedPeers] = useState<string[]>([]);
 
   // System
   const [isServicesReady, setIsServicesReady] = useState(false);
@@ -186,7 +187,10 @@ const App: React.FC = () => {
 
   // --- NOTIFICATIONS & TOASTS ---
   const triggerAppNotification = (id: string, msg: string, type: 'alert' | 'info' | 'success' | 'warning') => {
-      if (activeNotif && activeNotif.id === id && activeNotif.msg === msg) return;
+      // Éviter les doublons
+      if (activeNotif && activeNotif.msg === msg) return;
+      
+      // Ici, on ne met plus le "Toast:" ou autre préfixe dans l'ID si c'est juste visuel
       setActiveNotif({ id, msg, type });
       if (type === 'alert' || type === 'warning') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       else if (type === 'success') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -201,7 +205,8 @@ const App: React.FC = () => {
   };
 
   const showToast = (msg: string, type: 'info' | 'error' | 'success' | 'warning' = 'info') => {
-      triggerAppNotification('TOAST', msg, type);
+      // ID vide pour ne pas afficher de préfixe inutile
+      triggerAppNotification('', msg, type);
   };
 
   // --- ACTIONS GLOBALES ---
@@ -616,7 +621,7 @@ const App: React.FC = () => {
           <View style={[styles.footer, nightOpsMode && {borderTopColor: '#7f1d1d'}]}>
                 <View style={styles.statusRow}>
                   {[OperatorStatus.PROGRESSION, OperatorStatus.CONTACT, OperatorStatus.CLEAR].map(s => (
-                      <TouchableOpacity key={s} onPress={() => { setUser(u => ({...u, status:s})); connectivityService.updateUserStatus(s); }} style={[styles.statusBtn, user.status === s ? { backgroundColor: STATUS_COLORS[s], borderColor: 'white' } : null, nightOpsMode && {borderColor: '#7f1d1d', backgroundColor: user.status === s ? '#7f1d1d' : '#000'}]}>
+                      <TouchableOpacity key={s} onPress={() => handleChangeStatus(s)} style={[styles.statusBtn, user.status === s ? { backgroundColor: STATUS_COLORS[s], borderColor: 'white' } : null, nightOpsMode && {borderColor: '#7f1d1d', backgroundColor: user.status === s ? '#7f1d1d' : '#000'}]}>
                           <Text style={[styles.statusBtnText, user.status === s ? {color:'white'} : null, nightOpsMode && {color: '#ef4444'}]}>{s}</Text>
                       </TouchableOpacity>
                   ))}
@@ -695,6 +700,7 @@ const App: React.FC = () => {
       {/* MODALES & ELEMENTS FLOTTANTS */}
       <OperatorActionModal visible={!!selectedOperatorId} targetOperator={peers[selectedOperatorId || ''] || null} currentUserRole={user.role} onClose={() => setSelectedOperatorId(null)} onKick={handleOperatorActionKick} onNavigate={handleOperatorActionNavigate} />
       
+      {/* NOUVEAU COMPOSANT MAIN COURANTE */}
       <MainCouranteView 
         visible={showLogs} 
         logs={logs} 
@@ -710,11 +716,9 @@ const App: React.FC = () => {
                   <Text style={[styles.modalTitle, {color: '#06b6d4', marginBottom: 15}]}>MESSAGE RAPIDE</Text>
                   <View style={{flexDirection: 'row', marginBottom: 15, width: '100%'}}>
                       <TextInput style={[styles.pingInput, {flex: 1, marginBottom: 0, textAlign: 'left'}]} placeholder="Message libre..." placeholderTextColor="#52525b" value={freeMsgInput} onChangeText={setFreeMsgInput} />
-                      <TouchableOpacity onPress={() => { setUser(prev => ({...prev, lastMsg: freeMsgInput})); connectivityService.updateUser({lastMsg: freeMsgInput}); setShowQuickMsgModal(false); setFreeMsgInput(''); showToast("Message envoyé", "success"); }} style={[styles.modalBtn, {backgroundColor: '#06b6d4', marginLeft: 10, flex: 0, width: 50}]}><MaterialIcons name="send" size={20} color="white" /></TouchableOpacity>
+                      <TouchableOpacity onPress={() => handleSendQuickMessage(freeMsgInput)} style={[styles.modalBtn, {backgroundColor: '#06b6d4', marginLeft: 10, flex: 0, width: 50}]}><MaterialIcons name="send" size={20} color="white" /></TouchableOpacity>
                   </View>
-                  <FlatList data={quickMessagesList} keyExtractor={(item, index) => index.toString()} renderItem={({item}) => (
-                      <TouchableOpacity onPress={() => { setUser(prev => ({...prev, lastMsg: item.includes("Effacer") ? "" : item})); connectivityService.updateUser({lastMsg: item.includes("Effacer") ? "" : item}); setShowQuickMsgModal(false); showToast("Message mis à jour", "info"); }} style={styles.quickMsgItem}><Text style={styles.quickMsgText}>{item}</Text></TouchableOpacity>
-                  )} ItemSeparatorComponent={() => <View style={{height: 1, backgroundColor: '#27272a'}} />} />
+                  <FlatList data={quickMessagesList} keyExtractor={(item, index) => index.toString()} renderItem={({item}) => (<TouchableOpacity onPress={() => handleSendQuickMessage(item.includes("Effacer") ? "" : item)} style={styles.quickMsgItem}><Text style={styles.quickMsgText}>{item}</Text></TouchableOpacity>)} ItemSeparatorComponent={() => <View style={{height: 1, backgroundColor: '#27272a'}} />} />
                   <TouchableOpacity onPress={() => setShowQuickMsgModal(false)} style={[styles.closeBtn, {backgroundColor: '#27272a', marginTop: 15}]}><Text style={{color: '#a1a1aa'}}>ANNULER</Text></TouchableOpacity>
               </View>
           </KeyboardAvoidingView>
@@ -725,9 +729,9 @@ const App: React.FC = () => {
               <View style={styles.pingMenuContainer}>
                   <Text style={styles.modalTitle}>TYPE DE MARQUEUR</Text>
                   <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 15, justifyContent: 'center'}}>
-                      <TouchableOpacity onPress={() => { setCurrentPingType('HOSTILE'); setShowPingMenu(false); setPingMsgInput(''); setHostileDetails({position: tempPingLoc ? `${tempPingLoc.lat.toFixed(5)}, ${tempPingLoc.lng.toFixed(5)}` : '', nature: '', attitude: '', volume: '', armes: '', substances: ''}); setShowPingForm(true); }} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(239, 68, 68, 0.2)', borderColor: '#ef4444'}]}><MaterialIcons name="warning" size={30} color="#ef4444" /><Text style={{color: '#ef4444', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>ADVERSAIRE</Text></TouchableOpacity>
-                      <TouchableOpacity onPress={() => { setCurrentPingType('FRIEND'); setShowPingMenu(false); setPingMsgInput(''); setShowPingForm(true); }} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(34, 197, 94, 0.2)', borderColor: '#22c55e'}]}><MaterialIcons name="shield" size={30} color="#22c55e" /><Text style={{color: '#22c55e', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>AMI</Text></TouchableOpacity>
-                      <TouchableOpacity onPress={() => { setCurrentPingType('INTEL'); setShowPingMenu(false); setPingMsgInput(''); setShowPingForm(true); }} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(234, 179, 8, 0.2)', borderColor: '#eab308'}]}><MaterialIcons name="visibility" size={30} color="#eab308" /><Text style={{color: '#eab308', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>RENS</Text></TouchableOpacity>
+                      <TouchableOpacity onPress={() => selectPingType('HOSTILE')} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(239, 68, 68, 0.2)', borderColor: '#ef4444'}]}><MaterialIcons name="warning" size={30} color="#ef4444" /><Text style={{color: '#ef4444', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>ADVERSAIRE</Text></TouchableOpacity>
+                      <TouchableOpacity onPress={() => selectPingType('FRIEND')} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(34, 197, 94, 0.2)', borderColor: '#22c55e'}]}><MaterialIcons name="shield" size={30} color="#22c55e" /><Text style={{color: '#22c55e', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>AMI</Text></TouchableOpacity>
+                      <TouchableOpacity onPress={() => selectPingType('INTEL')} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(234, 179, 8, 0.2)', borderColor: '#eab308'}]}><MaterialIcons name="visibility" size={30} color="#eab308" /><Text style={{color: '#eab308', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>RENS</Text></TouchableOpacity>
                   </View>
                   <TouchableOpacity onPress={() => setShowPingMenu(false)} style={[styles.closeBtn, {marginTop: 20, backgroundColor: '#27272a'}]}><Text style={{color:'white'}}>ANNULER</Text></TouchableOpacity>
               </View>
@@ -816,7 +820,7 @@ const App: React.FC = () => {
       {/* OVERLAY ROUGE POUR NIGHT OPS (EN PLUS DU FILTRE CSS ET DES STYLES) */}
       {nightOpsMode && <View style={styles.nightOpsOverlay} pointerEvents="none" />}
       
-      {/* SUPPRESSION DE L'ANCIEN RENDU DE TOAST QUI CAUSAIT L'ERREUR */}
+      {toast && ( <View style={[styles.toast, toast.type === 'error' && {backgroundColor: '#ef4444'}]}><Text style={styles.toastText}>{toast.msg}</Text></View> )}
     </View>
   );
 };
