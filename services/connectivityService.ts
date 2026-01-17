@@ -15,7 +15,7 @@ export type ConnectivityEvent =
 
 type Listener = (event: ConnectivityEvent) => void;
 
-// Configuration Résilience
+// Configuration Résilience (Délais ajustés pour mobile)
 const RETRY_DELAY_MS = 2000;
 const MAX_RETRIES = 20;
 const HEARTBEAT_MS = 2000;
@@ -48,7 +48,7 @@ class ConnectivityService {
   private heartbeatTimer: any = null;
   private lastHeartbeat: Record<string, number> = {};
   
-  // File d'attente
+  // File d'attente pour garantir l'envoi post-connexion
   private msgQueue: { targetId?: string, data: any }[] = [];
 
   // --- ABONNEMENTS ---
@@ -63,6 +63,7 @@ class ConnectivityService {
 
   // --- INITIALISATION (HARD RESET) ---
   public async init(user: UserData, role: OperatorRole, targetHostId?: string, forceId?: string) {
+    // Évite les doubles inits
     if (this.state === ConnectionState.INITIALIZING) return;
 
     this.cleanup(false); 
@@ -101,6 +102,8 @@ class ConnectivityService {
         peer.on('error', (err: any) => this.onPeerError(err));
         
         peer.on('disconnected', () => {
+            // Pas de reconnect() ici, c'est la source des bugs fantômes. 
+            // On détecte la déconnexion et on lance la procédure de Hard Reset.
             console.log('[Connectivity] Peer disconnected event.');
             this.handleConnectionFailure();
         });
@@ -216,6 +219,7 @@ class ConnectivityService {
           this.lastHeartbeat[conn.peer] = Date.now();
 
           // DELAI DE SECURITE (WARM-UP) POUR ANDROID
+          // Vital pour s'assurer que le buffer UDP est prêt avant d'envoyer le SYNC lourd
           setTimeout(() => {
               if (this.role === OperatorRole.HOST) {
                   // Hôte envoie la liste des pairs
@@ -228,7 +232,7 @@ class ConnectivityService {
                   this.startHeartbeat();
               }
               this.flushQueue();
-          }, 500); // 500ms delay to let UDP buffer settle
+          }, 500); 
       });
 
       conn.on('data', (data) => this.handleData(data, conn.peer));
@@ -250,9 +254,10 @@ class ConnectivityService {
 
       if (data.type === 'HEARTBEAT') return;
 
-      // ACQUITTEMENT SYNC (Si l'hôte reçoit un FULL, il renvoie les données)
+      // Mécanisme d'acquittement implicite pour le SYNC
       if (data.type === 'FULL' && this.role === OperatorRole.HOST) {
-          // On force un renvoi des données statiques pour être sûr
+          // Si on reçoit FULL, c'est que le client vient d'arriver ou de reconnecter
+          // On lui renvoie TOUT pour être sûr qu'il est à jour
           this.sendTo(fromId, { type: 'SYNC', list: Object.values(this.peersMap) });
       }
 
