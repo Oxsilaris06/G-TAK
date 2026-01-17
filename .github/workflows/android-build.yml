@@ -15,14 +15,13 @@ jobs:
       - name: Checkout du code
         uses: actions/checkout@v4
 
-      # On utilise Node 20 qui est très stable avec les versions actuelles d'Expo
-      - name: Configuration de Node.js
+      - name: Configuration de Node.js (v20)
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: ''
 
-      # JDK 17 est le meilleur compromis pour Expo 51 + Gradle 8/9
+      # JDK 17 est le standard pour Expo 51 (RN 0.74)
       - name: Configuration de Java (JDK 17)
         uses: actions/setup-java@v4
         with:
@@ -31,14 +30,15 @@ jobs:
 
       - name: Installation des dépendances
         run: |
-          # Installation forcée propre pour éviter les conflits de version
+          # On installe d'abord ce qui est dans le package.json
           npm install --legacy-peer-deps
+          # Puis on laisse Expo corriger les incompatibilités mineures
           npx expo install --fix
 
       - name: Expo Prebuild
         run: npx expo prebuild --platform android --clean
 
-      # On upgrade le wrapper juste avant le build
+      # On force Gradle 9 pour tester la performance, compatible grâce à Expo 51
       - name: Upgrade Gradle Wrapper
         run: |
           cd android
@@ -49,18 +49,17 @@ jobs:
         run: |
           cd android
           chmod +x gradlew
-          # On ajoute --warning-mode all pour voir les soucis sans bloquer
           ./gradlew assembleDebug --no-daemon --warning-mode all
 
       - name: Renommer et Publier
         run: |
-          mv android/app/build/outputs/apk/debug/app-debug.apk Praxis-Stable.apk
+          mv android/app/build/outputs/apk/debug/app-debug.apk Praxis-Rel.apk
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v4.0.0-build-${{ github.run_number }}
+          tag_name: build-${{ github.run_number }}
           name: "Praxis Build #${{ github.run_number }}"
-          files: Praxis-Stable.apk
+          files: Praxis-Rel.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
