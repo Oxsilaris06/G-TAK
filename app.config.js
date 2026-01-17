@@ -23,7 +23,8 @@ export default {
         "FOREGROUND_SERVICE",
         "FOREGROUND_SERVICE_LOCATION",
         "INTERNET",
-        "WAKE_LOCK"
+        "WAKE_LOCK",
+        "CAMERA" // Réactivé pour le QR Scan
       ]
     },
     plugins: [
@@ -40,10 +41,18 @@ export default {
         }
       ],
       [
+        "expo-camera",
+        {
+          "cameraPermission": "Nécessaire pour scanner les QR Codes de session.",
+          "microphonePermission": false, // On garde le micro désactivé pour la Data
+          "recordAudioAndroid": false
+        }
+      ],
+      [
         "@config-plugins/react-native-webrtc",
         {
-          // On désactive explicitement les permissions caméra/micro
-          cameraPermission: false,
+          // On laisse WebRTC sans caméra/micro, c'est expo-camera qui gère le scan
+          cameraPermission: false, 
           microphonePermission: false
         }
       ],
