@@ -4,68 +4,53 @@ export default {
     slug: "praxis",
     version: "3.3.0",
     orientation: "default",
-    icon: "./assets/icon.png", // Maintenu sur icon.png pour la miniature/app icon
+    icon: "./assets/icon.png",
     userInterfaceStyle: "dark",
     splash: {
-      image: "./assets/icon2.png", // Changé pour icon2.png (Splash Screen uniquement)
+      image: "./assets/icon2.png",
       resizeMode: "contain",
       backgroundColor: "#000000"
     },
-    assetBundlePatterns: [
-      "**/*"
-    ],
     ios: {
       supportsTablet: true,
-      bundleIdentifier: "com.praxis.app", // Renommé en Praxis
+      bundleIdentifier: "com.praxis.app",
       infoPlist: {
         UIBackgroundModes: ["location", "fetch", "voip"],
         NSLocationAlwaysAndWhenInUseUsageDescription: "Suivi tactique de l'équipe même en arrière-plan.",
-        NSLocationWhenInUseUsageDescription: "Affichage position sur carte.",
-        NSCameraUsageDescription: "Scan QR Code.",
-        NSLocalNetworkUsageDescription: "Nécessaire pour la connexion P2P entre appareils sur le même réseau WiFi."
+        NSLocalNetworkUsageDescription: "Nécessaire pour la connexion P2P."
       }
     },
     android: {
       adaptiveIcon: {
-        foregroundImage: "./assets/adaptive-icon.png", // On garde l'adaptive standard
+        foregroundImage: "./assets/adaptive-icon.png",
         backgroundColor: "#000000"
       },
-      package: "com.praxis.app", // Renommé en Praxis
+      package: "com.praxis.app",
       permissions: [
-        "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
         "ACCESS_BACKGROUND_LOCATION",
         "CAMERA",
         "FOREGROUND_SERVICE",
-        "FOREGROUND_SERVICE_LOCATION",
-        "WAKE_LOCK",
-        "VIBRATE",
-        "INTERNET",
-        "ACCESS_NETWORK_STATE",
-        "ACCESS_WIFI_STATE",
-        "CHANGE_WIFI_STATE",
-        "POST_NOTIFICATIONS"
+        "RECORD_AUDIO",
+        "MODIFY_AUDIO_SETTINGS"
       ]
     },
     plugins: [
       [
-        "expo-location",
+        "expo-build-properties",
         {
-          "locationAlwaysAndWhenInUsePermission": "Allow Praxis to use your location for team awareness."
+          android: {
+            // Ici, on force la version de Kotlin compatible avec Gradle 8/9
+            kotlinVersion: "1.9.24", 
+            // On peut aussi forcer le support du nouveau moteur d'architecture
+            newArchEnabled: false 
+          }
         }
       ],
-      [
-        "expo-camera",
-        {
-          "cameraPermission": "Allow Praxis to access your camera for QR scanning."
-        }
-      ],
-      "expo-notifications"
-    ],
-    extra: {
-      eas: {
-        projectId: "your-project-id"
-      }
-    }
+      ["expo-location", { "locationAlwaysAndWhenInUsePermission": "Allow Praxis to use location." }],
+      ["expo-camera", { "cameraPermission": "Allow Praxis to access camera." }],
+      "expo-notifications",
+      "@config-plugins/react-native-webrtc"
+    ]
   }
 };
