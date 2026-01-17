@@ -1,6 +1,7 @@
 import Peer, { DataConnection } from 'peerjs';
 import { CONFIG } from '../constants';
 import { UserData, OperatorRole, OperatorStatus } from '../types';
+import { AppStateStatus } from 'react-native';
 
 export type ConnectivityEvent = 
   | { type: 'PEER_OPEN'; id: string }
@@ -34,6 +35,8 @@ class ConnectivityService {
   private handshakeInterval: any = null;
   
   private isDestroyed = false;
+  private isPaused = false; 
+  private isConnecting = false;
 
   public subscribe(listener: Listener): () => void {
     this.listeners.push(listener);
@@ -44,9 +47,26 @@ class ConnectivityService {
     this.listeners.forEach(l => l(event));
   }
 
+  public handleAppStateChange(status: AppStateStatus) {
+      if (status === 'background') {
+          this.isPaused = true;
+          if (this.retryTimeout) clearTimeout(this.retryTimeout);
+          if (this.handshakeInterval) clearInterval(this.handshakeInterval);
+      } else if (status === 'active') {
+          this.isPaused = false;
+          if (!this.peer || this.peer.disconnected || this.peer.destroyed) {
+              console.log("[NET] Resume from background: Reconnecting...");
+              this.scheduleReconnect(true);
+          } else if (this.role === OperatorRole.OPR && this.hostId && !this.connections[this.hostId]) {
+              this.connectToHost(this.hostId);
+          }
+      }
+  }
+
   public async init(user: UserData, role: OperatorRole, targetHostId?: string) {
     this.cleanup(false);
     this.isDestroyed = false;
+    this.isPaused = false;
     
     this.user = { ...user, role };
     this.role = role;
@@ -59,12 +79,16 @@ class ConnectivityService {
   }
 
   private createPeer(id?: string) {
+    if (this.isPaused || this.isConnecting) return;
+    this.isConnecting = true;
+
     try {
-        console.log("[NET] Creating Peer with config:", JSON.stringify(CONFIG.PEER_CONFIG));
+        console.log("[NET] Creating Peer...");
         const peer = new Peer(id, CONFIG.PEER_CONFIG as any);
         this.peer = peer;
 
         peer.on('open', (peerId) => {
+            this.isConnecting = false;
             console.log(`[NET] Peer OPEN: ${peerId}`);
             if (this.user) this.user.id = peerId;
             this.notify({ type: 'PEER_OPEN', id: peerId });
@@ -76,7 +100,6 @@ class ConnectivityService {
                 this.notify({ type: 'TOAST', msg: `Hôte Actif: ${peerId}`, level: 'success' });
                 this.startHostSync();
             } else if (this.hostId) {
-                // Petit délai pour laisser le temps au réseau de se stabiliser
                 setTimeout(() => this.connectToHost(this.hostId!), 500);
             }
         });
@@ -87,20 +110,20 @@ class ConnectivityService {
         });
 
         peer.on('error', (err: any) => {
+            this.isConnecting = false;
             console.error(`[NET] Peer Error: ${err.type}`, err);
             
-            // Gestion spécifique des erreurs courantes
+            if (this.isPaused) return;
+
             if (err.type === 'unavailable-id') {
                 this.notify({ type: 'TOAST', msg: 'ID Hôte indisponible (déjà pris ?)', level: 'warning' });
                 setTimeout(() => this.createPeer(undefined), 1000);
             } else if (err.type === 'peer-unavailable') {
                 if (!this.isDestroyed && this.role === OperatorRole.OPR) {
-                   // Ne pas spammer l'utilisateur, mais logger
                    console.log(`[NET] Host ${this.hostId} not found yet... retrying.`);
                    this.scheduleReconnect();
                 }
             } else if (err.type === 'network' || err.type === 'disconnected' || err.type === 'server-error' || err.type === 'socket-error') {
-                // Erreurs critiques de connexion au serveur de signalisation
                 this.scheduleReconnect();
             } else if (err.type === 'browser-incompatible') {
                 this.notify({ type: 'TOAST', msg: 'Erreur compatibilité WebRTC', level: 'error' });
@@ -109,20 +132,23 @@ class ConnectivityService {
 
         peer.on('disconnected', () => {
             console.log('[NET] Disconnected from signaling server');
-            if (!this.isDestroyed && this.peer && !this.peer.destroyed) {
+            if (!this.isDestroyed && !this.isPaused && this.peer && !this.peer.destroyed) {
                 this.peer.reconnect();
             }
         });
 
     } catch (e) {
+        this.isConnecting = false;
         console.error('[NET] Crash creation', e);
         this.scheduleReconnect();
     }
   }
 
-  private scheduleReconnect() {
+  private scheduleReconnect(immediate = false) {
       if (this.retryTimeout) clearTimeout(this.retryTimeout);
-      if (this.isDestroyed) return;
+      if (this.isDestroyed || this.isPaused) return;
+
+      const delay = immediate ? 100 : RECONNECT_INTERVAL;
 
       this.retryTimeout = setTimeout(() => {
           console.log('[NET] Reconnecting sequence...');
@@ -131,11 +157,11 @@ class ConnectivityService {
               this.peer = null;
           }
           this.createPeer(this.role === OperatorRole.HOST && this.user?.id ? this.user.id : undefined);
-      }, RECONNECT_INTERVAL);
+      }, delay);
   }
 
   public connectToHost(targetId: string) {
-      if (!this.peer || this.peer.destroyed) return;
+      if (!this.peer || this.peer.destroyed || this.isPaused) return;
       
       console.log(`[NET] Connecting to Host ${targetId}...`);
       
@@ -144,15 +170,10 @@ class ConnectivityService {
           delete this.connections[targetId];
       }
 
-      // CRITIQUE : serialization: 'json' OBLIGATOIRE sur React Native
-      // Par défaut PeerJS utilise BinaryPack qui ne passe pas bien le Bridge RN
       const conn = this.peer.connect(targetId, { 
           reliable: true, 
           serialization: 'json',
-          metadata: {
-              role: 'OPR',
-              version: '3.3.0'
-          }
+          metadata: { role: 'OPR', version: '3.3.0' }
       });
       
       this.setupConnection(conn);
@@ -175,11 +196,9 @@ class ConnectivityService {
       
       conn.on('close', () => {
           console.log(`[NET] Tunnel CLOSE with ${conn.peer}`);
-          delete this.connections[conn.peer];
-          delete this.peersMap[conn.peer];
-          this.notify({ type: 'PEERS_UPDATED', peers: this.peersMap });
+          this.removePeer(conn.peer); // Nettoyage centralisé
           
-          if (this.role === OperatorRole.OPR && conn.peer === this.hostId) {
+          if (!this.isPaused && this.role === OperatorRole.OPR && conn.peer === this.hostId) {
               this.notify({ type: 'DISCONNECTED', reason: 'NO_HOST' });
               this.scheduleReconnect();
           }
@@ -187,21 +206,30 @@ class ConnectivityService {
       
       conn.on('error', (err) => {
           console.warn(`[NET] Conn Error with ${conn.peer}:`, err);
-          // Ne pas fermer immédiatement, laisser PeerJS gérer le retry si possible
       });
+  }
+
+  // Helper pour suppression propre
+  private removePeer(peerId: string) {
+      if (this.connections[peerId]) {
+          // On ne close pas ici pour éviter une boucle, car c'est souvent appelé par 'close' ou 'CLIENT_LEAVING'
+          delete this.connections[peerId];
+      }
+      if (this.peersMap[peerId]) {
+          delete this.peersMap[peerId];
+          this.notify({ type: 'PEERS_UPDATED', peers: this.peersMap });
+      }
   }
 
   private startClientHandshake(conn: DataConnection) {
       if (this.handshakeInterval) clearInterval(this.handshakeInterval);
       
-      // Envoie immédiat
       console.log('[NET] Sending initial HELLO...');
       conn.send({ type: 'HELLO', user: this.user });
 
-      // Retry loop
       this.handshakeInterval = setInterval(() => {
+          if (this.isPaused) return; 
           if (conn.open) {
-              // console.log('[NET] Retry HELLO...');
               conn.send({ type: 'HELLO', user: this.user });
           } else {
               clearInterval(this.handshakeInterval);
@@ -213,6 +241,8 @@ class ConnectivityService {
       if (this.syncInterval) clearInterval(this.syncInterval);
       
       this.syncInterval = setInterval(() => {
+          if (this.isPaused) return;
+
           const list = Object.values(this.peersMap);
           if (this.user) list.push(this.user);
           
@@ -240,6 +270,23 @@ class ConnectivityService {
           }
       }
 
+      // --- GESTION DU DÉPART EXPLICITE ---
+      if (data.type === 'CLIENT_LEAVING') {
+          const callsign = data.callsign || fromId.substring(0,4);
+          this.notify({ type: 'TOAST', msg: `${callsign} a quitté.`, level: 'info' });
+          
+          // Suppression immédiate de la carte et des listes
+          this.removePeer(fromId);
+          
+          // Si on est Hôte, on propage l'info aux autres clients pour qu'ils le suppriment aussi
+          if (this.role === OperatorRole.HOST) {
+               // On broadcast le départ aux autres
+               // (Les autres clients recevront CLIENT_LEAVING et exécuteront ce même bloc)
+               this.broadcast({ type: 'CLIENT_LEAVING', id: fromId, callsign: callsign });
+          }
+          return; // On arrête le traitement ici pour ce message
+      }
+
       this.notify({ type: 'DATA_RECEIVED', data, from: fromId });
 
       if (data.type === 'HELLO' || data.type === 'UPDATE' || data.type === 'UPDATE_USER') {
@@ -252,9 +299,13 @@ class ConnectivityService {
               }
           }
       } else if (data.type === 'SYNC' && Array.isArray(data.list)) {
+          // On remplace la map complète pour être sûr de supprimer les fantômes
+          // Mais on garde notre propre user
+          const newMap: Record<string, UserData> = {};
           data.list.forEach((u: UserData) => {
-              if (u.id !== this.user?.id) this.peersMap[u.id] = u;
+              if (u.id !== this.user?.id) newMap[u.id] = u;
           });
+          this.peersMap = newMap;
           this.notify({ type: 'PEERS_UPDATED', peers: this.peersMap });
       } else if (data.type === 'KICK' && fromId === this.hostId) {
           this.cleanup();
@@ -309,6 +360,7 @@ class ConnectivityService {
 
   public cleanup(full = true) {
       this.isDestroyed = full;
+      this.isConnecting = false;
       if (this.syncInterval) clearInterval(this.syncInterval);
       if (this.handshakeInterval) clearInterval(this.handshakeInterval);
       if (this.retryTimeout) clearTimeout(this.retryTimeout);
