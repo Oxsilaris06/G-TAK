@@ -173,11 +173,19 @@ const App: React.FC = () => {
       };
       initApp();
 
+      const battSub = Battery.addBatteryLevelListener(({ batteryLevel }) => {
+          const newLevel = Math.round(batteryLevel * 100);
+          if (Math.abs(newLevel - userRef.current.bat) > 2 || newLevel < 20) {
+              setUser(u => ({ ...u, bat: newLevel }));
+              connectivityService.updateUser({ bat: newLevel });
+          }
+      });
+
       const unsubConn = connectivityService.subscribe((event) => {
           handleConnectivityEvent(event);
       });
       
-      return () => { mounted = false; unsubConn(); };
+      return () => { mounted = false; unsubConn(); battSub.remove(); if(magSubscription.current) magSubscription.current.remove(); };
   }, []);
 
   useEffect(() => {
@@ -254,10 +262,11 @@ const App: React.FC = () => {
                   return cleanPeers;
               });
               break;
-          case 'HOST_CONNECTED': setHostId(event.hostId); break;
+          case 'HOST_CONNECTED': setHostId(event.hostId); showToast("Lien Hôte établi", "success"); break;
+          case 'TOAST': showToast(event.msg, event.level as any); break;
           case 'DATA_RECEIVED': handleProtocolData(event.data, event.from); break;
-          case 'DISCONNECTED': if (event.reason === 'KICKED') { finishLogout(); } break;
-          case 'NEW_HOST_PROMOTED': setHostId(event.hostId); if (event.hostId === userRef.current.id) setUser(p => ({...p, role: OperatorRole.HOST})); break;
+          case 'DISCONNECTED': if (event.reason === 'KICKED') { Alert.alert("Session Terminée", "Exclu de la session."); finishLogout(); } else if (event.reason === 'NO_HOST') { showToast("Recherche Hôte...", "warning"); } break;
+          case 'NEW_HOST_PROMOTED': setHostId(event.hostId); if (event.hostId === userRef.current.id) { setUser(p => ({...p, role: OperatorRole.HOST})); Alert.alert("Promotion", "Vous êtes le nouveau Chef de Session."); } break;
       }
   };
 
@@ -317,6 +326,17 @@ const App: React.FC = () => {
                   `${u.callsign} - Contact`, 
                   `Position GPS: ${u.lat.toFixed(5)}, ${u.lng.toFixed(5)}`
               );
+          }
+
+          if (u.status !== OperatorStatus.CLEAR && u.status !== OperatorStatus.PROGRESSION) {
+              if (u.status === OperatorStatus.BUSY && prevStatus !== OperatorStatus.BUSY) {
+                  showToast(`${u.callsign} : OCCUPÉ`, 'warning');
+              }
+          }
+          if (u.lastMsg && u.lastMsg !== peersRef.current[u.id]?.lastMsg) {
+             if(u.lastMsg !== 'RAS / Effacer' && u.lastMsg !== '') {
+                 showToast(`${u.callsign}: ${u.lastMsg}`, 'info');
+             }
           }
       }
       
