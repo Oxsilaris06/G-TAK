@@ -21,7 +21,7 @@ export interface UserData {
     bat: number;
     joinedAt: number;
     lastMsg?: string;
-    isTx?: boolean; 
+    paxColor?: string; // NOUVEAU: Couleur perso choisie
 }
 
 export type PingType = 'HOSTILE' | 'FRIEND' | 'INTEL';
@@ -46,15 +46,13 @@ export interface PingData {
     timestamp: number;
 }
 
-// --- NOUVEAU : TYPES POUR LA MAIN COURANTE (Adapté de PcTac) ---
 export interface LogEntry {
   id: string;
   heure: string;
-  pax: string;       // Ex: 'Adversaire', 'Alpha', 'Otage'
-  paxColor: string;  // Code couleur Hex
-  paxMode?: 'standard' | 'free'; // Pour compatibilité
+  pax: string;       
+  paxColor: string;  
   lieu: string;
-  action: string;    // Remplace fenetrePorte/remarques combinés parfois, ou champ spécifique
+  action: string;    
   remarques: string;
 }
 
@@ -62,16 +60,17 @@ export interface AppSettings {
     username: string;
     gpsUpdateInterval: number;
     orientationUpdateInterval: number;
-    userArrowColor: string;
+    userArrowColor: string; // Stocke la couleur perso (Cyan, Rose etc)
     quickMessages: string[];
     disableBackgroundNotifications?: boolean;
+    customMapUrl?: string; // NOUVEAU: Pour charger une source locale/custom
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
     username: '',
     gpsUpdateInterval: 2000,
     orientationUpdateInterval: 500,
-    userArrowColor: '#3b82f6',
+    userArrowColor: '#06b6d4', // Cyan par défaut
     quickMessages: [
         "RAS / Effacer",
         "Contact Visuel",
