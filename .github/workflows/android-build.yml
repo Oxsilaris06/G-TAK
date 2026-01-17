@@ -1,4 +1,4 @@
-name: Build & Release Praxis (Production)
+name: Build & Release Praxis (Data Only Fix)
 
 on:
   workflow_dispatch:
@@ -21,7 +21,6 @@ jobs:
           node-version: '20'
           cache: ''
 
-      # JDK 17 est le standard strict pour Gradle 8.8 & Expo 51
       - name: Configuration de Java (JDK 17)
         uses: actions/setup-java@v4
         with:
@@ -31,32 +30,42 @@ jobs:
       - name: Installation des dépendances
         run: |
           npm install --legacy-peer-deps
-          # On laisse Expo fixer les versions natives
           npx expo install --fix -- --legacy-peer-deps
 
       - name: Expo Prebuild
         run: npx expo prebuild --platform android --clean
 
-      # SUPPRESSION DE L'ÉTAPE UPGRADE WRAPPER
-      # Le log a confirmé que Gradle 8.8 est déjà présent et fonctionnel.
-      # Tenter de passer à 9.0 manuellement brise le build car l'URL est introuvable.
+      # --- PATCH CRITIQUE ---
+      # Ce script supprime la dépendance "AndroidUSBCamera" du fichier build.gradle de react-native-webrtc
+      # Cela empêche Gradle de chercher la bibliothèque manquante.
+      - name: Patch WebRTC (Remove USB Camera Dep)
+        run: |
+          echo "Patching react-native-webrtc build.gradle..."
+          FILE="node_modules/react-native-webrtc/android/build.gradle"
+          if [ -f "$FILE" ]; then
+            # On commente la ligne qui inclut libausbc (la librairie manquante)
+            sed -i 's/implementation.*com.github.jiangdongguo.*libausbc.*/\/\/ Dependency removed by CI patch/g' $FILE
+            echo "Patch appliqué avec succès sur $FILE"
+          else
+            echo "Fichier non trouvé: $FILE"
+          fi
 
       - name: Build Android APK
         run: |
           cd android
           chmod +x gradlew
-          # Gradle 8.8 est performant, on garde les options d'optimisation
+          # On garde Gradle 8.8 (standard Expo 51) qui est maintenant présent
           ./gradlew assembleDebug --no-daemon --warning-mode all
 
       - name: Renommer et Publier
         run: |
-          mv android/app/build/outputs/apk/debug/app-debug.apk Praxis-Final.apk
+          mv android/app/build/outputs/apk/debug/app-debug.apk Praxis-Data.apk
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v4.0.0-build-${{ github.run_number }}
-          name: "Praxis Release #${{ github.run_number }}"
-          files: Praxis-Final.apk
+          tag_name: v4.0.0-data-${{ github.run_number }}
+          name: "Praxis Data Build #${{ github.run_number }}"
+          files: Praxis-Data.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
