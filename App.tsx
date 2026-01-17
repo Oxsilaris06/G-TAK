@@ -18,6 +18,7 @@ import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Magnetometer } from 'expo-sensors';
 import * as SplashScreen from 'expo-splash-screen';
+import * as Battery from 'expo-battery'; // IMPORT BATTERY
 
 // --- IMPORTS LOCAUX ---
 import { UserData, OperatorStatus, OperatorRole, ViewType, PingData, AppSettings, DEFAULT_SETTINGS, PingType, HostileDetails, LogEntry } from './types';
@@ -53,7 +54,6 @@ const NavNotification = ({ message, type, isNightOps, onDismiss }: { message: st
     const opacityAnim = useRef(new Animated.Value(0)).current;
     
     useEffect(() => {
-        // useNativeDriver: false pour éviter conflit avec PanResponder
         Animated.parallel([
             Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: false }),
             Animated.timing(opacityAnim, { toValue: 1, duration: 200, useNativeDriver: false })
@@ -125,16 +125,18 @@ const App: React.FC = () => {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [user, setUser] = useState<UserData>({ id: '', callsign: '', role: OperatorRole.OPR, status: OperatorStatus.CLEAR, joinedAt: Date.now(), bat: 100, head: 0, lat: 0, lng: 0, lastMsg: '' });
 
+  // Navigation
   const [view, setView] = useState<ViewType>('login');
   const [lastView, setLastView] = useState<ViewType>('menu'); 
   const [lastOpsView, setLastOpsView] = useState<ViewType>('map');
 
+  // Données Session
   const [peers, setPeers] = useState<Record<string, UserData>>({});
   const [pings, setPings] = useState<PingData[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [hostId, setHostId] = useState<string>('');
   
-  // REFS (Pour accès synchrone dans les listeners)
+  // REFS
   const pingsRef = useRef(pings);
   const logsRef = useRef(logs);
   const peersRef = useRef(peers);
@@ -184,6 +186,28 @@ const App: React.FC = () => {
   const appState = useRef(AppState.currentState);
   const lastSysNotifId = useRef<string | null>(null);
 
+  // --- BATTERY MONITORING ---
+  useEffect(() => {
+      let battSub: any;
+      const setupBattery = async () => {
+          const level = await Battery.getBatteryLevelAsync();
+          setUser(u => ({ ...u, bat: Math.round(level * 100) }));
+          // Update local mais on ne broadcast pas immédiatement pour ne pas spammer
+          connectivityService.updateUser({ bat: Math.round(level * 100) });
+
+          battSub = Battery.addBatteryLevelListener(({ batteryLevel }) => {
+              const newLevel = Math.round(batteryLevel * 100);
+              // Broadcast seulement si changement > 2% ou critique
+              if (Math.abs(newLevel - userRef.current.bat) > 2 || newLevel < 20) {
+                  setUser(u => ({ ...u, bat: newLevel }));
+                  connectivityService.updateUser({ bat: newLevel });
+              }
+          });
+      };
+      setupBattery();
+      return () => { if(battSub) battSub.remove(); };
+  }, []);
+
   // --- HELPER FUNCTIONS ---
   const triggerAppNotification = (id: string, msg: string, type: 'alert' | 'info' | 'success' | 'warning') => {
       if (activeNotif && activeNotif.id === id && activeNotif.msg === msg) return;
@@ -201,7 +225,6 @@ const App: React.FC = () => {
   };
 
   const showToast = (msg: string, type: 'info' | 'error' | 'success' | 'warning' = 'info') => {
-      // ID vide pour ne pas afficher de préfixe inutile
       triggerAppNotification('', msg, type);
   };
 
@@ -217,7 +240,7 @@ const App: React.FC = () => {
       } else { setView('login'); }
   };
 
-  // --- INITIALISATION ---
+  // --- INITIALISATION APP ---
   useEffect(() => {
       let mounted = true;
       const subscription = AppState.addEventListener('change', nextAppState => {
@@ -273,8 +296,6 @@ const App: React.FC = () => {
           }
           const { status } = await Location.getForegroundPermissionsAsync();
           if (status === 'granted') { await Location.requestBackgroundPermissionsAsync().catch(() => {}); setGpsStatus('OK'); }
-          const camStatus = await Camera.getCameraPermissionsAsync();
-          setHasCameraPermission(camStatus.status === 'granted');
       } catch (e) {}
   };
 
@@ -528,6 +549,14 @@ const App: React.FC = () => {
           return newLogs;
       });
   };
+  // NOUVEAU: Update logs
+  const handleUpdateLog = (updatedEntry: LogEntry) => {
+      setLogs(prev => {
+          const newLogs = prev.map(l => l.id === updatedEntry.id ? updatedEntry : l);
+          connectivityService.broadcast({ type: 'LOG_UPDATE', logs: newLogs });
+          return newLogs;
+      });
+  };
   const handleDeleteLog = (id: string) => {
       setLogs(prev => {
           const newLogs = prev.filter(l => l.id !== id);
@@ -550,6 +579,7 @@ const App: React.FC = () => {
                       <TouchableOpacity onPress={handleBackPress}><MaterialIcons name="arrow-back" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
                       <Text style={[styles.headerTitle, nightOpsMode && {color: '#ef4444'}]}>TacSuite</Text>
                       <View style={{flexDirection: 'row', gap: 15}}>
+                          <TouchableOpacity onPress={() => setShowLogs(true)}><MaterialIcons name="history-edu" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
                           <TouchableOpacity onPress={() => setNightOpsMode(!nightOpsMode)}><MaterialIcons name="nightlight-round" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
                           <TouchableOpacity onPress={() => { setLastView(view); setView('settings'); }}><MaterialIcons name="settings" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
                           <TouchableOpacity onPress={() => { setView('map'); setLastOpsView('map'); }}><MaterialIcons name="map" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
@@ -687,12 +717,14 @@ const App: React.FC = () => {
       {/* MODALES & ELEMENTS FLOTTANTS */}
       <OperatorActionModal visible={!!selectedOperatorId} targetOperator={peers[selectedOperatorId || ''] || null} currentUserRole={user.role} onClose={() => setSelectedOperatorId(null)} onKick={handleOperatorActionKick} onNavigate={handleOperatorActionNavigate} />
       
+      {/* NOUVEAU COMPOSANT MAIN COURANTE */}
       <MainCouranteView 
         visible={showLogs} 
         logs={logs} 
         role={user.role} 
         onClose={() => setShowLogs(false)} 
         onAddLog={handleAddLog}
+        onUpdateLog={handleUpdateLog}
         onDeleteLog={handleDeleteLog}
       />
 
@@ -806,6 +838,7 @@ const App: React.FC = () => {
       {/* OVERLAY ROUGE POUR NIGHT OPS (EN PLUS DU FILTRE CSS ET DES STYLES) */}
       {nightOpsMode && <View style={styles.nightOpsOverlay} pointerEvents="none" />}
       
+      {toast && ( <View style={[styles.toast, toast.type === 'error' && {backgroundColor: '#ef4444'}]}><Text style={styles.toastText}>{toast.msg}</Text></View> )}
     </View>
   );
 };
