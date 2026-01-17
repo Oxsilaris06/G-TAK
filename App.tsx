@@ -3,7 +3,7 @@ import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { 
   StyleSheet, View, Text, TextInput, TouchableOpacity, 
   SafeAreaView, Platform, Modal, StatusBar as RNStatusBar, Alert, ScrollView, ActivityIndicator,
-  PermissionsAndroid, Animated, PanResponder, FlatList, KeyboardAvoidingView, AppState, AppStateStatus
+  PermissionsAndroid, Animated, PanResponder, FlatList, KeyboardAvoidingView, AppState, AppStateStatus, Image
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import QRCode from 'react-native-qrcode-svg';
@@ -156,20 +156,17 @@ const App: React.FC = () => {
       } else { setView('login'); }
   };
 
-  // --- SYNC LOOP HOST (Pings & Logs) ---
-  // Essentiel pour que les nouveaux arrivants reçoivent les marqueurs existants
   useEffect(() => {
       let syncTimer: any = null;
       if (isServicesReady && user.role === OperatorRole.HOST) {
           syncTimer = setInterval(() => {
-              // On broadcast les pings et logs régulièrement
               if (pingsRef.current.length > 0) {
                   connectivityService.broadcast({ type: 'SYNC_PINGS', pings: pingsRef.current });
               }
               if (logsRef.current.length > 0) {
                   connectivityService.broadcast({ type: 'SYNC_LOGS', logs: logsRef.current });
               }
-          }, 4000); // Toutes les 4 secondes
+          }, 4000); 
       }
       return () => { if (syncTimer) clearInterval(syncTimer); };
   }, [isServicesReady, user.role]);
@@ -275,10 +272,28 @@ const App: React.FC = () => {
               setIsServicesReady(true); 
               break;
           case 'PEERS_UPDATED': 
+              // Fusion intelligente pour éviter les doublons (Ghost Users)
               setPeers(prev => {
-                  const newPeers = { ...prev };
-                  Object.values(event.peers).forEach(p => newPeers[p.id] = p);
-                  return newPeers;
+                  const incoming = event.peers;
+                  const allPeers = Object.values({ ...prev, ...incoming });
+                  
+                  // Tri par date d'arrivée (le plus récent en premier)
+                  allPeers.sort((a, b) => (b.joinedAt || 0) - (a.joinedAt || 0));
+
+                  const uniquePeers: Record<string, UserData> = {};
+                  const seenCallsigns = new Set<string>();
+
+                  allPeers.forEach(p => {
+                      // On garde le premier rencontré (le plus récent) pour chaque Callsign
+                      // Sauf si c'est nous-même, on gère à part
+                      if (p.id !== userRef.current.id) {
+                          if (!seenCallsigns.has(p.callsign)) {
+                              seenCallsigns.add(p.callsign);
+                              uniquePeers[p.id] = p;
+                          }
+                      }
+                  });
+                  return uniquePeers;
               });
               break;
           case 'HOST_CONNECTED': 
@@ -399,7 +414,6 @@ const App: React.FC = () => {
   };
 
   const handleLogout = () => {
-      // Broadcast d'un message explicite de départ
       if (user.role === OperatorRole.HOST) connectivityService.broadcast({ type: 'CLIENT_LEAVING', id: user.id });
       else connectivityService.broadcast({ type: 'CLIENT_LEAVING', id: user.id, callsign: user.callsign });
       finishLogout();
@@ -486,7 +500,7 @@ const App: React.FC = () => {
               <SafeAreaView style={styles.header}>
                   <View style={styles.headerContent}>
                       <TouchableOpacity onPress={handleBackPress}><MaterialIcons name="arrow-back" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
-                      <Text style={[styles.headerTitle, nightOpsMode && {color: '#ef4444'}]}>TacSuite</Text>
+                      <Text style={[styles.headerTitle, nightOpsMode && {color: '#ef4444'}]}>Praxis</Text>
                       <View style={{flexDirection: 'row', gap: 15}}>
                           <TouchableOpacity onPress={() => setShowLogs(true)}><MaterialIcons name="history-edu" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
                           <TouchableOpacity onPress={() => setNightOpsMode(!nightOpsMode)}><MaterialIcons name="nightlight-round" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
@@ -509,7 +523,7 @@ const App: React.FC = () => {
               <SafeAreaView style={styles.header}>
                   <View style={styles.headerContent}>
                       <TouchableOpacity onPress={handleBackPress}><MaterialIcons name="arrow-back" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
-                      <Text style={[styles.headerTitle, nightOpsMode && {color: '#ef4444'}]}>TacSuite</Text>
+                      <Text style={[styles.headerTitle, nightOpsMode && {color: '#ef4444'}]}>Praxis</Text>
                       <View style={{flexDirection: 'row', gap: 15}}>
                           <TouchableOpacity onPress={() => setShowLogs(true)}><MaterialIcons name="history-edu" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
                           <TouchableOpacity onPress={() => setNightOpsMode(!nightOpsMode)}><MaterialIcons name="nightlight-round" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
@@ -573,14 +587,14 @@ const App: React.FC = () => {
       {view === 'settings' ? <SettingsView onClose={() => setView(lastView)} /> : 
        view === 'login' ? (
         <View style={styles.centerContainer}>
-          <MaterialIcons name="login" size={80} color="#3b82f6" style={{opacity: 0.8, marginBottom: 30}} />
-          <Text style={styles.title}>Tac<Text style={{color: '#3b82f6'}}>Suite</Text></Text>
+          <Image source={require('./assets/icon.png')} style={{width: 100, height: 100, marginBottom: 30, borderRadius: 20}} />
+          <Text style={styles.title}>Praxis</Text>
           <TextInput style={styles.input} placeholder="TRIGRAMME" placeholderTextColor="#52525b" maxLength={6} value={loginInput} onChangeText={setLoginInput} autoCapitalize="characters" />
           <TouchableOpacity onPress={() => {
               if (loginInput.length < 2) return;
               try { AsyncStorage.setItem(CONFIG.TRIGRAM_STORAGE_KEY, loginInput.toUpperCase()); } catch (e) {}
               if (loginInput.toUpperCase() !== settings.username) configService.update({ username: loginInput.toUpperCase() });
-              setUser(prev => ({ ...prev, callsign: loginInput.toUpperCase() }));
+              setUser(prev => ({ ...prev, callsign: loginInput.toUpperCase(), joinedAt: Date.now() }));
               setView('menu');
           }} style={styles.loginBtn}><Text style={styles.loginBtnText}>CONNEXION</Text></TouchableOpacity>
           <PrivacyConsentModal onConsentGiven={() => {}} />
