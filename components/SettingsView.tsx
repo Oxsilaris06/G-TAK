@@ -8,9 +8,12 @@ import * as FileSystem from 'expo-file-system';
 
 interface Props {
     onClose: () => void;
+    onUpdate: (s: AppSettings) => void; // Callback pour mise à jour immédiate
 }
 
-const SettingsView: React.FC<Props> = ({ onClose }) => {
+const CUSTOM_COLORS = ['#06b6d4', '#ec4899', '#8b5cf6', '#f97316']; // Cyan, Rose, Violet, Orange
+
+const SettingsView: React.FC<Props> = ({ onClose, onUpdate }) => {
     const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
     const [newMsg, setNewMsg] = useState('');
 
@@ -20,6 +23,7 @@ const SettingsView: React.FC<Props> = ({ onClose }) => {
 
     const save = async () => {
         await configService.update(settings);
+        onUpdate(settings); // Applique immédiatement
         onClose();
     };
 
@@ -38,40 +42,35 @@ const SettingsView: React.FC<Props> = ({ onClose }) => {
         setSettings(prev => ({ ...prev, quickMessages: newList }));
     };
 
-    const resetDefaults = () => {
-        Alert.alert("Réinitialiser", "Restaurer les paramètres par défaut ?", [
-            { text: "Annuler" },
-            { text: "Oui", onPress: () => setSettings(DEFAULT_SETTINGS) }
-        ]);
-    };
-
     const handleImportJson = async () => {
         try {
             const result = await DocumentPicker.getDocumentAsync({ type: 'application/json', copyToCacheDirectory: true });
             if (!result.canceled && result.assets && result.assets.length > 0) {
                 const content = await FileSystem.readAsStringAsync(result.assets[0].uri);
-                try {
-                    const parsed = JSON.parse(content);
-                    let importedMsgs: string[] = [];
-                    if (Array.isArray(parsed)) {
-                        importedMsgs = parsed.filter(item => typeof item === 'string');
-                    } else if (parsed.quickMessages && Array.isArray(parsed.quickMessages)) {
-                        importedMsgs = parsed.quickMessages.filter((item: any) => typeof item === 'string');
-                    }
-                    if (importedMsgs.length > 0) {
-                        const updatedSettings = { ...settings, quickMessages: importedMsgs };
-                        setSettings(updatedSettings);
-                        await configService.update(updatedSettings);
-                        Alert.alert("Succès", `${importedMsgs.length} messages importés.`);
-                    } else { Alert.alert("Erreur", "Aucun message valide trouvé."); }
-                } catch (jsonError) { Alert.alert("Erreur JSON", "Fichier mal formé."); }
+                const parsed = JSON.parse(content);
+                const importedMsgs = Array.isArray(parsed) ? parsed : parsed.quickMessages;
+                if (importedMsgs) {
+                    setSettings(s => ({...s, quickMessages: importedMsgs}));
+                    Alert.alert("Succès", "Messages importés.");
+                }
             }
-        } catch (e) { Alert.alert("Erreur Import", "Impossible de lire le fichier."); }
+        } catch (e) { Alert.alert("Erreur", "Fichier invalide."); }
+    };
+
+    // Simulation chargement fichier carte (récupère l'URI)
+    const handlePickMapFile = async () => {
+        try {
+            const result = await DocumentPicker.getDocumentAsync({ type: '*/*' });
+            if (!result.canceled && result.assets && result.assets.length > 0) {
+                // Dans un vrai cas offline, on copierait le fichier dans le cache app
+                setSettings(s => ({...s, customMapUrl: result.assets[0].uri}));
+                Alert.alert("Carte", "Fichier sélectionné (Simulation MBTiles)");
+            }
+        } catch(e) {}
     };
 
     const openDoc = (file: string) => {
-        const baseUrl = "https://github.com/oxsilaris06/g-tak/blob/main/";
-        Linking.openURL(baseUrl + file).catch(err => Alert.alert("Erreur", "Impossible d'ouvrir le lien."));
+        Linking.openURL("https://github.com/oxsilaris06/g-tak/blob/main/" + file).catch(() => {});
     };
 
     return (
@@ -89,9 +88,12 @@ const SettingsView: React.FC<Props> = ({ onClose }) => {
                         <TextInput style={styles.input} value={settings.username} onChangeText={t => setSettings(s => ({...s, username: t.toUpperCase()}))} maxLength={6} />
                     </View>
                     <View style={styles.row}>
-                        <Text style={styles.label}>Couleur Position</Text>
+                        <View>
+                            <Text style={styles.label}>Couleur Progression</Text>
+                            <Text style={styles.subLabel}>Affichée uniquement en mouvement</Text>
+                        </View>
                         <View style={{flexDirection:'row', gap:10}}>
-                            {['#3b82f6', '#ef4444', '#22c55e', '#eab308'].map(c => (
+                            {CUSTOM_COLORS.map(c => (
                                 <TouchableOpacity key={c} style={[styles.colorDot, {backgroundColor: c}, settings.userArrowColor === c && styles.colorSelected]} onPress={() => setSettings(s => ({...s, userArrowColor: c}))} />
                             ))}
                         </View>
@@ -99,48 +101,60 @@ const SettingsView: React.FC<Props> = ({ onClose }) => {
                 </View>
 
                 <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>SYSTÈME & NOTIFICATIONS</Text>
+                    <Text style={styles.sectionTitle}>SYSTÈME & CAPTEURS</Text>
                     <View style={styles.row}>
                         <View>
-                             <Text style={styles.label}>Intervalle GPS</Text>
-                             <Text style={styles.subLabel}>Position (ms)</Text>
+                             <Text style={styles.label}>GPS (Précision)</Text>
+                             <Text style={styles.subLabel}>{settings.gpsUpdateInterval} ms</Text>
                         </View>
                         <View style={{flexDirection: 'row', alignItems: 'center'}}>
-                            <TouchableOpacity onPress={() => setSettings(s => ({...s, gpsUpdateInterval: Math.max(1000, s.gpsUpdateInterval - 1000)}))} style={styles.miniBtn}><Text style={styles.miniBtnText}>-</Text></TouchableOpacity>
-                            <Text style={styles.valueText}>{settings.gpsUpdateInterval / 1000}s</Text>
-                            <TouchableOpacity onPress={() => setSettings(s => ({...s, gpsUpdateInterval: s.gpsUpdateInterval + 1000}))} style={styles.miniBtn}><Text style={styles.miniBtnText}>+</Text></TouchableOpacity>
+                            <TouchableOpacity onPress={() => setSettings(s => ({...s, gpsUpdateInterval: Math.max(1000, s.gpsUpdateInterval - 500)}))} style={styles.miniBtn}><Text style={styles.miniBtnText}>-</Text></TouchableOpacity>
+                            <TouchableOpacity onPress={() => setSettings(s => ({...s, gpsUpdateInterval: s.gpsUpdateInterval + 500}))} style={styles.miniBtn}><Text style={styles.miniBtnText}>+</Text></TouchableOpacity>
                         </View>
                     </View>
-                    
-                    {/* NOUVEAU CONTROLE ORIENTATION */}
                     <View style={styles.row}>
                         <View>
-                             <Text style={styles.label}>Fréquence Boussole</Text>
-                             <Text style={styles.subLabel}>Orientation (100-1000ms)</Text>
+                             <Text style={styles.label}>Boussole</Text>
+                             <Text style={styles.subLabel}>{settings.orientationUpdateInterval} ms</Text>
                         </View>
                         <View style={{flexDirection: 'row', alignItems: 'center'}}>
                             <TouchableOpacity onPress={() => setSettings(s => ({...s, orientationUpdateInterval: Math.max(100, (s.orientationUpdateInterval || 500) - 100)}))} style={styles.miniBtn}><Text style={styles.miniBtnText}>-</Text></TouchableOpacity>
-                            <Text style={styles.valueText}>{settings.orientationUpdateInterval || 500}ms</Text>
                             <TouchableOpacity onPress={() => setSettings(s => ({...s, orientationUpdateInterval: Math.min(1000, (s.orientationUpdateInterval || 500) + 100)}))} style={styles.miniBtn}><Text style={styles.miniBtnText}>+</Text></TouchableOpacity>
                         </View>
                     </View>
-
                     <View style={styles.row}>
                         <View>
-                            <Text style={styles.label}>Notifications Hors-App</Text>
-                            <Text style={styles.subLabel}>Désactiver les alertes quand l'app est en arrière-plan</Text>
+                            <Text style={styles.label}>Notifs Arrière-plan</Text>
+                            <Text style={styles.subLabel}>Désactiver pour économiser batterie</Text>
                         </View>
                         <Switch 
                             value={settings.disableBackgroundNotifications} 
                             onValueChange={v => setSettings(s => ({...s, disableBackgroundNotifications: v}))}
                             trackColor={{false: '#3f3f46', true: '#ef4444'}}
-                            thumbColor={'white'}
                         />
                     </View>
                 </View>
 
                 <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>MESSAGES PRÉDÉFINIS</Text>
+                    <Text style={styles.sectionTitle}>CARTOGRAPHIE</Text>
+                    <View style={styles.row}>
+                        <View>
+                            <Text style={styles.label}>Source Carte Locale</Text>
+                            <Text style={styles.subLabel}>{settings.customMapUrl ? "Fichier chargé" : "Aucun fichier"}</Text>
+                        </View>
+                        <TouchableOpacity onPress={handlePickMapFile} style={styles.importBtn}><Text style={{color:'white', fontSize: 10}}>CHARGER MBTILES</Text></TouchableOpacity>
+                    </View>
+                    <TextInput 
+                        style={[styles.input, {width: '100%', textAlign: 'left', fontSize: 10}]} 
+                        placeholder="Ou URL serveur de tuiles..." 
+                        placeholderTextColor="#555"
+                        value={settings.customMapUrl} 
+                        onChangeText={t => setSettings(s => ({...s, customMapUrl: t}))}
+                    />
+                </View>
+
+                <View style={styles.section}>
+                    <Text style={styles.sectionTitle}>MESSAGES RAPIDES</Text>
                     <TouchableOpacity onPress={handleImportJson} style={styles.importBtn}><MaterialIcons name="file-upload" size={20} color="white" /><Text style={{color:'white', fontWeight:'bold'}}>IMPORTER JSON</Text></TouchableOpacity>
                     <View style={styles.addRow}>
                         <TextInput style={[styles.input, {flex:1, textAlign:'left'}]} placeholder="Nouveau message..." placeholderTextColor="#52525b" value={newMsg} onChangeText={setNewMsg} />
@@ -157,11 +171,8 @@ const SettingsView: React.FC<Props> = ({ onClose }) => {
                 <View style={styles.section}>
                     <Text style={styles.sectionTitle}>À PROPOS</Text>
                     <TouchableOpacity onPress={() => openDoc('PRIVACY.md')} style={styles.linkRow}><Text style={styles.linkText}>Politique de Confidentialité</Text><MaterialIcons name="open-in-new" size={20} color="#3b82f6" /></TouchableOpacity>
-                    <View style={styles.separator} />
-                    <TouchableOpacity onPress={() => openDoc('README.md')} style={styles.linkRow}><Text style={styles.linkText}>Documentation / Guide</Text><MaterialIcons name="description" size={20} color="#3b82f6" /></TouchableOpacity>
                 </View>
 
-                <TouchableOpacity onPress={resetDefaults} style={styles.resetBtn}><Text style={styles.resetText}>RESTAURER DÉFAUTS</Text></TouchableOpacity>
                 <View style={{height: 100}} /> 
             </ScrollView>
         </View>
@@ -182,19 +193,15 @@ const styles = StyleSheet.create({
     input: { backgroundColor: '#27272a', color: 'white', padding: 8, borderRadius: 8, minWidth: 100, textAlign: 'center' },
     colorDot: { width: 30, height: 30, borderRadius: 15 },
     colorSelected: { borderWidth: 2, borderColor: 'white' },
-    miniBtn: { backgroundColor: '#27272a', width: 30, height: 30, justifyContent: 'center', alignItems: 'center', borderRadius: 15 },
+    miniBtn: { backgroundColor: '#27272a', width: 30, height: 30, justifyContent: 'center', alignItems: 'center', borderRadius: 15, marginLeft: 5 },
     miniBtnText: { color: 'white', fontSize: 18 },
-    valueText: { color: 'white', marginHorizontal: 10, width: 50, textAlign: 'center' },
     addRow: { flexDirection: 'row', gap: 10, marginBottom: 15 },
     addBtn: { backgroundColor: '#2563eb', width: 44, justifyContent: 'center', alignItems: 'center', borderRadius: 8 },
     msgRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#27272a' },
     msgText: { color: '#d4d4d8' },
-    resetBtn: { padding: 15, alignItems: 'center', borderWidth: 1, borderColor: '#ef4444', borderRadius: 12, marginBottom: 20 },
-    resetText: { color: '#ef4444', fontWeight: 'bold' },
     importBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#27272a', padding: 12, borderRadius: 8, gap: 10, borderWidth: 1, borderColor: '#333', marginBottom: 15 },
     linkRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12 },
-    linkText: { color: 'white', fontSize: 16 },
-    separator: { height: 1, backgroundColor: '#27272a' }
+    linkText: { color: 'white', fontSize: 16 }
 });
 
 export default SettingsView;
