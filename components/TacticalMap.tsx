@@ -8,7 +8,7 @@ interface TacticalMapProps {
   peers: Record<string, UserData>;
   pings: PingData[];
   mapMode: 'dark' | 'light' | 'satellite' | 'custom';
-  customMapUrl?: string;
+  customMapUrl?: string; // Ajout
   showTrails: boolean;
   showPings: boolean;
   isHost: boolean;
@@ -16,12 +16,12 @@ interface TacticalMapProps {
   navTargetId?: string | null;
   pingMode?: boolean; 
   nightOpsMode?: boolean;
-  initialCenter?: {lat: number, lng: number, zoom: number};
+  initialCenter?: {lat: number, lng: number, zoom: number}; // Ajout
   onPing: (loc: { lat: number; lng: number }) => void;
   onPingMove: (ping: PingData) => void;
   onPingClick: (id: string) => void; 
   onNavStop: () => void;
-  onMapMoveEnd: (center: {lat: number, lng: number}, zoom: number) => void;
+  onMapMoveEnd?: (center: {lat: number, lng: number}, zoom: number) => void; // Ajout
 }
 
 const TacticalMap: React.FC<TacticalMapProps> = ({
@@ -33,7 +33,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
   // Injection des données initiales pour éviter le recentrage intempestif
   const startLat = initialCenter ? initialCenter.lat : (me.lat || 48.85);
   const startLng = initialCenter ? initialCenter.lng : (me.lng || 2.35);
-  const startZoom = initialCenter ? initialCenter.zoom : 15;
+  const startZoom = initialCenter ? initialCenter.zoom : 13;
 
   const leafletHTML = `
     <!DOCTYPE html>
@@ -162,8 +162,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
             if (mode === 'custom' && customUrl) {
                 if (!layers.custom || layers.custom._url !== customUrl) {
                     if(layers.custom) map.removeLayer(layers.custom);
-                    // Support basique des tuiles locales/serveur
-                    // Si c'est un fichier local, cela dépendra du file system, ici on assume une URL serveur ou localhost
                     layers.custom = L.tileLayer(customUrl, {maxZoom: 20});
                 }
             }
@@ -200,18 +198,16 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
 
             all.forEach(u => {
                 // --- LOGIQUE COULEUR CORRIGÉE ---
-                // Par défaut, couleur basée sur le statut tactique
-                let colorHex = '#71717a'; // Gris si inconnu
+                let colorHex = '#71717a'; 
                 
-                if (u.status === 'CONTACT') colorHex = '#ef4444'; // Rouge
+                if (u.status === 'CONTACT') colorHex = '#ef4444'; // Rouge (Priorité absolue)
                 else if (u.status === 'CLEAR') colorHex = '#22c55e'; // Vert
                 else if (u.status === 'BUSY') colorHex = '#a855f7'; // Violet
                 else if (u.status === 'PROGRESSION') {
-                    // C'est UNIQUEMENT ici que la couleur personnalisée du membre s'applique
-                    colorHex = u.paxColor || '#3b82f6'; // Bleu par défaut si pas de couleur choisie
+                    // C'est UNIQUEMENT ici que la couleur personnalisée s'applique
+                    colorHex = u.paxColor || '#3b82f6'; 
                 } else {
-                    // Fallback APPUI ou autre
-                    colorHex = '#eab308'; // Jaune
+                    colorHex = '#eab308'; // Jaune (Appui/Autre)
                 }
                 // ---------------------------------
 
@@ -246,7 +242,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
 
                     if (trailPolylines[u.id]) {
                         trailPolylines[u.id].setLatLngs(history);
-                        trailPolylines[u.id].setStyle({ color: colorHex }); // Trail suit la couleur du statut
+                        trailPolylines[u.id].setStyle({ color: colorHex }); // Le trail prend la couleur du statut
                         if (!map.hasLayer(trailPolylines[u.id])) trailPolylines[u.id].addTo(map);
                     } else {
                         trailPolylines[u.id] = L.polyline(history, { 
@@ -330,7 +326,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
       if (data.type === 'PING_CLICK') onPingClick(data.id); 
       if (data.type === 'PING_MOVE') onPingMove({ ...pings.find(p => p.id === data.id)!, lat: data.lat, lng: data.lng });
       if (data.type === 'NAV_STOP') { if (onNavStop) onNavStop(); }
-      if (data.type === 'MAP_MOVE_END') onMapMoveEnd(data.center, data.zoom);
+      if (data.type === 'MAP_MOVE_END' && onMapMoveEnd) onMapMoveEnd(data.center, data.zoom);
     } catch(e) {}
   };
 
