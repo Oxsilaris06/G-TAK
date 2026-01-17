@@ -42,7 +42,6 @@ Notifications.setNotificationHandler({
   }),
 });
 
-// --- COMPOSANT NOTIFICATION FLOTTANTE ---
 const NavNotification = ({ message, type, isNightOps, onDismiss }: { message: string, type: 'alert' | 'info' | 'success' | 'warning', isNightOps: boolean, onDismiss: () => void }) => {
     const pan = useRef(new Animated.ValueXY()).current;
     const scaleAnim = useRef(new Animated.Value(0.8)).current;
@@ -54,22 +53,10 @@ const NavNotification = ({ message, type, isNightOps, onDismiss }: { message: st
             Animated.timing(opacityAnim, { toValue: 1, duration: 200, useNativeDriver: false })
         ]).start();
 
-        let pulseAnim: Animated.CompositeAnimation | null = null;
-        if (type === 'alert') {
-            pulseAnim = Animated.loop(
-                Animated.sequence([
-                    Animated.timing(scaleAnim, { toValue: 1.05, duration: 300, useNativeDriver: false }),
-                    Animated.timing(scaleAnim, { toValue: 1, duration: 300, useNativeDriver: false })
-                ])
-            );
-            pulseAnim.start();
-        }
-
         if (type !== 'alert') {
             const timer = setTimeout(handleDismiss, 4000);
             return () => clearTimeout(timer);
         }
-        return () => pulseAnim?.stop();
     }, [type]);
 
     const handleDismiss = () => {
@@ -80,11 +67,8 @@ const NavNotification = ({ message, type, isNightOps, onDismiss }: { message: st
         onMoveShouldSetPanResponder: () => true,
         onPanResponderMove: Animated.event([null, { dx: pan.x }], { useNativeDriver: false }),
         onPanResponderRelease: (_, gesture) => {
-          if (Math.abs(gesture.dx) > 50) {
-              Animated.timing(pan, { toValue: { x: gesture.dx > 0 ? 500 : -500, y: 0 }, useNativeDriver: false, duration: 200 }).start(onDismiss);
-          } else {
-              Animated.spring(pan, { toValue: { x: 0, y: 0 }, useNativeDriver: false }).start();
-          }
+          if (Math.abs(gesture.dx) > 50) handleDismiss();
+          else Animated.spring(pan, { toValue: { x: 0, y: 0 }, useNativeDriver: false }).start();
         }
     })).current;
 
@@ -100,10 +84,7 @@ const NavNotification = ({ message, type, isNightOps, onDismiss }: { message: st
     const colors = getColors();
 
     return (
-      <Animated.View 
-        style={[styles.navNotif, { transform: [{ translateX: pan.x }, { scale: scaleAnim }], opacity: opacityAnim, backgroundColor: colors.bg, borderColor: colors.border }]} 
-        {...panResponder.panHandlers}
-      >
+      <Animated.View style={[styles.navNotif, { transform: [{ translateX: pan.x }, { scale: scaleAnim }], opacity: opacityAnim, backgroundColor: colors.bg, borderColor: colors.border }]} {...panResponder.panHandlers}>
           <MaterialIcons name={type === 'alert' ? "warning" : type === 'success' ? "check-circle" : type === 'warning' ? "wifi-off" : "info"} size={28} color={colors.icon} />
           <Text style={[styles.navNotifText, {color: colors.text}]}>{message}</Text>
       </Animated.View>
@@ -113,7 +94,6 @@ const NavNotification = ({ message, type, isNightOps, onDismiss }: { message: st
 const App: React.FC = () => {
   useKeepAwake();
   
-  // --- STATE ---
   const [isAppReady, setIsAppReady] = useState(false);
   const [activeNotif, setActiveNotif] = useState<{ id: string, msg: string, type: 'alert' | 'info' | 'success' | 'warning' } | null>(null);
   
@@ -129,7 +109,7 @@ const App: React.FC = () => {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [hostId, setHostId] = useState<string>('');
   
-  // REFS
+  // REFS SYNCHRONES
   const pingsRef = useRef(pings);
   const logsRef = useRef(logs);
   const peersRef = useRef(peers);
@@ -140,7 +120,6 @@ const App: React.FC = () => {
   useEffect(() => { peersRef.current = peers; }, [peers]);
   useEffect(() => { userRef.current = user; }, [user]);
 
-  // UI
   const [loginInput, setLoginInput] = useState('');
   const [hostInput, setHostInput] = useState('');
   const [mapMode, setMapMode] = useState<'dark' | 'light' | 'satellite'>('satellite');
@@ -150,10 +129,8 @@ const App: React.FC = () => {
   const [nightOpsMode, setNightOpsMode] = useState(false);
   const [showLogs, setShowLogs] = useState(false);
   
-  // Modales
   const [showQRModal, setShowQRModal] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
-  const [hasCameraPermission, setHasCameraPermission] = useState(false);
   const [showQuickMsgModal, setShowQuickMsgModal] = useState(false);
   const [showPingMenu, setShowPingMenu] = useState(false);
   const [showPingForm, setShowPingForm] = useState(false);
@@ -168,35 +145,17 @@ const App: React.FC = () => {
   const [editingPing, setEditingPing] = useState<PingData | null>(null);
   const [selectedOperatorId, setSelectedOperatorId] = useState<string | null>(null);
   const [navTargetId, setNavTargetId] = useState<string | null>(null);
-  const [bannedPeers, setBannedPeers] = useState<string[]>([]);
 
-  // Services
   const [isServicesReady, setIsServicesReady] = useState(false);
   const [gpsStatus, setGpsStatus] = useState<'WAITING' | 'OK' | 'ERROR'>('WAITING');
   const lastLocationRef = useRef<any>(null);
-  const lastHeadBroadcast = useRef<number>(0);
   const gpsSubscription = useRef<Location.LocationSubscription | null>(null);
   const appState = useRef(AppState.currentState);
-  const lastSysNotifId = useRef<string | null>(null);
-
-  // --- HELPER FUNCTIONS ---
-  const triggerAppNotification = (id: string, msg: string, type: 'alert' | 'info' | 'success' | 'warning') => {
-      if (activeNotif && activeNotif.id === id && activeNotif.msg === msg) return;
-      setActiveNotif({ id, msg, type });
-      if (type === 'alert' || type === 'warning') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      else if (type === 'success') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-  };
-
-  const sendSystemNotification = async (title: string, body: string) => {
-      if (settings.disableBackgroundNotifications) return;
-      if (appState.current === 'active') return;
-      if (lastSysNotifId.current) await Notifications.dismissNotificationAsync(lastSysNotifId.current);
-      const id = await Notifications.scheduleNotificationAsync({ content: { title, body, sound: true }, trigger: null });
-      lastSysNotifId.current = id;
-  };
 
   const showToast = (msg: string, type: 'info' | 'error' | 'success' | 'warning' = 'info') => {
-      triggerAppNotification('', msg, type);
+      setActiveNotif({ id: '', msg, type });
+      if (type === 'alert' || type === 'warning') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      else if (type === 'success') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
 
   const copyToClipboard = async () => { 
@@ -211,16 +170,8 @@ const App: React.FC = () => {
       } else { setView('login'); }
   };
 
-  // --- INITIALISATION APP ---
   useEffect(() => {
       let mounted = true;
-      const subscription = AppState.addEventListener('change', nextAppState => {
-          if (appState.current.match(/inactive|background/) && nextAppState === 'active') {
-              if (hostId) connectivityService.broadcast({ type: 'UPDATE', user: userRef.current });
-          }
-          appState.current = nextAppState;
-      });
-
       const initApp = async () => {
           try {
               const s = await configService.init();
@@ -232,7 +183,6 @@ const App: React.FC = () => {
           } catch(e) {}
           await bootstrapPermissionsAsync();
           
-          // INIT BATTERY
           const level = await Battery.getBatteryLevelAsync();
           if(mounted) setUser(u => ({ ...u, bat: Math.round(level * 100) }));
           
@@ -243,7 +193,6 @@ const App: React.FC = () => {
       };
       initApp();
 
-      // Battery Listener
       const battSub = Battery.addBatteryLevelListener(({ batteryLevel }) => {
           const newLevel = Math.round(batteryLevel * 100);
           if (Math.abs(newLevel - userRef.current.bat) > 2 || newLevel < 20) {
@@ -252,21 +201,11 @@ const App: React.FC = () => {
           }
       });
 
-      const unsubConfig = configService.subscribe((newSettings) => {
-          setSettings(newSettings);
-          if (newSettings.quickMessages) setQuickMessagesList(newSettings.quickMessages);
-          if (newSettings.username && newSettings.username !== userRef.current.callsign) {
-              connectivityService.updateUser({ callsign: newSettings.username });
-              setUser(prev => ({ ...prev, callsign: newSettings.username }));
-          }
-          if (gpsSubscription.current) startGpsTracking(newSettings.gpsUpdateInterval);
-      });
-
       const unsubConn = connectivityService.subscribe((event) => {
           handleConnectivityEvent(event);
       });
       
-      return () => { mounted = false; unsubConfig(); unsubConn(); subscription.remove(); battSub.remove(); };
+      return () => { mounted = false; unsubConn(); battSub.remove(); };
   }, []);
 
   const bootstrapPermissionsAsync = async () => {
@@ -286,129 +225,61 @@ const App: React.FC = () => {
       } catch (e) {}
   };
 
-  const requestCamera = async () => {
-      const res = await Camera.requestCameraPermissionsAsync();
-      setHasCameraPermission(res.status === 'granted');
-  };
-
-  // --- LOGIQUE RÉSEAU ---
   const handleConnectivityEvent = (event: ConnectivityEvent) => {
       switch (event.type) {
           case 'PEER_OPEN': 
               setUser(prev => ({ ...prev, id: event.id })); 
               setIsServicesReady(true); 
               break;
-          
           case 'PEERS_UPDATED': 
               setPeers(prev => {
                   const newPeers = { ...prev };
-                  Object.values(event.peers).forEach(p => {
-                      const duplicateId = Object.keys(newPeers).find(k => newPeers[k].callsign === p.callsign && k !== p.id);
-                      if (duplicateId) delete newPeers[duplicateId];
-                      newPeers[p.id] = p;
-                  });
-                  const currentIds = Object.keys(event.peers);
-                  Object.keys(newPeers).forEach(id => {
-                      if (!currentIds.includes(id) && id !== userRef.current.id) delete newPeers[id];
-                  });
+                  Object.values(event.peers).forEach(p => newPeers[p.id] = p);
+                  // On garde toujours l'utilisateur courant et les pairs valides
                   return newPeers;
               });
               break;
-          
           case 'HOST_CONNECTED': 
               setHostId(event.hostId); 
-              showToast("Connecté au réseau tactique", "success");
+              showToast("Connecté au réseau", "success");
               break;
-          
-          case 'RECONNECTING':
-              showToast(`Réseau instable. Tentative ${event.attempt}...`, "warning");
-              break;
-
           case 'TOAST': 
               showToast(event.msg, event.level as any); 
               break;
-          
           case 'DATA_RECEIVED': 
               handleProtocolData(event.data, event.from); 
               break;
-          
           case 'DISCONNECTED': 
               if (event.reason === 'KICKED') { 
-                  Alert.alert("Session Terminée", "Vous avez été exclu de la session."); 
+                  Alert.alert("Session Terminée", "Exclu de la session."); 
                   finishLogout(); 
-              }
-              else if (event.reason === 'NO_HOST') { 
-                  showToast("Lien Hôte perdu. En attente...", "error"); 
-              }
-              else if (event.reason === 'NETWORK_ERROR') {
-                  showToast("Erreur réseau critique.", "error");
+              } else if (event.reason === 'NO_HOST') {
+                  showToast("Lien Hôte perdu", "error");
               }
               break;
-          
-          case 'MIGRATION_START':
-              showToast("Hôte perdu. Élection en cours...", "warning");
-              break;
-              
           case 'NEW_HOST_PROMOTED':
               setHostId(event.hostId);
               if (event.hostId === userRef.current.id) {
                   setUser(prev => ({ ...prev, role: OperatorRole.HOST }));
-                  Alert.alert("Promotion", "Vous êtes le nouveau Chef de Session (Hôte).");
-              } else {
-                  showToast("Nouveau Hôte désigné", "info");
+                  Alert.alert("Promotion", "Vous êtes le nouveau Chef de Session.");
               }
               break;
       }
   };
 
   const handleProtocolData = (data: any, fromId: string) => {
-      if (bannedPeers.includes(fromId)) return;
-
-      if (data.type === 'FULL' && userRef.current.role === OperatorRole.HOST) {
-          connectivityService.sendTo(fromId, { type: 'SYNC_PINGS', pings: pingsRef.current });
-          connectivityService.sendTo(fromId, { type: 'SYNC_LOGS', logs: logsRef.current });
-      }
-      else if (data.type === 'SYNC_PINGS' && Array.isArray(data.pings)) {
-          setPings(data.pings);
-      }
-      else if (data.type === 'SYNC_LOGS' && Array.isArray(data.logs)) {
-          setLogs(data.logs);
-      }
+      if (data.type === 'SYNC_PINGS' && Array.isArray(data.pings)) setPings(data.pings);
+      else if (data.type === 'SYNC_LOGS' && Array.isArray(data.logs)) setLogs(data.logs);
       else if (data.type === 'PING') {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             setPings(prev => [...prev, data.ping]);
-            const p = data.ping;
-            const isHostile = p.type === 'HOSTILE';
-            triggerAppNotification(p.sender, `${p.type === 'HOSTILE' ? 'CONTACT' : 'INFO'}: ${p.msg}`, isHostile ? 'alert' : 'info');
-            sendSystemNotification(isHostile ? "⚠️ CONTACT" : "Info Tactique", `${p.sender}: ${p.msg}`);
+            const isHostile = data.ping.type === 'HOSTILE';
+            showToast(`${data.ping.sender}: ${data.ping.msg}`, isHostile ? 'alert' : 'info');
       }
-      else if (data.type === 'PING_MOVE') {
-          setPings(prev => prev.map(p => p.id === data.id ? { ...p, lat: data.lat, lng: data.lng } : p));
-      }
-      else if (data.type === 'PING_DELETE') {
-          setPings(prev => prev.filter(p => p.id !== data.id));
-      }
-      else if (data.type === 'PING_UPDATE') {
-          setPings(prev => prev.map(p => p.id === data.id ? { ...p, msg: data.msg, details: data.details } : p));
-      }
-      else if (data.type === 'LOG_UPDATE' && Array.isArray(data.logs)) {
-          setLogs(data.logs);
-          if (showLogs) showToast("Main Courante mise à jour", "info");
-      }
-      else if ((data.type === 'UPDATE' || data.type === 'UPDATE_USER') && data.user) {
-          const u = data.user;
-          const currentPeer = peersRef.current[u.id]; 
-          if (currentPeer && currentPeer.status !== u.status) {
-              if (u.status === OperatorStatus.CONTACT || u.status === OperatorStatus.BUSY) {
-                  triggerAppNotification(u.callsign, `STATUT: ${u.status}`, 'alert');
-                  sendSystemNotification("Alerte Statut", `${u.callsign} est ${u.status}`);
-              }
-          }
-          if (currentPeer && currentPeer.lastMsg !== u.lastMsg && u.lastMsg) {
-              triggerAppNotification(u.callsign, `MSG: ${u.lastMsg}`, 'info');
-              sendSystemNotification("Message", `${u.callsign}: ${u.lastMsg}`);
-          }
-      }
+      else if (data.type === 'PING_MOVE') setPings(prev => prev.map(p => p.id === data.id ? { ...p, lat: data.lat, lng: data.lng } : p));
+      else if (data.type === 'PING_DELETE') setPings(prev => prev.filter(p => p.id !== data.id));
+      else if (data.type === 'PING_UPDATE') setPings(prev => prev.map(p => p.id === data.id ? { ...p, msg: data.msg, details: data.details } : p));
+      else if (data.type === 'LOG_UPDATE' && Array.isArray(data.logs)) setLogs(data.logs);
   };
 
   const startGpsTracking = useCallback(async (interval: number) => {
@@ -416,22 +287,18 @@ const App: React.FC = () => {
       try {
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status !== 'granted') { setGpsStatus('ERROR'); return; }
-        
-        gpsSubscription.current = await Location.watchPositionAsync(
-            { accuracy: Location.Accuracy.High, timeInterval: interval, distanceInterval: 5 }, 
-            (loc) => {
-                const { latitude, longitude, heading, speed } = loc.coords;
-                setGpsStatus('OK');
-                setUser(prev => {
-                    const gpsHead = (speed && speed > 1 && heading !== null) ? heading : prev.head;
-                    if (!lastLocationRef.current || Math.abs(latitude - lastLocationRef.current.lat) > 0.0001 || Math.abs(longitude - lastLocationRef.current.lng) > 0.0001) {
-                        connectivityService.updateUserPosition(latitude, longitude, gpsHead);
-                        lastLocationRef.current = { lat: latitude, lng: longitude };
-                    }
-                    return { ...prev, lat: latitude, lng: longitude, head: gpsHead };
-                });
-            }
-        );
+        gpsSubscription.current = await Location.watchPositionAsync({ accuracy: Location.Accuracy.High, timeInterval: interval, distanceInterval: 5 }, (loc) => {
+            const { latitude, longitude, heading, speed } = loc.coords;
+            setGpsStatus('OK');
+            setUser(prev => {
+                const gpsHead = (speed && speed > 1 && heading !== null) ? heading : prev.head;
+                if (!lastLocationRef.current || Math.abs(latitude - lastLocationRef.current.lat) > 0.0001 || Math.abs(longitude - lastLocationRef.current.lng) > 0.0001) {
+                    connectivityService.updateUserPosition(latitude, longitude, gpsHead);
+                    lastLocationRef.current = { lat: latitude, lng: longitude };
+                }
+                return { ...prev, lat: latitude, lng: longitude, head: gpsHead };
+            });
+        });
       } catch(e) { setGpsStatus('ERROR'); }
   }, []);
 
@@ -442,27 +309,6 @@ const App: React.FC = () => {
       setIsServicesReady(false); setNavTargetId(null);
       setUser(prev => ({...prev, id: '', role: OperatorRole.OPR, status: OperatorStatus.CLEAR, lastMsg: '' }));
   }, []);
-
-  useEffect(() => { 
-      Magnetometer.setUpdateInterval(100); 
-      const sub = Magnetometer.addListener((data) => { 
-          let angle = Math.atan2(data.y, data.x) * (180 / Math.PI) - 90; 
-          if (angle < 0) angle += 360; 
-          setUser(prev => { 
-              if (Math.abs(prev.head - angle) > 2) {
-                  const newHead = Math.floor(angle);
-                  const now = Date.now();
-                  if (now - lastHeadBroadcast.current > (settings.orientationUpdateInterval || 500) && hostId) {
-                      connectivityService.broadcast({ type: 'UPDATE_USER', user: { ...prev, head: newHead } });
-                      lastHeadBroadcast.current = now;
-                  }
-                  return { ...prev, head: newHead }; 
-              }
-              return prev; 
-          }); 
-      }); 
-      return () => sub && sub.remove(); 
-  }, [hostId, settings.orientationUpdateInterval]);
 
   const joinSession = async (id?: string) => {
       const finalId = id || hostInput.toUpperCase();
@@ -488,14 +334,13 @@ const App: React.FC = () => {
   };
 
   const handleOperatorActionNavigate = (targetId: string) => { setNavTargetId(targetId); setView('map'); setLastOpsView('map'); showToast("Guidage GPS activé"); };
-  const handleOperatorActionKick = (targetId: string, type: 'temp' | 'perm') => {
-      connectivityService.kickUser(targetId, type === 'perm');
+  const handleOperatorActionKick = (targetId: string) => {
+      connectivityService.kickUser(targetId);
       const newPeers = { ...peers }; delete newPeers[targetId]; setPeers(newPeers);
-      showToast(type === 'perm' ? "Banni définitivement" : "Exclu temporairement");
+      showToast("Exclu");
   };
 
-  const handleSendQuickMessage = (msg: string) => { setUser(prev => ({ ...prev, lastMsg: msg })); connectivityService.updateUser({ lastMsg: msg }); setShowQuickMsgModal(false); setFreeMsgInput(''); showToast(msg ? `Msg: ${msg}` : "Message effacé"); };
-  const handleChangeStatus = (s: OperatorStatus) => { setUser(prev => ({ ...prev, status: s })); connectivityService.updateUserStatus(s); if (s === OperatorStatus.CONTACT) Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error); };
+  const handleSendQuickMessage = (msg: string) => { setUser(prev => ({ ...prev, lastMsg: msg })); connectivityService.updateUser({ lastMsg: msg }); setShowQuickMsgModal(false); setFreeMsgInput(''); showToast("Message envoyé"); };
   
   const submitPing = () => {
       if (!tempPingLoc) return;
@@ -510,25 +355,6 @@ const App: React.FC = () => {
       setShowPingForm(false); setTempPingLoc(null); setIsPingMode(false);
   };
 
-  const handlePingMove = (updatedPing: PingData) => {
-      setPings(prev => prev.map(p => p.id === updatedPing.id ? updatedPing : p));
-      connectivityService.broadcast({ type: 'PING_MOVE', id: updatedPing.id, lat: updatedPing.lat, lng: updatedPing.lng });
-  };
-
-  const savePingEdit = () => {
-      if (!editingPing) return;
-      const updatedPing = { ...editingPing, msg: pingMsgInput, details: editingPing.type === 'HOSTILE' ? hostileDetails : undefined };
-      setPings(prev => prev.map(p => p.id === editingPing.id ? updatedPing : p));
-      connectivityService.broadcast({ type: 'PING_UPDATE', id: editingPing.id, msg: pingMsgInput, details: updatedPing.details });
-      setEditingPing(null);
-  };
-  const deletePing = () => {
-      if (!editingPing) return;
-      setPings(prev => prev.filter(p => p.id !== editingPing.id));
-      connectivityService.broadcast({ type: 'PING_DELETE', id: editingPing.id });
-      setEditingPing(null);
-  };
-
   const handleAddLog = (entry: LogEntry) => {
       setLogs(prev => {
           const newLogs = [...prev, entry];
@@ -536,6 +362,7 @@ const App: React.FC = () => {
           return newLogs;
       });
   };
+  
   const handleUpdateLog = (updatedEntry: LogEntry) => {
       setLogs(prev => {
           const newLogs = prev.map(l => l.id === updatedEntry.id ? updatedEntry : l);
@@ -543,6 +370,7 @@ const App: React.FC = () => {
           return newLogs;
       });
   };
+
   const handleDeleteLog = (id: string) => {
       setLogs(prev => {
           const newLogs = prev.filter(l => l.id !== id);
@@ -602,7 +430,7 @@ const App: React.FC = () => {
                       pingMode={isPingMode} navTargetId={navTargetId}
                       nightOpsMode={nightOpsMode} 
                       onPing={(loc) => { setTempPingLoc(loc); setShowPingMenu(true); }}
-                      onPingMove={handlePingMove} 
+                      onPingMove={(p) => { setPings(prev => prev.map(x => x.id === p.id ? p : x)); connectivityService.broadcast({ type: 'PING_MOVE', ...p }); }}
                       onPingClick={(id) => { 
                           const p = pings.find(ping => ping.id === id);
                           if (!p) return;
@@ -700,10 +528,8 @@ const App: React.FC = () => {
        ) : renderMainContent()
       }
 
-      {/* MODALES & ELEMENTS FLOTTANTS */}
       <OperatorActionModal visible={!!selectedOperatorId} targetOperator={peers[selectedOperatorId || ''] || null} currentUserRole={user.role} onClose={() => setSelectedOperatorId(null)} onKick={handleOperatorActionKick} onNavigate={handleOperatorActionNavigate} />
       
-      {/* NOUVEAU COMPOSANT MAIN COURANTE */}
       <MainCouranteView 
         visible={showLogs} 
         logs={logs} 
@@ -818,12 +644,9 @@ const App: React.FC = () => {
         </View>
       </Modal>
 
-      {/* ALERTS ET NOTIFICATIONS FLOTTANTES */}
       {activeNotif && <NavNotification message={`${activeNotif.id ? activeNotif.id + ': ' : ''}${activeNotif.msg}`} type={activeNotif.type} isNightOps={nightOpsMode} onDismiss={() => setActiveNotif(null)} />}
       
-      {/* OVERLAY ROUGE POUR NIGHT OPS (EN PLUS DU FILTRE CSS ET DES STYLES) */}
       {nightOpsMode && <View style={styles.nightOpsOverlay} pointerEvents="none" />}
-      
     </View>
   );
 };
