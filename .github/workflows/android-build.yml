@@ -1,4 +1,4 @@
-name: Build & Release Praxis
+name: Build & Release Praxis (Stable)
 
 on:
   workflow_dispatch:
@@ -15,46 +15,52 @@ jobs:
       - name: Checkout du code
         uses: actions/checkout@v4
 
-      - name: Configuration de Node.js (v22)
+      # On utilise Node 20 qui est très stable avec les versions actuelles d'Expo
+      - name: Configuration de Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '20'
+          cache: ''
 
-      - name: Configuration de Java (JDK 21)
+      # JDK 17 est le meilleur compromis pour Expo 51 + Gradle 8/9
+      - name: Configuration de Java (JDK 17)
         uses: actions/setup-java@v4
         with:
-          java-version: '21'
+          java-version: '17'
           distribution: 'temurin'
 
       - name: Installation des dépendances
         run: |
+          # Installation forcée propre pour éviter les conflits de version
           npm install --legacy-peer-deps
           npx expo install --fix
 
       - name: Expo Prebuild
         run: npx expo prebuild --platform android --clean
 
-      # Forçage du wrapper Gradle 9.3.0
+      # On upgrade le wrapper juste avant le build
       - name: Upgrade Gradle Wrapper
         run: |
           cd android
-          ./gradlew wrapper --gradle-version 9.3.0 --distribution-type all
+          chmod +x gradlew
+          ./gradlew wrapper --gradle-version 9.0 --distribution-type all
 
       - name: Build Android APK
         run: |
           cd android
           chmod +x gradlew
-          # Optimisations Gradle 9 pour un build plus rapide
-          ./gradlew assembleDebug --no-daemon --parallel -Dorg.gradle.caching=true
+          # On ajoute --warning-mode all pour voir les soucis sans bloquer
+          ./gradlew assembleDebug --no-daemon --warning-mode all
 
-      - name: Publication de l'APK
-        run: mv android/app/build/outputs/apk/debug/app-debug.apk Praxis-V4-2026.apk
+      - name: Renommer et Publier
+        run: |
+          mv android/app/build/outputs/apk/debug/app-debug.apk Praxis-Stable.apk
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v4.0.0
-          name: "Praxis v4.0.0 - Gradle 9.3 Standard"
-          files: Praxis-V4-2026.apk
+          tag_name: v4.0.0-build-${{ github.run_number }}
+          name: "Praxis Build #${{ github.run_number }}"
+          files: Praxis-Stable.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
