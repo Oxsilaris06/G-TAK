@@ -1,4 +1,4 @@
-name: Build & Release TacSuite (Debug)
+name: Build & Release Praxis (Debug)
 
 on:
   workflow_dispatch:
@@ -57,16 +57,16 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleDebug -Dorg.gradle.jvmargs="-Xmx4608m -XX:MaxMetaspaceSize=1024m" --no-daemon --stacktrace
 
-      - name: Renommer l'APK en TacSuite.apk
+      - name: Renommer l'APK en Praxis.apk
         run: |
-          mv android/app/build/outputs/apk/debug/app-debug.apk TacSuite.apk
+          mv android/app/build/outputs/apk/debug/app-debug.apk Praxis.apk
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: latest
-          name: "TacSuite - Dernière Build"
-          files: TacSuite.apk
+          name: "Praxis - Dernière Build"
+          files: Praxis.apk
           draft: false
           prerelease: false
           overwrite: true
