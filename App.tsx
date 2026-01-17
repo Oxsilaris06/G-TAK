@@ -54,7 +54,7 @@ const App: React.FC = () => {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [user, setUser] = useState<UserData>({ id: '', callsign: '', role: OperatorRole.OPR, status: OperatorStatus.CLEAR, joinedAt: Date.now(), bat: 100, head: 0, lat: 0, lng: 0, lastMsg: '' });
 
-  // MODIFICATION: Ajout de 'oi' comme type possible, ou gestion via un state séparé pour l'overlay
+  // MODIFICATION: Ajout de 'oi' comme type possible
   const [view, setView] = useState<ViewType | 'oi'>('login'); 
   const [lastView, setLastView] = useState<ViewType>('menu'); 
   const [lastOpsView, setLastOpsView] = useState<ViewType>('map');
@@ -567,6 +567,93 @@ const App: React.FC = () => {
       );
   };
 
+  const renderContent = () => {
+    if (view === 'settings') {
+      return (
+        <SettingsView 
+          onClose={() => setView(lastView as ViewType)} 
+          onUpdate={s => { 
+              setSettings(s); 
+              setUser(u => ({...u, paxColor: s.userArrowColor})); 
+              connectivityService.updateUser({paxColor: s.userArrowColor}); 
+              if(s.gpsUpdateInterval !== settings.gpsUpdateInterval) startGpsTracking(s.gpsUpdateInterval);
+              if(s.orientationUpdateInterval !== settings.orientationUpdateInterval) _toggleMagnetometer();
+          }} 
+        />
+      );
+    } else if (view === 'oi') {
+      return <ComposantOrdreInitial onClose={() => setView('login')} />;
+    } else if (view === 'login') {
+      return (
+        <View style={styles.centerContainer}>
+          <Image source={require('./assets/icon2.png')} style={{width: 100, height: 100, marginBottom: 30, borderRadius: 20}} />
+          <Text style={styles.title}>Praxis</Text>
+          <TextInput style={styles.input} placeholder="TRIGRAMME" placeholderTextColor="#52525b" maxLength={6} value={loginInput} onChangeText={setLoginInput} autoCapitalize="characters" />
+          <TouchableOpacity onPress={() => {
+              if (loginInput.length < 2) return;
+              try { AsyncStorage.setItem(CONFIG.TRIGRAM_STORAGE_KEY, loginInput.toUpperCase()); } catch (e) {}
+              if (loginInput.toUpperCase() !== settings.username) configService.update({ username: loginInput.toUpperCase() });
+              setUser(prev => ({ ...prev, callsign: loginInput.toUpperCase(), joinedAt: Date.now() }));
+              setView('menu');
+          }} style={styles.loginBtn}><Text style={styles.loginBtnText}>CONNEXION</Text></TouchableOpacity>
+          
+          <View style={{ marginTop: 20 }}>
+            <ShinyText 
+                text="Stratégica" 
+                onPress={() => setView('oi')}
+                speed={1.5}
+                shineColor="#1e0ff0"
+                spread={115}
+                direction="right"
+                yoyo={true}
+                textStyle={{ fontSize: 18, letterSpacing: 3, fontWeight: 'bold' }}
+            />
+          </View>
+
+          <PrivacyConsentModal onConsentGiven={() => {}} />
+        </View>
+      );
+    } else if (view === 'menu') {
+      return (
+        <SafeAreaView style={styles.safeArea}>
+          <View style={styles.menuContainer}>
+            <View style={{flexDirection: 'row', justifyContent:'space-between', marginBottom: 20}}>
+                <Text style={styles.sectionTitle}>MENU PRINCIPAL</Text>
+                <TouchableOpacity onPress={() => { setLastView('menu'); setView('settings'); }}><MaterialIcons name="settings" size={24} color="white" /></TouchableOpacity>
+            </View>
+            {hostId ? (
+                <>
+                    <TouchableOpacity onPress={() => setView(lastOpsView)} style={[styles.menuCard, {borderColor: '#22c55e'}]}>
+                      <MaterialIcons name="map" size={40} color="#22c55e" />
+                      <View style={{marginLeft: 20}}><Text style={styles.menuCardTitle}>RETOURNER SESSION</Text><Text style={styles.menuCardSubtitle}>{hostId}</Text></View>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => Alert.alert("Déconnexion", "Quitter ?", [{text:"Non"}, {text:"Oui", onPress:handleLogout}])} style={[styles.menuCard, {borderColor: '#ef4444', marginTop: 20}]}>
+                      <MaterialIcons name="logout" size={40} color="#ef4444" />
+                      <View style={{marginLeft: 20}}><Text style={[styles.menuCardTitle, {color:'#ef4444'}]}>QUITTER</Text></View>
+                    </TouchableOpacity>
+                </>
+            ) : (
+                <>
+                    <TouchableOpacity onPress={createSession} style={styles.menuCard}>
+                      <MaterialIcons name="add-location-alt" size={40} color="#3b82f6" />
+                      <View style={{marginLeft: 20}}><Text style={styles.menuCardTitle}>CRÉER SESSION</Text><Text style={styles.menuCardSubtitle}>Hôte</Text></View>
+                    </TouchableOpacity>
+                    <View style={styles.divider} />
+                    <TextInput style={styles.inputBox} placeholder="ID GROUPE..." placeholderTextColor="#52525b" value={hostInput} onChangeText={setHostInput} autoCapitalize="characters" />
+                    <TouchableOpacity onPress={() => joinSession()} style={styles.joinBtn}><Text style={styles.joinBtnText}>REJOINDRE</Text></TouchableOpacity>
+                    <TouchableOpacity onPress={() => { requestCamera().then(() => setShowScanner(true)); }} style={[styles.joinBtn, {marginTop: 10, backgroundColor: '#18181b', borderWidth: 1, borderColor: '#333'}]}>
+                        <Text style={{color: '#71717a'}}>SCANNER QR</Text>
+                    </TouchableOpacity>
+                </>
+            )}
+          </View>
+        </SafeAreaView>
+      );
+    } else {
+      return renderMainContent();
+    }
+  };
+
   const renderMainContent = () => (
       <View style={{flex: 1}}>
           <SafeAreaView style={styles.header}>{renderHeader()}</SafeAreaView>
@@ -654,87 +741,7 @@ const App: React.FC = () => {
   return (
     <View style={styles.container}>
       <StatusBar style="light" backgroundColor="#050505" />
-      {view === 'settings' ? (
-          <SettingsView 
-            onClose={() => setView(lastView as ViewType)} 
-            onUpdate={s => { 
-                setSettings(s); 
-                setUser(u => ({...u, paxColor: s.userArrowColor})); 
-                connectivityService.updateUser({paxColor: s.userArrowColor}); 
-                if(s.gpsUpdateInterval !== settings.gpsUpdateInterval) startGpsTracking(s.gpsUpdateInterval);
-                if(s.orientationUpdateInterval !== settings.orientationUpdateInterval) _toggleMagnetometer();
-            }} 
-          />
-       ) : 
-       view === 'oi' ? (
-         // INTÉGRATION DE LA VUE ORDRE INITIAL
-         <ComposantOrdreInitial onClose={() => setView('login')} />
-       ) :
-       view === 'login' ? (
-        <View style={styles.centerContainer}>
-          <Image source={require('./assets/icon2.png')} style={{width: 100, height: 100, marginBottom: 30, borderRadius: 20}} />
-          <Text style={styles.title}>Praxis</Text>
-          <TextInput style={styles.input} placeholder="TRIGRAMME" placeholderTextColor="#52525b" maxLength={6} value={loginInput} onChangeText={setLoginInput} autoCapitalize="characters" />
-          <TouchableOpacity onPress={() => {
-              if (loginInput.length < 2) return;
-              try { AsyncStorage.setItem(CONFIG.TRIGRAM_STORAGE_KEY, loginInput.toUpperCase()); } catch (e) {}
-              if (loginInput.toUpperCase() !== settings.username) configService.update({ username: loginInput.toUpperCase() });
-              setUser(prev => ({ ...prev, callsign: loginInput.toUpperCase(), joinedAt: Date.now() }));
-              setView('menu');
-          }} style={styles.loginBtn}><Text style={styles.loginBtnText}>CONNEXION</Text></TouchableOpacity>
-          
-          <View style={{ marginTop: 20 }}>
-            <ShinyText 
-                text="Stratégica" 
-                onPress={() => setView('oi')}
-                speed={1.5}
-                shineColor="#1e0ff0"
-                spread={115}
-                direction="right"
-                yoyo
-                textStyle={{ fontSize: 18, letterSpacing: 3, fontWeight: 'bold' }}
-            />
-          </View>
-
-          <PrivacyConsentModal onConsentGiven={() => {}} />
-        </View>
-       ) :
-       view === 'menu' ? (
-        <SafeAreaView style={styles.safeArea}>
-          <View style={styles.menuContainer}>
-            <View style={{flexDirection: 'row', justifyContent:'space-between', marginBottom: 20}}>
-                <Text style={styles.sectionTitle}>MENU PRINCIPAL</Text>
-                <TouchableOpacity onPress={() => { setLastView('menu'); setView('settings'); }}><MaterialIcons name="settings" size={24} color="white" /></TouchableOpacity>
-            </View>
-            {hostId ? (
-                <>
-                    <TouchableOpacity onPress={() => setView(lastOpsView)} style={[styles.menuCard, {borderColor: '#22c55e'}]}>
-                      <MaterialIcons name="map" size={40} color="#22c55e" />
-                      <View style={{marginLeft: 20}}><Text style={styles.menuCardTitle}>RETOURNER SESSION</Text><Text style={styles.menuCardSubtitle}>{hostId}</Text></View>
-                    </TouchableOpacity>
-                    <TouchableOpacity onPress={() => Alert.alert("Déconnexion", "Quitter ?", [{text:"Non"}, {text:"Oui", onPress:handleLogout}])} style={[styles.menuCard, {borderColor: '#ef4444', marginTop: 20}]}>
-                      <MaterialIcons name="logout" size={40} color="#ef4444" />
-                      <View style={{marginLeft: 20}}><Text style={[styles.menuCardTitle, {color:'#ef4444'}]}>QUITTER</Text></View>
-                    </TouchableOpacity>
-                </>
-            ) : (
-                <>
-                    <TouchableOpacity onPress={createSession} style={styles.menuCard}>
-                      <MaterialIcons name="add-location-alt" size={40} color="#3b82f6" />
-                      <View style={{marginLeft: 20}}><Text style={styles.menuCardTitle}>CRÉER SESSION</Text><Text style={styles.menuCardSubtitle}>Hôte</Text></View>
-                    </TouchableOpacity>
-                    <View style={styles.divider} />
-                    <TextInput style={styles.inputBox} placeholder="ID GROUPE..." placeholderTextColor="#52525b" value={hostInput} onChangeText={setHostInput} autoCapitalize="characters" />
-                    <TouchableOpacity onPress={() => joinSession()} style={styles.joinBtn}><Text style={styles.joinBtnText}>REJOINDRE</Text></TouchableOpacity>
-                    <TouchableOpacity onPress={() => { requestCamera().then(() => setShowScanner(true)); }} style={[styles.joinBtn, {marginTop: 10, backgroundColor: '#18181b', borderWidth: 1, borderColor: '#333'}]}>
-                        <Text style={{color: '#71717a'}}>SCANNER QR</Text>
-                    </TouchableOpacity>
-                </>
-            )}
-          </View>
-        </SafeAreaView>
-       ) : renderMainContent()
-      }
+      {renderContent()}
 
       <OperatorActionModal visible={!!selectedOperatorId} targetOperator={peers[selectedOperatorId || ''] || null} currentUserRole={user.role} onClose={() => setSelectedOperatorId(null)} onKick={handleOperatorActionKick} onNavigate={handleOperatorActionNavigate} />
       <MainCouranteView visible={showLogs} logs={logs} role={user.role} onClose={() => setShowLogs(false)} onAddLog={handleAddLog} onUpdateLog={handleUpdateLog} onDeleteLog={handleDeleteLog} />
