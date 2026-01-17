@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useMemo } from 'react';
 import { View, StyleSheet, ActivityIndicator } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { UserData, PingData } from '../types';
@@ -8,7 +8,7 @@ interface TacticalMapProps {
   peers: Record<string, UserData>;
   pings: PingData[];
   mapMode: 'dark' | 'light' | 'satellite' | 'custom';
-  customMapUrl?: string; // Ajout
+  customMapUrl?: string;
   showTrails: boolean;
   showPings: boolean;
   isHost: boolean;
@@ -16,12 +16,12 @@ interface TacticalMapProps {
   navTargetId?: string | null;
   pingMode?: boolean; 
   nightOpsMode?: boolean;
-  initialCenter?: {lat: number, lng: number, zoom: number}; // Ajout
+  initialCenter?: {lat: number, lng: number, zoom: number};
   onPing: (loc: { lat: number; lng: number }) => void;
   onPingMove: (ping: PingData) => void;
   onPingClick: (id: string) => void; 
   onNavStop: () => void;
-  onMapMoveEnd?: (center: {lat: number, lng: number}, zoom: number) => void; // Ajout
+  onMapMoveEnd?: (center: {lat: number, lng: number}, zoom: number) => void;
 }
 
 const TacticalMap: React.FC<TacticalMapProps> = ({
@@ -30,12 +30,16 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
 }) => {
   const webViewRef = useRef<WebView>(null);
 
-  // Injection des données initiales pour éviter le recentrage intempestif
-  const startLat = initialCenter ? initialCenter.lat : (me.lat || 48.85);
-  const startLng = initialCenter ? initialCenter.lng : (me.lng || 2.35);
-  const startZoom = initialCenter ? initialCenter.zoom : 13;
+  // MEMOIZATION CRITIQUE : Le HTML ne doit jamais changer après le premier rendu
+  // Sinon la WebView se recharge et la carte "saute".
+  const leafletHTML = useMemo(() => {
+      // Valeurs par défaut safe pour l'initialisation
+      const startLat = initialCenter ? initialCenter.lat : 48.85;
+      const startLng = initialCenter ? initialCenter.lng : 2.35;
+      const startZoom = initialCenter ? initialCenter.zoom : 13;
+      const initialAutoCentered = !!initialCenter;
 
-  const leafletHTML = `
+      return `
     <!DOCTYPE html>
     <html>
     <head>
@@ -101,10 +105,11 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         let navLine = null;
         
         let pings = {};
-        let userArrowColor = '${userArrowColor}';
+        let userArrowColor = '#3b82f6'; // Défaut, sera mis à jour par React
         let pingMode = false;
         let lastMePos = null;
-        let autoCentered = ${initialCenter ? 'true' : 'false'};
+        // Si on a fourni un centre initial, on considère qu'on est déjà centré
+        let autoCentered = ${initialAutoCentered}; 
 
         function hexToRgba(hex, alpha) {
             let r = parseInt(hex.slice(1, 3), 16),
@@ -118,7 +123,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         document.addEventListener('message', (event) => handleData(JSON.parse(event.data)));
         window.addEventListener('message', (event) => handleData(JSON.parse(event.data)));
 
-        // Event listener pour sauvegarder la position de la carte
         map.on('moveend', () => {
             const center = map.getCenter();
             sendToApp({ type: 'MAP_MOVE_END', center: {lat: center.lat, lng: center.lng}, zoom: map.getZoom() });
@@ -149,9 +153,8 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                     if(el) el.style.transform = 'rotate(' + rot + 'deg)';
                 }
 
-                // Auto-center uniquement si pas encore centré OU si bouton "Locate Me" (optionnel, ici auto sur mouvement)
+                // Auto-center au premier fix GPS valide si pas déjà centré
                 if (!autoCentered && data.me && data.me.lat !== 0 && data.me.lng !== 0) {
-                     // On ne centre automatiquement qu'au premier fix valide si pas de state initial
                      map.setView([data.me.lat, data.me.lng], 16);
                      autoCentered = true;
                 }
@@ -197,19 +200,16 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
             }
 
             all.forEach(u => {
-                // --- LOGIQUE COULEUR CORRIGÉE ---
                 let colorHex = '#71717a'; 
                 
-                if (u.status === 'CONTACT') colorHex = '#ef4444'; // Rouge (Priorité absolue)
-                else if (u.status === 'CLEAR') colorHex = '#22c55e'; // Vert
-                else if (u.status === 'BUSY') colorHex = '#a855f7'; // Violet
+                if (u.status === 'CONTACT') colorHex = '#ef4444';
+                else if (u.status === 'CLEAR') colorHex = '#22c55e';
+                else if (u.status === 'BUSY') colorHex = '#a855f7';
                 else if (u.status === 'PROGRESSION') {
-                    // C'est UNIQUEMENT ici que la couleur personnalisée s'applique
                     colorHex = u.paxColor || '#3b82f6'; 
                 } else {
-                    colorHex = '#eab308'; // Jaune (Appui/Autre)
+                    colorHex = '#eab308';
                 }
-                // ---------------------------------
 
                 let bgRgba = hexToRgba(colorHex, 0.6);
                 const rot = u.head || 0;
@@ -228,7 +228,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                     markers[u.id] = L.marker([u.lat, u.lng], { icon: icon, pane: 'userPane' }).addTo(map); 
                 }
 
-                // --- TRAIL LOGIC ---
                 if (showTrails) {
                     if (!trails[u.id]) trails[u.id] = [];
                     const history = trails[u.id];
@@ -242,7 +241,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
 
                     if (trailPolylines[u.id]) {
                         trailPolylines[u.id].setLatLngs(history);
-                        trailPolylines[u.id].setStyle({ color: colorHex }); // Le trail prend la couleur du statut
+                        trailPolylines[u.id].setStyle({ color: colorHex }); 
                         if (!map.hasLayer(trailPolylines[u.id])) trailPolylines[u.id].addTo(map);
                     } else {
                         trailPolylines[u.id] = L.polyline(history, { 
@@ -288,15 +287,12 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
 
                 if (pings[p.id]) {
                     pings[p.id].setLatLng([p.lat, p.lng]);
-                    // Update content if needed (not optimized here for brevity but functional)
                     if(pings[p.id]._icon) pings[p.id]._icon.innerHTML = html;
                 } else {
                     const icon = L.divIcon({ className: 'custom-div-icon', html: html, iconSize: [100, 60], iconAnchor: [50, 50] });
                     const m = L.marker([p.lat, p.lng], { icon: icon, draggable: canDrag, pane: 'pingPane' });
                     
-                    // Click Event pour Éditer ou voir détails
                     m.on('click', () => sendToApp({ type: 'PING_CLICK', id: p.id }));
-                    // Drag Event
                     m.on('dragend', (e) => sendToApp({ type: 'PING_MOVE', id: p.id, lat: e.target.getLatLng().lat, lng: e.target.getLatLng().lng }));
                     
                     pings[p.id] = m;
@@ -308,9 +304,12 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
     </body>
     </html>
   `;
+  // Le tableau de dépendances vide [] garantit que le HTML n'est généré qu'UNE SEULE fois au montage.
+  }, []); 
 
   useEffect(() => {
     if (webViewRef.current) {
+      // Toutes les mises à jour passent par ici (Bridge JS) sans recharger la page
       webViewRef.current.postMessage(JSON.stringify({
         type: 'UPDATE_MAP', me, peers, pings, mode: mapMode, customMapUrl,
         showTrails, showPings, isHost,
