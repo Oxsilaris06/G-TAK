@@ -7,8 +7,12 @@ import {
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import QRCode from 'react-native-qrcode-svg';
-import { Camera } from 'expo-camera'; 
-import { CameraView } from 'expo-camera/next';
+
+// --- CORRECTION ICI ---
+// CameraView est maintenant exporté directement depuis 'expo-camera' dans le SDK 51
+// On importe "Camera" pour les permissions (Legacy) et "CameraView" pour le scanner (Nouveau)
+import { Camera, CameraView } from 'expo-camera'; 
+
 import * as Notifications from 'expo-notifications';
 import * as Location from 'expo-location';
 import { useKeepAwake } from 'expo-keep-awake';
