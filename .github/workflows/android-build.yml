@@ -1,4 +1,4 @@
-name: Build & Release Praxis (Modules Fix)
+name: Build & Release Praxis (All Mods)
 
 on:
   workflow_dispatch:
@@ -30,8 +30,8 @@ jobs:
       - name: Installation des dépendances
         run: |
           npm install --legacy-peer-deps
-          # Installation explicite des modules critiques pour le bundle
-          npx expo install expo-camera expo-document-picker expo-image-picker -- --legacy-peer-deps
+          # On installe TOUT ce qui pourrait manquer pour le bundle
+          npx expo install expo-camera expo-document-picker expo-image-picker expo-print expo-sharing -- --legacy-peer-deps
           # Fix global
           npx expo install --fix -- --legacy-peer-deps
 
@@ -50,7 +50,7 @@ jobs:
             echo "Fichier non trouvé: $FILE"
           fi
 
-      # FORCE BUNDLE JS (Avec tous les modules cette fois)
+      # FORCE BUNDLE JS
       - name: Force Bundle JS
         run: |
           mkdir -p android/app/src/main/assets
@@ -70,13 +70,13 @@ jobs:
 
       - name: Renommer et Publier
         run: |
-          mv android/app/build/outputs/apk/debug/app-debug.apk Praxis-Complete.apk
+          mv android/app/build/outputs/apk/debug/app-debug.apk Praxis-V4.apk
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v4.0.4-complete-${{ github.run_number }}
+          tag_name: v4.0.5-final-${{ github.run_number }}
           name: "Praxis Release #${{ github.run_number }}"
-          files: Praxis-Complete.apk
+          files: Praxis-V4.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
