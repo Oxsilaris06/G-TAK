@@ -1,4 +1,4 @@
-name: Build & Release Praxis (Camera Fix)
+name: Build & Release Praxis (Modules Fix)
 
 on:
   workflow_dispatch:
@@ -30,15 +30,15 @@ jobs:
       - name: Installation des dépendances
         run: |
           npm install --legacy-peer-deps
-          # FORCE INSTALL : On installe explicitement expo-camera pour être sûr à 100% qu'il est là
-          npx expo install expo-camera -- --legacy-peer-deps
-          # Puis on fixe le reste
+          # Installation explicite des modules critiques pour le bundle
+          npx expo install expo-camera expo-document-picker expo-image-picker -- --legacy-peer-deps
+          # Fix global
           npx expo install --fix -- --legacy-peer-deps
 
       - name: Expo Prebuild
         run: npx expo prebuild --platform android --clean
 
-      # PATCH WEBRTC (Toujours nécessaire)
+      # PATCH WEBRTC
       - name: Patch WebRTC (Remove USB Camera Dep)
         run: |
           echo "Patching react-native-webrtc build.gradle..."
@@ -50,7 +50,7 @@ jobs:
             echo "Fichier non trouvé: $FILE"
           fi
 
-      # FORCE BUNDLE JS
+      # FORCE BUNDLE JS (Avec tous les modules cette fois)
       - name: Force Bundle JS
         run: |
           mkdir -p android/app/src/main/assets
@@ -70,13 +70,13 @@ jobs:
 
       - name: Renommer et Publier
         run: |
-          mv android/app/build/outputs/apk/debug/app-debug.apk Praxis-CamFix.apk
+          mv android/app/build/outputs/apk/debug/app-debug.apk Praxis-Complete.apk
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v4.0.3-cam-${{ github.run_number }}
+          tag_name: v4.0.4-complete-${{ github.run_number }}
           name: "Praxis Release #${{ github.run_number }}"
-          files: Praxis-CamFix.apk
+          files: Praxis-Complete.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
