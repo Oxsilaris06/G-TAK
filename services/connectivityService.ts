@@ -35,7 +35,7 @@ class ConnectivityService {
   private handshakeInterval: any = null;
   
   private isDestroyed = false;
-  private isPaused = false; 
+  // REMOVED: isPaused logic to ensure background transmission continues
   private isConnecting = false;
 
   public subscribe(listener: Listener): () => void {
@@ -49,11 +49,10 @@ class ConnectivityService {
 
   public handleAppStateChange(status: AppStateStatus) {
       if (status === 'background') {
-          this.isPaused = true;
-          if (this.retryTimeout) clearTimeout(this.retryTimeout);
-          if (this.handshakeInterval) clearInterval(this.handshakeInterval);
+          // We keep the connection alive in background for tactical tracking
+          // Optional: You could lower the sync rate here if needed, but for now we keep it active.
+          console.log("[NET] App in background - Maintaining Tactical Link");
       } else if (status === 'active') {
-          this.isPaused = false;
           if (!this.peer || this.peer.disconnected || this.peer.destroyed) {
               console.log("[NET] Resume from background: Reconnecting...");
               this.scheduleReconnect(true);
@@ -66,7 +65,6 @@ class ConnectivityService {
   public async init(user: UserData, role: OperatorRole, targetHostId?: string) {
     this.cleanup(false);
     this.isDestroyed = false;
-    this.isPaused = false;
     
     this.user = { ...user, role };
     this.role = role;
@@ -79,7 +77,7 @@ class ConnectivityService {
   }
 
   private createPeer(id?: string) {
-    if (this.isPaused || this.isConnecting) return;
+    if (this.isConnecting) return;
     this.isConnecting = true;
 
     try {
@@ -113,8 +111,6 @@ class ConnectivityService {
             this.isConnecting = false;
             console.error(`[NET] Peer Error: ${err.type}`, err);
             
-            if (this.isPaused) return;
-
             if (err.type === 'unavailable-id') {
                 this.notify({ type: 'TOAST', msg: 'ID Hôte indisponible (déjà pris ?)', level: 'warning' });
                 setTimeout(() => this.createPeer(undefined), 1000);
@@ -132,7 +128,7 @@ class ConnectivityService {
 
         peer.on('disconnected', () => {
             console.log('[NET] Disconnected from signaling server');
-            if (!this.isDestroyed && !this.isPaused && this.peer && !this.peer.destroyed) {
+            if (!this.isDestroyed && this.peer && !this.peer.destroyed) {
                 this.peer.reconnect();
             }
         });
@@ -146,7 +142,7 @@ class ConnectivityService {
 
   private scheduleReconnect(immediate = false) {
       if (this.retryTimeout) clearTimeout(this.retryTimeout);
-      if (this.isDestroyed || this.isPaused) return;
+      if (this.isDestroyed) return;
 
       const delay = immediate ? 100 : RECONNECT_INTERVAL;
 
@@ -161,7 +157,7 @@ class ConnectivityService {
   }
 
   public connectToHost(targetId: string) {
-      if (!this.peer || this.peer.destroyed || this.isPaused) return;
+      if (!this.peer || this.peer.destroyed) return;
       
       console.log(`[NET] Connecting to Host ${targetId}...`);
       
@@ -196,9 +192,9 @@ class ConnectivityService {
       
       conn.on('close', () => {
           console.log(`[NET] Tunnel CLOSE with ${conn.peer}`);
-          this.removePeer(conn.peer); // Nettoyage centralisé
+          this.removePeer(conn.peer); 
           
-          if (!this.isPaused && this.role === OperatorRole.OPR && conn.peer === this.hostId) {
+          if (this.role === OperatorRole.OPR && conn.peer === this.hostId) {
               this.notify({ type: 'DISCONNECTED', reason: 'NO_HOST' });
               this.scheduleReconnect();
           }
@@ -209,10 +205,8 @@ class ConnectivityService {
       });
   }
 
-  // Helper pour suppression propre
   private removePeer(peerId: string) {
       if (this.connections[peerId]) {
-          // On ne close pas ici pour éviter une boucle, car c'est souvent appelé par 'close' ou 'CLIENT_LEAVING'
           delete this.connections[peerId];
       }
       if (this.peersMap[peerId]) {
@@ -228,7 +222,6 @@ class ConnectivityService {
       conn.send({ type: 'HELLO', user: this.user });
 
       this.handshakeInterval = setInterval(() => {
-          if (this.isPaused) return; 
           if (conn.open) {
               conn.send({ type: 'HELLO', user: this.user });
           } else {
@@ -241,8 +234,6 @@ class ConnectivityService {
       if (this.syncInterval) clearInterval(this.syncInterval);
       
       this.syncInterval = setInterval(() => {
-          if (this.isPaused) return;
-
           const list = Object.values(this.peersMap);
           if (this.user) list.push(this.user);
           
@@ -270,21 +261,19 @@ class ConnectivityService {
           }
       }
 
-      // --- GESTION DU DÉPART EXPLICITE ---
       if (data.type === 'CLIENT_LEAVING') {
           const callsign = data.callsign || fromId.substring(0,4);
           this.notify({ type: 'TOAST', msg: `${callsign} a quitté.`, level: 'info' });
-          
-          // Suppression immédiate de la carte et des listes
           this.removePeer(fromId);
-          
-          // Si on est Hôte, on propage l'info aux autres clients pour qu'ils le suppriment aussi
           if (this.role === OperatorRole.HOST) {
-               // On broadcast le départ aux autres
-               // (Les autres clients recevront CLIENT_LEAVING et exécuteront ce même bloc)
                this.broadcast({ type: 'CLIENT_LEAVING', id: fromId, callsign: callsign });
           }
-          return; // On arrête le traitement ici pour ce message
+          return; 
+      }
+      
+      // NEW: Rally Notification handling
+      if (data.type === 'RALLY_REQ') {
+          this.notify({ type: 'TOAST', msg: `${data.sender} vous rejoint !`, level: 'info' });
       }
 
       this.notify({ type: 'DATA_RECEIVED', data, from: fromId });
@@ -299,8 +288,6 @@ class ConnectivityService {
               }
           }
       } else if (data.type === 'SYNC' && Array.isArray(data.list)) {
-          // On remplace la map complète pour être sûr de supprimer les fantômes
-          // Mais on garde notre propre user
           const newMap: Record<string, UserData> = {};
           data.list.forEach((u: UserData) => {
               if (u.id !== this.user?.id) newMap[u.id] = u;
