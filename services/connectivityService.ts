@@ -15,43 +15,31 @@ export type ConnectivityEvent =
 
 type Listener = (event: ConnectivityEvent) => void;
 
-// Configuration Résilience (Délais ajustés pour mobile)
-const RETRY_DELAY_MS = 2000;
-const MAX_RETRIES = 20;
-const HEARTBEAT_MS = 2000;
-const TIMEOUT_MS = 8000; 
-
-// États internes
-enum ConnectionState {
-    DISCONNECTED,
-    INITIALIZING,
-    CONNECTED,
-    RECOVERING
-}
+// Délais critiques pour mobile
+const RECONNECT_INTERVAL = 3000;
+const SYNC_INTERVAL = 2000; // Heartbeat Host (comme comtac.html)
+const HANDSHAKE_RETRY = 1000; // Client insiste tant que pas connecté
 
 class ConnectivityService {
   private peer: Peer | null = null;
   private connections: Record<string, DataConnection> = {};
   private listeners: Listener[] = [];
   
-  // État Applicatif
+  // État local
   private user: UserData | null = null;
   private hostId: string | null = null;
-  private targetHostId: string | null = null;
   private role: OperatorRole = OperatorRole.OPR;
   private peersMap: Record<string, UserData> = {};
-  private bannedPeers: Set<string> = new Set();
-
-  // État Technique
-  private state: ConnectionState = ConnectionState.DISCONNECTED;
-  private retryCount = 0;
-  private heartbeatTimer: any = null;
-  private lastHeartbeat: Record<string, number> = {};
   
-  // File d'attente pour garantir l'envoi post-connexion
-  private msgQueue: { targetId?: string, data: any }[] = [];
+  // Timers
+  private syncInterval: any = null;
+  private retryTimeout: any = null;
+  private handshakeInterval: any = null;
+  
+  private isDestroyed = false;
 
-  // --- ABONNEMENTS ---
+  // --- PUBLIC API ---
+
   public subscribe(listener: Listener): () => void {
     this.listeners.push(listener);
     return () => { this.listeners = this.listeners.filter(l => l !== listener); };
@@ -61,215 +49,225 @@ class ConnectivityService {
     this.listeners.forEach(l => l(event));
   }
 
-  // --- INITIALISATION (HARD RESET) ---
-  public async init(user: UserData, role: OperatorRole, targetHostId?: string, forceId?: string) {
-    // Évite les doubles inits
-    if (this.state === ConnectionState.INITIALIZING) return;
-
-    this.cleanup(false); 
+  public async init(user: UserData, role: OperatorRole, targetHostId?: string) {
+    this.cleanup(false); // Reset propre mais garde l'état "vivant"
+    this.isDestroyed = false;
     
-    this.state = ConnectionState.INITIALIZING;
     this.user = { ...user, role };
     this.role = role;
-    this.targetHostId = targetHostId || null;
+    this.hostId = targetHostId || null;
 
-    const myId = forceId || (role === OperatorRole.HOST ? this.generateShortId() : undefined);
-    console.log(`[Connectivity] Hard Init. Role: ${role}, ID: ${myId || 'AUTO'}`);
-
+    // ID Statique pour l'hôte pour faciliter la reconnexion, aléatoire pour client
+    // Note: Utiliser un ID aléatoire court évite les problèmes de "ID Taken" fantômes
+    const myId = role === OperatorRole.HOST ? this.generateShortId() : undefined; 
+    
+    console.log(`[NET] Init. Role: ${role}, TargetHost: ${targetHostId}`);
     this.createPeer(myId);
   }
+
+  // --- PEER LIFECYCLE ---
 
   private createPeer(id?: string) {
     try {
         const peer = new Peer(id, CONFIG.PEER_CONFIG as any);
         this.peer = peer;
 
-        // Timeout de sécurité : si pas OPEN en 10s, on tue et on réessaie
-        const openTimeout = setTimeout(() => {
-            if (this.state === ConnectionState.INITIALIZING) {
-                console.warn('[Connectivity] Peer Open Timeout. Retrying...');
-                this.handleConnectionFailure();
-            }
-        }, 10000);
-
         peer.on('open', (peerId) => {
-            clearTimeout(openTimeout);
-            this.onPeerOpen(peerId);
+            console.log(`[NET] Peer OPEN: ${peerId}`);
+            if (this.user) this.user.id = peerId;
+            this.notify({ type: 'PEER_OPEN', id: peerId });
+
+            if (this.role === OperatorRole.HOST) {
+                this.hostId = peerId;
+                this.peersMap[peerId] = this.user!;
+                this.notify({ type: 'PEERS_UPDATED', peers: this.peersMap });
+                this.notify({ type: 'TOAST', msg: `Canal Hôte: ${peerId}`, level: 'success' });
+                this.startHostSync();
+            } else if (this.hostId) {
+                this.connectToHost(this.hostId);
+            }
         });
 
-        peer.on('connection', (conn) => this.onIncomingConnection(conn));
-        
-        peer.on('error', (err: any) => this.onPeerError(err));
-        
+        peer.on('connection', (conn) => {
+            this.setupConnection(conn);
+        });
+
+        peer.on('error', (err: any) => {
+            console.error(`[NET] Error: ${err.type}`, err);
+            if (err.type === 'unavailable-id') {
+                // Si ID pris, on réessaie avec un nouveau (ou auto)
+                this.notify({ type: 'TOAST', msg: 'ID indisponible, nouvel essai...', level: 'warning' });
+                setTimeout(() => this.createPeer(undefined), 1000);
+            } else if (err.type === 'peer-unavailable') {
+                // Hôte pas trouvé, on réessaie plus tard
+                if (!this.isDestroyed) {
+                    this.notify({ type: 'TOAST', msg: 'Hôte introuvable...', level: 'error' });
+                    this.scheduleReconnect();
+                }
+            } else if (err.type === 'network' || err.type === 'disconnected') {
+                this.scheduleReconnect();
+            }
+        });
+
         peer.on('disconnected', () => {
-            // Pas de reconnect() ici, c'est la source des bugs fantômes. 
-            // On détecte la déconnexion et on lance la procédure de Hard Reset.
-            console.log('[Connectivity] Peer disconnected event.');
-            this.handleConnectionFailure();
+            console.log('[NET] Disconnected from signalling server');
+            // PeerJS peut se reconnecter au serveur de signalisation sans tout casser
+            if (!this.isDestroyed && this.peer && !this.peer.destroyed) {
+                this.peer.reconnect();
+            }
         });
 
         peer.on('close', () => {
-            this.state = ConnectionState.DISCONNECTED;
+            console.log('[NET] Peer Closed');
+            if (!this.isDestroyed) this.scheduleReconnect();
         });
 
     } catch (e) {
-        console.error('Peer creation crash', e);
-        this.handleConnectionFailure();
+        console.error('[NET] Crash creation', e);
+        this.scheduleReconnect();
     }
   }
 
-  private onPeerOpen(id: string) {
-      console.log(`[Connectivity] Peer READY: ${id}`);
-      this.state = ConnectionState.CONNECTED;
-      this.retryCount = 0;
-      
-      if (this.user) this.user.id = id;
-      this.notify({ type: 'PEER_OPEN', id });
-
-      if (this.role === OperatorRole.HOST) {
-          this.hostId = id;
-          this.peersMap[id] = this.user!;
-          this.notify({ type: 'PEERS_UPDATED', peers: this.peersMap });
-          this.notify({ type: 'TOAST', msg: 'Session Active', level: 'success' });
-          this.startHeartbeat();
-      } else if (this.targetHostId) {
-          this.connectToHost(this.targetHostId);
-      }
-      
-      this.flushQueue();
+  private scheduleReconnect() {
+      if (this.retryTimeout) clearTimeout(this.retryTimeout);
+      this.retryTimeout = setTimeout(() => {
+          console.log('[NET] Reconnecting...');
+          // On détruit tout pour repartir sur une base saine (Hard Reset)
+          if (this.peer) this.peer.destroy();
+          this.createPeer(this.role === OperatorRole.HOST && this.user?.id ? this.user.id : undefined);
+      }, RECONNECT_INTERVAL);
   }
 
-  // --- GESTION DES ERREURS ---
-  private onPeerError(err: any) {
-      console.error(`[Connectivity] Peer Error: ${err.type}`, err);
-      
-      if (err.type === 'unavailable-id') {
-          this.cleanup();
-          setTimeout(() => this.init(this.user!, this.role, this.targetHostId!, undefined), 1000);
-      } else if (err.type === 'peer-unavailable') {
-          this.notify({ type: 'TOAST', msg: 'Hôte introuvable', level: 'error' });
-          this.handleConnectionFailure(); 
-      } else {
-          this.handleConnectionFailure();
-      }
-  }
+  // --- CONNECTION MANAGEMENT ---
 
-  private handleConnectionFailure() {
-      if (this.state === ConnectionState.RECOVERING) return;
-      
-      if (this.retryCount >= MAX_RETRIES) {
-          this.notify({ type: 'DISCONNECTED', reason: 'NETWORK_ERROR' });
-          this.cleanup();
-          return;
-      }
-
-      this.state = ConnectionState.RECOVERING;
-      this.retryCount++;
-      const delay = Math.min(RETRY_DELAY_MS * this.retryCount, 10000);
-      
-      this.notify({ type: 'RECONNECTING', attempt: this.retryCount });
-      console.log(`[Connectivity] Recovery sequence ${this.retryCount}/${MAX_RETRIES} in ${delay}ms`);
-
-      if (this.peer) {
-          this.peer.destroy();
-          this.peer = null;
-      }
-
-      setTimeout(() => {
-          const currentId = this.user?.id; 
-          this.createPeer(currentId); 
-      }, delay);
-  }
-
-  // --- CONNEXION P2P ---
   public connectToHost(targetId: string) {
-      if (!this.peer || this.state !== ConnectionState.CONNECTED) {
-          console.log('[Connectivity] Not ready to connect, queueing...');
-          return;
-      }
-
-      console.log(`[Connectivity] Connecting to Host ${targetId}...`);
+      if (!this.peer || this.peer.destroyed) return;
       
+      console.log(`[NET] Connecting to ${targetId}...`);
+      
+      // Fermeture des anciennes connexions vers cet hôte
       if (this.connections[targetId]) {
           this.connections[targetId].close();
           delete this.connections[targetId];
       }
 
-      const conn = this.peer.connect(targetId, {
-          reliable: true,
-          serialization: 'json',
-          metadata: { version: '3.3.0' }
+      // CRITIQUE : serialization: 'json' est obligatoire pour Android/Hermes
+      const conn = this.peer.connect(targetId, { 
+          reliable: true, 
+          serialization: 'json' 
       });
-
-      this.setupConnection(conn);
-  }
-
-  private onIncomingConnection(conn: DataConnection) {
-      if (this.bannedPeers.has(conn.peer)) {
-          conn.close();
-          return;
-      }
+      
       this.setupConnection(conn);
   }
 
   private setupConnection(conn: DataConnection) {
+      // Gestionnaire unique pour connexions entrantes (Host) et sortantes (Client)
+      
       conn.on('open', () => {
-          console.log(`[Connectivity] Connection OPEN with ${conn.peer}`);
+          console.log(`[NET] Tunnel OPEN with ${conn.peer}`);
           this.connections[conn.peer] = conn;
-          this.lastHeartbeat[conn.peer] = Date.now();
 
-          // DELAI DE SECURITE (WARM-UP) POUR ANDROID
-          // Vital pour s'assurer que le buffer UDP est prêt avant d'envoyer le SYNC lourd
-          setTimeout(() => {
-              if (this.role === OperatorRole.HOST) {
-                  // Hôte envoie la liste des pairs
-                  conn.send({ type: 'SYNC', list: Object.values(this.peersMap) });
-              } else if (conn.peer === this.targetHostId) {
-                  // Client envoie son profil
-                  this.hostId = conn.peer;
-                  this.notify({ type: 'HOST_CONNECTED', hostId: this.hostId });
-                  conn.send({ type: 'FULL', user: this.user });
-                  this.startHeartbeat();
-              }
-              this.flushQueue();
-          }, 500); 
+          if (this.role === OperatorRole.HOST) {
+              // L'hôte envoie immédiatement un SYNC pour débloquer le client
+              this.sendSync(conn);
+          } else {
+              // Le client envoie son profil en boucle jusqu'à recevoir une réponse
+              // C'est le "Aggressive Handshake"
+              this.notify({ type: 'HOST_CONNECTED', hostId: conn.peer });
+              this.startClientHandshake(conn);
+          }
       });
 
       conn.on('data', (data) => this.handleData(data, conn.peer));
       
       conn.on('close', () => {
-          console.log(`[Connectivity] Connection CLOSE with ${conn.peer}`);
-          this.handlePeerLoss(conn.peer);
+          console.log(`[NET] Tunnel CLOSE with ${conn.peer}`);
+          delete this.connections[conn.peer];
+          delete this.peersMap[conn.peer];
+          this.notify({ type: 'PEERS_UPDATED', peers: this.peersMap });
+          
+          if (this.role === OperatorRole.OPR && conn.peer === this.hostId) {
+              this.notify({ type: 'DISCONNECTED', reason: 'NO_HOST' });
+              // Tenter de se reconnecter
+              this.scheduleReconnect();
+          }
       });
       
-      conn.on('error', (e) => {
-          console.warn(`[Connectivity] Connection ERROR with ${conn.peer}`, e);
+      conn.on('error', (err) => {
+          console.warn(`[NET] Conn Error ${conn.peer}`, err);
           conn.close();
       });
   }
 
-  // --- TRAITEMENT DES DONNÉES ---
+  // --- DATA LOGIC ---
+
+  private startClientHandshake(conn: DataConnection) {
+      if (this.handshakeInterval) clearInterval(this.handshakeInterval);
+      
+      // Envoie le profil toutes les secondes tant que la connexion est ouverte
+      // S'arrêtera quand on recevra un SYNC (voir handleData)
+      this.handshakeInterval = setInterval(() => {
+          if (conn.open) {
+              console.log('[NET] Sending HELLO...');
+              conn.send({ type: 'HELLO', user: this.user });
+          } else {
+              clearInterval(this.handshakeInterval);
+          }
+      }, HANDSHAKE_RETRY);
+  }
+
+  private startHostSync() {
+      if (this.syncInterval) clearInterval(this.syncInterval);
+      
+      // Heartbeat de l'hôte : diffuse l'état complet à tout le monde
+      this.syncInterval = setInterval(() => {
+          const list = Object.values(this.peersMap);
+          // On s'ajoute soi-même (hôte) à la liste
+          if (this.user) list.push(this.user);
+          
+          const payload = { type: 'SYNC', list };
+          
+          Object.values(this.connections).forEach(conn => {
+              if (conn.open) conn.send(payload);
+          });
+      }, SYNC_INTERVAL);
+  }
+
+  private sendSync(conn: DataConnection) {
+      const list = Object.values(this.peersMap);
+      if (this.user) list.push(this.user);
+      conn.send({ type: 'SYNC', list });
+  }
+
   private handleData(data: any, fromId: string) {
-      this.lastHeartbeat[fromId] = Date.now();
+      // console.log(`[NET] RX form ${fromId}:`, data.type);
 
-      if (data.type === 'HEARTBEAT') return;
-
-      // Mécanisme d'acquittement implicite pour le SYNC
-      if (data.type === 'FULL' && this.role === OperatorRole.HOST) {
-          // Si on reçoit FULL, c'est que le client vient d'arriver ou de reconnecter
-          // On lui renvoie TOUT pour être sûr qu'il est à jour
-          this.sendTo(fromId, { type: 'SYNC', list: Object.values(this.peersMap) });
+      // Si je suis client et que je reçois un SYNC, le handshake est réussi
+      if (this.role === OperatorRole.OPR && data.type === 'SYNC') {
+          if (this.handshakeInterval) {
+              clearInterval(this.handshakeInterval);
+              this.handshakeInterval = null;
+              this.notify({ type: 'TOAST', msg: 'Synchronisé', level: 'success' });
+          }
       }
 
       this.notify({ type: 'DATA_RECEIVED', data, from: fromId });
 
-      if (data.type === 'FULL' || data.type === 'UPDATE' || data.type === 'UPDATE_USER') {
+      // Mise à jour du state interne
+      if (data.type === 'HELLO' || data.type === 'UPDATE' || data.type === 'UPDATE_USER') {
           if (data.user) {
               this.peersMap[data.user.id] = data.user;
               this.notify({ type: 'PEERS_UPDATED', peers: this.peersMap });
+              // Si je suis hôte et que je reçois un HELLO, je réponds par un SYNC immédiat
+              if (this.role === OperatorRole.HOST && data.type === 'HELLO') {
+                  const conn = this.connections[fromId];
+                  if (conn) this.sendSync(conn);
+              }
           }
       } else if (data.type === 'SYNC' && Array.isArray(data.list)) {
-          data.list.forEach((u: UserData) => this.peersMap[u.id] = u);
+          data.list.forEach((u: UserData) => {
+              if (u.id !== this.user?.id) this.peersMap[u.id] = u;
+          });
           this.notify({ type: 'PEERS_UPDATED', peers: this.peersMap });
       } else if (data.type === 'KICK' && fromId === this.hostId) {
           this.cleanup();
@@ -277,49 +275,11 @@ class ConnectivityService {
       }
   }
 
-  private handlePeerLoss(peerId: string) {
-      delete this.connections[peerId];
-      delete this.peersMap[peerId];
-      delete this.lastHeartbeat[peerId];
-      
-      this.notify({ type: 'PEERS_UPDATED', peers: this.peersMap });
+  // --- ACTIONS ---
 
-      if (this.role === OperatorRole.OPR && peerId === this.hostId) {
-          this.notify({ type: 'TOAST', msg: 'Lien Hôte perdu', level: 'error' });
-          if (this.targetHostId) {
-              setTimeout(() => this.connectToHost(this.targetHostId!), 1000);
-          }
-      }
-  }
-
-  // --- HEARTBEAT SYSTEM ---
-  private startHeartbeat() {
-      if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
-      
-      this.heartbeatTimer = setInterval(() => {
-          const now = Date.now();
-          
-          Object.values(this.connections).forEach(conn => {
-              if (conn.open) conn.send({ type: 'HEARTBEAT' });
-          });
-
-          Object.keys(this.connections).forEach(peerId => {
-              const last = this.lastHeartbeat[peerId] || now;
-              if (now - last > TIMEOUT_MS) {
-                  console.warn(`[Connectivity] Peer Timeout: ${peerId}`);
-                  const conn = this.connections[peerId];
-                  if(conn) conn.close();
-                  this.handlePeerLoss(peerId);
-              }
-          });
-      }, HEARTBEAT_MS);
-  }
-
-  // --- MESSAGERIE PUBLIQUE ---
   public broadcast(data: any) {
       if (!this.user) return;
       const payload = { ...data, from: this.user.id };
-      
       Object.values(this.connections).forEach(conn => {
           if (conn.open) conn.send(payload);
       });
@@ -328,38 +288,15 @@ class ConnectivityService {
   public sendTo(targetId: string, data: any) {
       if (!this.user) return;
       const conn = this.connections[targetId];
-      
       if (conn && conn.open) {
           conn.send({ ...data, from: this.user.id });
-      } else {
-          console.log(`[Connectivity] Queueing message for ${targetId}`);
-          this.msgQueue.push({ targetId, data: { ...data, from: this.user.id } });
       }
   }
 
-  private flushQueue() {
-      if (this.msgQueue.length === 0) return;
-      
-      const remaining: typeof this.msgQueue = [];
-      
-      this.msgQueue.forEach(item => {
-          const conn = item.targetId ? this.connections[item.targetId] : null;
-          if (conn && conn.open) {
-              conn.send(item.data);
-          } else {
-              remaining.push(item);
-          }
-      });
-      
-      this.msgQueue = remaining;
-  }
-
-  // --- HELPERS ---
   public updateUser(partial: Partial<UserData>) {
       if (!this.user) return;
       this.user = { ...this.user, ...partial };
       this.broadcast({ type: 'UPDATE', user: this.user });
-      
       if (this.user.id) {
           this.peersMap[this.user.id] = this.user;
           this.notify({ type: 'PEERS_UPDATED', peers: this.peersMap });
@@ -373,36 +310,33 @@ class ConnectivityService {
   public updateUserPosition(lat: number, lng: number, head: number) {
       if (!this.user) return;
       this.user = { ...this.user, lat, lng, head };
+      // Optimisation: on ne notifie pas l'UI locale pour le GPS (trop fréquent), juste broadcast
       this.broadcast({ type: 'UPDATE_USER', user: this.user });
   }
 
-  public kickUser(targetId: string, ban = false) {
+  public kickUser(targetId: string) {
       if (this.role !== OperatorRole.HOST) return;
       this.sendTo(targetId, { type: 'KICK' });
-      if (ban) this.bannedPeers.add(targetId);
-      
       setTimeout(() => {
           const conn = this.connections[targetId];
           if(conn) conn.close();
-      }, 500);
+      }, 200);
   }
 
   public cleanup(full = true) {
-      if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
-      this.heartbeatTimer = null;
+      this.isDestroyed = full;
+      if (this.syncInterval) clearInterval(this.syncInterval);
+      if (this.handshakeInterval) clearInterval(this.handshakeInterval);
+      if (this.retryTimeout) clearTimeout(this.retryTimeout);
       
       Object.values(this.connections).forEach(c => c.close());
       this.connections = {};
       this.peersMap = {};
-      this.msgQueue = [];
       
       if (this.peer) {
           this.peer.destroy();
           this.peer = null;
       }
-      
-      this.state = ConnectionState.DISCONNECTED;
-      if (full) this.bannedPeers.clear();
   }
 
   private generateShortId(): string {
