@@ -1,11 +1,11 @@
-import './polyfills'; // TOUJOURS EN PREMIER
+// L'ordre est vital ici : Polyfills d'abord, le reste ensuite.
+import './polyfills'; 
 
 import { registerRootComponent } from 'expo';
 import React from 'react';
 import App from './App';
 import ErrorBoundary from './components/ErrorBoundary';
 
-// On enveloppe l'App dans une sécurité pour éviter l'écran blanc/figé
 const SafeApp = () => (
   <ErrorBoundary>
     <App />
