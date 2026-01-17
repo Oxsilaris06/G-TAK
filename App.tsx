@@ -283,9 +283,14 @@ const App: React.FC = () => {
                   const uniquePeers: Record<string, UserData> = {};
                   const seenCallsigns = new Set<string>();
 
+                  // CORRECTIF ÉTAPE 1 : On ajoute d'abord NOTRE callsign pour être sûr 
+                  // de ne jamais ajouter un "fantôme" de nous-même (ancien ID) dans la liste des pairs.
+                  if (userRef.current.callsign) {
+                      seenCallsigns.add(userRef.current.callsign);
+                  }
+
                   allPeers.forEach(p => {
                       // On garde le premier rencontré (le plus récent) pour chaque Callsign
-                      // Sauf si c'est nous-même, on gère à part
                       if (p.id !== userRef.current.id) {
                           if (!seenCallsigns.has(p.callsign)) {
                               seenCallsigns.add(p.callsign);
@@ -587,7 +592,7 @@ const App: React.FC = () => {
       {view === 'settings' ? <SettingsView onClose={() => setView(lastView)} /> : 
        view === 'login' ? (
         <View style={styles.centerContainer}>
-          <Image source={require('./assets/icon.png')} style={{width: 100, height: 100, marginBottom: 30, borderRadius: 20}} />
+          <Image source={require('./assets/icon2.png')} style={{width: 100, height: 100, marginBottom: 30, borderRadius: 20}} />
           <Text style={styles.title}>Praxis</Text>
           <TextInput style={styles.input} placeholder="TRIGRAMME" placeholderTextColor="#52525b" maxLength={6} value={loginInput} onChangeText={setLoginInput} autoCapitalize="characters" />
           <TouchableOpacity onPress={() => {
