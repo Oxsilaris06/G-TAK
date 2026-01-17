@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   View, Text, StyleSheet, TouchableOpacity, FlatList, TextInput, 
-  Modal, Share, Alert, KeyboardAvoidingView, Platform, ScrollView, 
-  Dimensions 
+  Modal, Alert, KeyboardAvoidingView, Platform, ScrollView 
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LogEntry, OperatorRole } from '../types';
@@ -17,7 +16,7 @@ interface Props {
     role: OperatorRole;
     onClose: () => void;
     onAddLog: (entry: LogEntry) => void;
-    onUpdateLog?: (entry: LogEntry) => void; // NOUVEAU
+    onUpdateLog?: (entry: LogEntry) => void; 
     onDeleteLog: (id: string) => void;
 }
 
@@ -29,8 +28,8 @@ const PAX_TYPES = [
     { label: 'AUTRE', color: '#9ca3af', textColor: '#000000' }
 ];
 
-// --- HTML GENERATOR ( inchangé ) ---
 const generateHtml = (logs: LogEntry[]) => {
+  const dateStr = new Date().toLocaleDateString('fr-FR');
   const rows = logs.map(l => `
     <tr>
       <td style="color: #3b82f6; font-weight: bold;">${l.heure}</td>
@@ -48,33 +47,31 @@ const generateHtml = (logs: LogEntry[]) => {
   return `
     <html>
       <head>
-        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <style>
-          body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; padding: 20px; }
-          h1 { text-align: center; border-bottom: 2px solid #333; padding-bottom: 10px; }
-          .meta { margin-bottom: 20px; font-size: 12px; color: #666; text-align: right; }
-          table { width: 100%; border-collapse: collapse; font-size: 12px; }
+          body { font-family: 'Helvetica', sans-serif; padding: 20px; }
+          h1 { text-align: center; border-bottom: 3px solid #333; padding-bottom: 10px; margin-bottom: 5px; }
+          .sub { text-align: center; color: #666; margin-bottom: 30px; }
+          table { width: 100%; border-collapse: collapse; font-size: 11px; }
           th { background-color: #eee; text-align: left; padding: 8px; border-bottom: 2px solid #ddd; }
           td { padding: 8px; border-bottom: 1px solid #eee; vertical-align: top; }
           tr:nth-child(even) { background-color: #f9f9f9; }
         </style>
       </head>
       <body>
-        <h1>MAIN COURANTE TACTIQUE</h1>
-        <div class="meta">Généré le: ${new Date().toLocaleString()} | Entrées: ${logs.length}</div>
+        <h1>PC TAC ${dateStr}</h1>
+        <div class="sub">RAPPORT DE SITUATION - PRAXIS</div>
         <table>
           <thead>
             <tr>
-              <th width="10%">HEURE</th>
+              <th width="10%">H</th>
               <th width="15%">PAX</th>
               <th width="20%">LIEU</th>
               <th width="25%">ACTION</th>
               <th width="30%">REMARQUES</th>
             </tr>
           </thead>
-          <tbody>
-            ${rows}
-          </tbody>
+          <tbody>${rows}</tbody>
         </table>
       </body>
     </html>
@@ -130,7 +127,6 @@ const MainCouranteView: React.FC<Props> = ({ visible, logs, role, onClose, onAdd
         onAddLog(newEntry);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         
-        // Reset partiel pour enchainer
         setAction('');
         setRemarques('');
         updateManualTime();
@@ -140,8 +136,7 @@ const MainCouranteView: React.FC<Props> = ({ visible, logs, role, onClose, onAdd
 
     const handleStartEdit = (log: LogEntry) => {
         if (!isHost) return;
-        setEditingLog({ ...log }); // Clone pour modif
-        // Tenter de retrouver le type PAX pour l'UI
+        setEditingLog({ ...log }); 
         const type = PAX_TYPES.find(t => t.color === log.paxColor) || PAX_TYPES[4];
         setEditPaxType(type);
         Haptics.selectionAsync();
@@ -155,11 +150,11 @@ const MainCouranteView: React.FC<Props> = ({ visible, logs, role, onClose, onAdd
         }
     };
 
-    // --- PDF & QR EXPORT ( inchangé ) ---
     const handleExportPDF = async () => {
         try {
             const html = generateHtml(logs);
-            const { uri } = await Print.printToFileAsync({ html });
+            const dateStr = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+            const { uri } = await Print.printToFileAsync({ html, name: `Rapport-${dateStr}` });
             await Sharing.shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' });
         } catch (error) { Alert.alert("Erreur PDF", "Impossible de générer le fichier."); }
     };
@@ -288,84 +283,6 @@ const MainCouranteView: React.FC<Props> = ({ visible, logs, role, onClose, onAdd
                         </View>
                     </KeyboardAvoidingView>
                 )}
-
-                {/* MODAL EDIT */}
-                <Modal visible={!!editingLog} transparent animationType="fade">
-                    <View style={styles.modalOverlay}>
-                        <View style={styles.editModalContent}>
-                            <Text style={styles.modalTitle}>MODIFIER L'ENTRÉE</Text>
-                            
-                            {editingLog && (
-                                <>
-                                    <View style={{flexDirection: 'row', marginBottom: 15, alignItems: 'center'}}>
-                                        <Text style={styles.label}>Heure:</Text>
-                                        <TextInput 
-                                            style={[styles.input, {width: 80, marginLeft: 10, textAlign:'center'}]} 
-                                            value={editingLog.heure} 
-                                            onChangeText={t => setEditingLog({...editingLog, heure: t})} 
-                                        />
-                                    </View>
-
-                                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{maxHeight: 50, marginBottom: 15}}>
-                                        {PAX_TYPES.map((t, idx) => (
-                                            <TouchableOpacity 
-                                                key={idx} 
-                                                style={[styles.typeBtn, editPaxType.label === t.label && styles.typeBtnSelected, { borderColor: t.color, backgroundColor: editPaxType.label === t.label ? t.color : 'transparent', marginRight: 8 }]} 
-                                                onPress={() => { setEditPaxType(t); setEditingLog({...editingLog, pax: t.label, paxColor: t.color}); }}
-                                            >
-                                                <Text style={[styles.typeBtnText, { color: editPaxType.label === t.label ? (t.color === '#f1c40f' ? 'black' : 'white') : t.color }]}>{t.label}</Text>
-                                            </TouchableOpacity>
-                                        ))}
-                                    </ScrollView>
-
-                                    <Text style={styles.label}>Lieu</Text>
-                                    <TextInput style={[styles.input, {marginBottom: 10}]} value={editingLog.lieu} onChangeText={t => setEditingLog({...editingLog, lieu: t})} />
-                                    
-                                    <Text style={styles.label}>Action</Text>
-                                    <TextInput style={[styles.input, {marginBottom: 10}]} value={editingLog.action} onChangeText={t => setEditingLog({...editingLog, action: t})} />
-                                    
-                                    <Text style={styles.label}>Remarques</Text>
-                                    <TextInput style={[styles.input, {marginBottom: 20}]} value={editingLog.remarques} onChangeText={t => setEditingLog({...editingLog, remarques: t})} />
-
-                                    <View style={{flexDirection: 'row', justifyContent: 'space-between', gap: 10}}>
-                                        <TouchableOpacity onPress={() => setEditingLog(null)} style={[styles.submitBtn, {backgroundColor: '#52525b', flex: 1}]}>
-                                            <Text style={{color: 'white', fontWeight: 'bold'}}>ANNULER</Text>
-                                        </TouchableOpacity>
-                                        <TouchableOpacity onPress={handleSaveEdit} style={[styles.submitBtn, {backgroundColor: '#3b82f6', flex: 1}]}>
-                                            <Text style={{color: 'white', fontWeight: 'bold'}}>ENREGISTRER</Text>
-                                        </TouchableOpacity>
-                                    </View>
-                                </>
-                            )}
-                        </View>
-                    </View>
-                </Modal>
-
-                {/* MODAL EXPORT QR SUCCESSIF ( inchangé ) */}
-                <Modal visible={showQrExport} transparent animationType="fade">
-                    <View style={styles.modalOverlay}>
-                        <View style={styles.qrModalContent}>
-                            <Text style={styles.modalTitle}>EXPORT DATA GAP</Text>
-                            <Text style={styles.qrCounter}>QR {currentQrIndex + 1} / {qrChunks.length}</Text>
-                            <View style={styles.qrContainer}>
-                                {qrChunks.length > 0 && (
-                                    <QRCode value={qrChunks[currentQrIndex]} size={200} backgroundColor="white" />
-                                )}
-                            </View>
-                            <View style={styles.qrControls}>
-                                <TouchableOpacity onPress={() => setCurrentQrIndex(prev => prev > 0 ? prev - 1 : qrChunks.length - 1)} style={styles.qrNavBtn}>
-                                    <MaterialIcons name="chevron-left" size={40} color="white" />
-                                </TouchableOpacity>
-                                <TouchableOpacity onPress={() => setCurrentQrIndex(prev => prev < qrChunks.length - 1 ? prev + 1 : 0)} style={styles.qrNavBtn}>
-                                    <MaterialIcons name="chevron-right" size={40} color="white" />
-                                </TouchableOpacity>
-                            </View>
-                            <TouchableOpacity onPress={() => setShowQrExport(false)} style={styles.closeQrBtn}>
-                                <Text style={styles.closeQrBtnText}>FERMER</Text>
-                            </TouchableOpacity>
-                        </View>
-                    </View>
-                </Modal>
             </View>
         </Modal>
     );
@@ -409,19 +326,6 @@ const styles = StyleSheet.create({
     inputRow: { flexDirection: 'row', gap: 10, marginBottom: 10 },
     input: { backgroundColor: '#000', color: 'white', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#333', fontSize: 14 },
     submitBtn: { backgroundColor: '#3b82f6', width: 48, justifyContent: 'center', alignItems: 'center', borderRadius: 8, padding: 10 },
-    label: { color: '#a1a1aa', fontSize: 12, marginBottom: 5 },
-
-    // QR & Edit Modal Styles
-    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.95)', justifyContent: 'center', alignItems: 'center' },
-    qrModalContent: { width: '85%', alignItems: 'center', backgroundColor: '#18181b', padding: 20, borderRadius: 20, borderWidth: 1, borderColor: '#333' },
-    editModalContent: { width: '90%', backgroundColor: '#18181b', padding: 20, borderRadius: 20, borderWidth: 1, borderColor: '#333' },
-    modalTitle: { color: 'white', fontSize: 20, fontWeight: '900', marginBottom: 20, textAlign: 'center' },
-    qrCounter: { color: '#3b82f6', fontWeight: 'bold', marginBottom: 20, fontSize: 16 },
-    qrContainer: { padding: 10, backgroundColor: 'white', borderRadius: 10 },
-    qrControls: { flexDirection: 'row', justifyContent: 'space-between', width: '80%', marginTop: 20 },
-    qrNavBtn: { backgroundColor: '#27272a', borderRadius: 30, padding: 5 },
-    closeQrBtn: { marginTop: 30, paddingVertical: 12, paddingHorizontal: 30, backgroundColor: '#ef4444', borderRadius: 10 },
-    closeQrBtnText: { color: 'white', fontWeight: 'bold' }
 });
 
 export default MainCouranteView;
