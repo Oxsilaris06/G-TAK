@@ -32,8 +32,7 @@ import OperatorActionModal from './components/OperatorActionModal';
 import MainCouranteView from './components/MainCouranteView';
 import PrivacyConsentModal from './components/PrivacyConsentModal';
 import { NotificationToast } from './components/NotificationToast';
-import ComposantOrdreInitial from './components/ComposantOrdreInitial'; // IMPORT DU COMPOSANT OI
-import ShinyText from './components/ShinyText'; // IMPORT DU BOUTON SHINY
+import ComposantOrdreInitial from './components/ComposantOrdreInitial'; 
 
 try { SplashScreen.preventAutoHideAsync().catch(() => {}); } catch (e) {}
 
@@ -54,7 +53,6 @@ const App: React.FC = () => {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [user, setUser] = useState<UserData>({ id: '', callsign: '', role: OperatorRole.OPR, status: OperatorStatus.CLEAR, joinedAt: Date.now(), bat: 100, head: 0, lat: 0, lng: 0, lastMsg: '' });
 
-  // MODIFICATION: Ajout de 'oi' comme type possible
   const [view, setView] = useState<ViewType | 'oi'>('login'); 
   const [lastView, setLastView] = useState<ViewType>('menu'); 
   const [lastOpsView, setLastOpsView] = useState<ViewType>('map');
@@ -568,90 +566,86 @@ const App: React.FC = () => {
   };
 
   const renderContent = () => {
-    switch (view) {
-      case 'settings':
-        return (
-          <SettingsView 
-            onClose={() => setView(lastView as ViewType)} 
-            onUpdate={s => { 
-                setSettings(s); 
-                setUser(u => ({...u, paxColor: s.userArrowColor})); 
-                connectivityService.updateUser({paxColor: s.userArrowColor}); 
-                if(s.gpsUpdateInterval !== settings.gpsUpdateInterval) startGpsTracking(s.gpsUpdateInterval);
-                if(s.orientationUpdateInterval !== settings.orientationUpdateInterval) _toggleMagnetometer();
-            }} 
-          />
-        );
-      case 'oi':
-        return <ComposantOrdreInitial onClose={() => setView('login')} />;
-      case 'login':
-        return (
-          <View style={styles.centerContainer}>
-            <Image source={require('./assets/icon2.png')} style={{width: 100, height: 100, marginBottom: 30, borderRadius: 20}} />
-            <Text style={styles.title}>Praxis</Text>
-            <TextInput style={styles.input} placeholder="TRIGRAMME" placeholderTextColor="#52525b" maxLength={6} value={loginInput} onChangeText={setLoginInput} autoCapitalize="characters" />
-            <TouchableOpacity onPress={() => {
-                if (loginInput.length < 2) return;
-                try { AsyncStorage.setItem(CONFIG.TRIGRAM_STORAGE_KEY, loginInput.toUpperCase()); } catch (e) {}
-                if (loginInput.toUpperCase() !== settings.username) configService.update({ username: loginInput.toUpperCase() });
-                setUser(prev => ({ ...prev, callsign: loginInput.toUpperCase(), joinedAt: Date.now() }));
-                setView('menu');
-            }} style={styles.loginBtn}><Text style={styles.loginBtnText}>CONNEXION</Text></TouchableOpacity>
-            
-            <View style={{ marginTop: 20 }}>
-              <ShinyText 
-                  text="Stratégica" 
-                  onPress={() => setView('oi')}
-                  speed={1.5}
-                  shineColor="#1e0ff0"
-                  spread={115}
-                  direction="right"
-                  yoyo={true}
-                  textStyle={{ fontSize: 18, letterSpacing: 3, fontWeight: 'bold' }}
-              />
-            </View>
-  
-            <PrivacyConsentModal onConsentGiven={() => {}} />
+    if (view === 'settings') {
+      return (
+        <SettingsView 
+          onClose={() => setView(lastView as ViewType)} 
+          onUpdate={s => { 
+              setSettings(s); 
+              setUser(u => ({...u, paxColor: s.userArrowColor})); 
+              connectivityService.updateUser({paxColor: s.userArrowColor}); 
+              if(s.gpsUpdateInterval !== settings.gpsUpdateInterval) startGpsTracking(s.gpsUpdateInterval);
+              if(s.orientationUpdateInterval !== settings.orientationUpdateInterval) _toggleMagnetometer();
+          }} 
+        />
+      );
+    } else if (view === 'oi') {
+      return <ComposantOrdreInitial onClose={() => setView('login')} />;
+    } else if (view === 'login') {
+      return (
+        <View style={styles.centerContainer}>
+          <Image source={require('./assets/icon2.png')} style={{width: 100, height: 100, marginBottom: 30, borderRadius: 20}} />
+          <Text style={styles.title}>Praxis</Text>
+          <TextInput style={styles.input} placeholder="TRIGRAMME" placeholderTextColor="#52525b" maxLength={6} value={loginInput} onChangeText={setLoginInput} autoCapitalize="characters" />
+          <TouchableOpacity onPress={() => {
+              if (loginInput.length < 2) return;
+              try { AsyncStorage.setItem(CONFIG.TRIGRAM_STORAGE_KEY, loginInput.toUpperCase()); } catch (e) {}
+              if (loginInput.toUpperCase() !== settings.username) configService.update({ username: loginInput.toUpperCase() });
+              setUser(prev => ({ ...prev, callsign: loginInput.toUpperCase(), joinedAt: Date.now() }));
+              setView('menu');
+          }} style={styles.loginBtn}><Text style={styles.loginBtnText}>CONNEXION</Text></TouchableOpacity>
+          
+          <View style={{ marginTop: 20 }}>
+            {/* BOUTON MODIFIÉ : Classique au lieu de ShinyText */}
+            <TouchableOpacity 
+              onPress={() => setView('oi')}
+              style={styles.strategicaBtn}
+            >
+              <Text style={styles.strategicaBtnText}>Stratégica</Text>
+            </TouchableOpacity>
           </View>
-        );
-      case 'menu':
-        return (
-          <SafeAreaView style={styles.safeArea}>
-            <View style={styles.menuContainer}>
-              <View style={{flexDirection: 'row', justifyContent:'space-between', marginBottom: 20}}>
-                  <Text style={styles.sectionTitle}>MENU PRINCIPAL</Text>
-                  <TouchableOpacity onPress={() => { setLastView('menu'); setView('settings'); }}><MaterialIcons name="settings" size={24} color="white" /></TouchableOpacity>
-              </View>
-              {hostId ? (
-                  <>
-                      <TouchableOpacity onPress={() => setView(lastOpsView)} style={[styles.menuCard, {borderColor: '#22c55e'}]}>
-                        <MaterialIcons name="map" size={40} color="#22c55e" />
-                        <View style={{marginLeft: 20}}><Text style={styles.menuCardTitle}>RETOURNER SESSION</Text><Text style={styles.menuCardSubtitle}>{hostId}</Text></View>
-                      </TouchableOpacity>
-                      <TouchableOpacity onPress={() => Alert.alert("Déconnexion", "Quitter ?", [{text:"Non"}, {text:"Oui", onPress:handleLogout}])} style={[styles.menuCard, {borderColor: '#ef4444', marginTop: 20}]}>
-                        <MaterialIcons name="logout" size={40} color="#ef4444" />
-                        <View style={{marginLeft: 20}}><Text style={[styles.menuCardTitle, {color:'#ef4444'}]}>QUITTER</Text></View>
-                      </TouchableOpacity>
-                  </>
-              ) : (
-                  <>
-                      <TouchableOpacity onPress={createSession} style={styles.menuCard}>
-                        <MaterialIcons name="add-location-alt" size={40} color="#3b82f6" />
-                        <View style={{marginLeft: 20}}><Text style={styles.menuCardTitle}>CRÉER SESSION</Text><Text style={styles.menuCardSubtitle}>Hôte</Text></View>
-                      </TouchableOpacity>
-                      <View style={styles.divider} />
-                      <TextInput style={styles.inputBox} placeholder="ID GROUPE..." placeholderTextColor="#52525b" value={hostInput} onChangeText={setHostInput} autoCapitalize="characters" />
-                      <TouchableOpacity onPress={() => joinSession()} style={styles.joinBtn}><Text style={styles.joinBtnText}>REJOINDRE</Text></TouchableOpacity>
-                      <TouchableOpacity onPress={() => { requestCamera().then(() => setShowScanner(true)); }} style={[styles.joinBtn, {marginTop: 10, backgroundColor: '#18181b', borderWidth: 1, borderColor: '#333'}]}>
-                          <Text style={{color: '#71717a'}}>SCANNER QR</Text>
-                      </TouchableOpacity>
-                  </>
-              )}
+
+          <PrivacyConsentModal onConsentGiven={() => {}} />
+        </View>
+      );
+    } else if (view === 'menu') {
+      return (
+        <SafeAreaView style={styles.safeArea}>
+          <View style={styles.menuContainer}>
+            <View style={{flexDirection: 'row', justifyContent:'space-between', marginBottom: 20}}>
+                <Text style={styles.sectionTitle}>MENU PRINCIPAL</Text>
+                <TouchableOpacity onPress={() => { setLastView('menu'); setView('settings'); }}><MaterialIcons name="settings" size={24} color="white" /></TouchableOpacity>
             </View>
-          </SafeAreaView>
-        );
-      default:
-        return renderMainContent();
+            {hostId ? (
+                <>
+                    <TouchableOpacity onPress={() => setView(lastOpsView)} style={[styles.menuCard, {borderColor: '#22c55e'}]}>
+                      <MaterialIcons name="map" size={40} color="#22c55e" />
+                      <View style={{marginLeft: 20}}><Text style={styles.menuCardTitle}>RETOURNER SESSION</Text><Text style={styles.menuCardSubtitle}>{hostId}</Text></View>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => Alert.alert("Déconnexion", "Quitter ?", [{text:"Non"}, {text:"Oui", onPress:handleLogout}])} style={[styles.menuCard, {borderColor: '#ef4444', marginTop: 20}]}>
+                      <MaterialIcons name="logout" size={40} color="#ef4444" />
+                      <View style={{marginLeft: 20}}><Text style={[styles.menuCardTitle, {color:'#ef4444'}]}>QUITTER</Text></View>
+                    </TouchableOpacity>
+                </>
+            ) : (
+                <>
+                    <TouchableOpacity onPress={createSession} style={styles.menuCard}>
+                      <MaterialIcons name="add-location-alt" size={40} color="#3b82f6" />
+                      <View style={{marginLeft: 20}}><Text style={styles.menuCardTitle}>CRÉER SESSION</Text><Text style={styles.menuCardSubtitle}>Hôte</Text></View>
+                    </TouchableOpacity>
+                    <View style={styles.divider} />
+                    <TextInput style={styles.inputBox} placeholder="ID GROUPE..." placeholderTextColor="#52525b" value={hostInput} onChangeText={setHostInput} autoCapitalize="characters" />
+                    <TouchableOpacity onPress={() => joinSession()} style={styles.joinBtn}><Text style={styles.joinBtnText}>REJOINDRE</Text></TouchableOpacity>
+                    <TouchableOpacity onPress={() => { requestCamera().then(() => setShowScanner(true)); }} style={[styles.joinBtn, {marginTop: 10, backgroundColor: '#18181b', borderWidth: 1, borderColor: '#333'}]}>
+                        <Text style={{color: '#71717a'}}>SCANNER QR</Text>
+                    </TouchableOpacity>
+                </>
+            )}
+          </View>
+        </SafeAreaView>
+      );
+    } else {
+      return renderMainContent();
     }
   };
 
@@ -767,6 +761,24 @@ const styles = StyleSheet.create({
   input: { width: '100%', borderBottomWidth: 2, borderBottomColor: '#27272a', fontSize: 30, color: 'white', textAlign: 'center', padding: 10 },
   loginBtn: { marginTop: 50, width: '100%', backgroundColor: '#2563eb', padding: 20, borderRadius: 16, alignItems: 'center' },
   loginBtnText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
+  
+  // Style pour le bouton Stratégica classique
+  strategicaBtn: {
+    padding: 10,
+    marginTop: 20,
+    borderWidth: 1,
+    borderColor: '#3b82f6',
+    borderRadius: 8,
+    backgroundColor: 'transparent',
+  },
+  strategicaBtnText: {
+    color: '#3b82f6',
+    fontSize: 16,
+    fontWeight: 'bold',
+    letterSpacing: 2,
+    textTransform: 'uppercase',
+  },
+
   safeArea: { flex: 1, backgroundColor: '#050505', paddingTop: Platform.OS === 'android' ? RNStatusBar.currentHeight : 0 },
   menuContainer: { flex: 1, padding: 24 },
   sectionTitle: { color: '#71717a', fontSize: 12, fontWeight: 'bold', letterSpacing: 1, marginBottom: 15 },
