@@ -1,4 +1,4 @@
-name: Build & Release Praxis (Data Only Fix)
+name: Build & Release Praxis (Force Bundle Fix)
 
 on:
   workflow_dispatch:
@@ -35,37 +35,51 @@ jobs:
       - name: Expo Prebuild
         run: npx expo prebuild --platform android --clean
 
-      # --- PATCH CRITIQUE ---
-      # Ce script supprime la dépendance "AndroidUSBCamera" du fichier build.gradle de react-native-webrtc
-      # Cela empêche Gradle de chercher la bibliothèque manquante.
+      # --- PATCH WEBRTC (Indispensable pour Data Only) ---
       - name: Patch WebRTC (Remove USB Camera Dep)
         run: |
           echo "Patching react-native-webrtc build.gradle..."
           FILE="node_modules/react-native-webrtc/android/build.gradle"
           if [ -f "$FILE" ]; then
-            # On commente la ligne qui inclut libausbc (la librairie manquante)
             sed -i 's/implementation.*com.github.jiangdongguo.*libausbc.*/\/\/ Dependency removed by CI patch/g' $FILE
-            echo "Patch appliqué avec succès sur $FILE"
+            echo "Patch appliqué."
           else
             echo "Fichier non trouvé: $FILE"
           fi
+
+      # --- LE CORRECTIF "UNABLE TO LOAD SCRIPT" ---
+      # On force la création du fichier index.android.bundle
+      - name: Force Bundle JS
+        run: |
+          # Création du dossier assets s'il n'existe pas
+          mkdir -p android/app/src/main/assets
+          
+          # Génération du bundle (Le cerveau de l'app)
+          npx react-native bundle \
+            --platform android \
+            --dev false \
+            --entry-file index.js \
+            --bundle-output android/app/src/main/assets/index.android.bundle \
+            --assets-dest android/app/src/main/res \
+            --reset-cache
 
       - name: Build Android APK
         run: |
           cd android
           chmod +x gradlew
-          # On garde Gradle 8.8 (standard Expo 51) qui est maintenant présent
+          # On ajoute l'option -x bundleReleaseJsAndAssets pour éviter un doublon
+          # Mais comme on est en Debug, Gradle ne le ferait pas de base, d'où l'erreur précédente.
           ./gradlew assembleDebug --no-daemon --warning-mode all
 
       - name: Renommer et Publier
         run: |
-          mv android/app/build/outputs/apk/debug/app-debug.apk Praxis-Data.apk
+          mv android/app/build/outputs/apk/debug/app-debug.apk Praxis.apk
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v4.0.0-data-${{ github.run_number }}
-          name: "Praxis Data Build #${{ github.run_number }}"
-          files: Praxis-Data.apk
+          tag_name: v4.0.1-fix-${{ github.run_number }}
+          name: "Praxis Fix Script Load #${{ github.run_number }}"
+          files: Praxis-BundleFix.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
