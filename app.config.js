@@ -2,70 +2,56 @@ export default {
   expo: {
     name: "Praxis",
     slug: "praxis",
-    version: "3.3.0",
+    version: "4.0.0",
     orientation: "default",
-    icon: "./assets/icon.png", // Maintenu sur icon.png pour la miniature/app icon
+    icon: "./assets/icon.png",
     userInterfaceStyle: "dark",
     splash: {
-      image: "./assets/icon2.png", // Changé pour icon2.png (Splash Screen uniquement)
+      image: "./assets/icon2.png",
       resizeMode: "contain",
       backgroundColor: "#000000"
     },
-    assetBundlePatterns: [
-      "**/*"
-    ],
-    ios: {
-      supportsTablet: true,
-      bundleIdentifier: "com.praxis.app", // Renommé en Praxis
-      infoPlist: {
-        UIBackgroundModes: ["location", "fetch", "voip"],
-        NSLocationAlwaysAndWhenInUseUsageDescription: "Suivi tactique de l'équipe même en arrière-plan.",
-        NSLocationWhenInUseUsageDescription: "Affichage position sur carte.",
-        NSCameraUsageDescription: "Scan QR Code.",
-        NSLocalNetworkUsageDescription: "Nécessaire pour la connexion P2P entre appareils sur le même réseau WiFi."
-      }
-    },
     android: {
+      package: "com.praxis.app",
       adaptiveIcon: {
-        foregroundImage: "./assets/adaptive-icon.png", // On garde l'adaptive standard
+        foregroundImage: "./assets/adaptive-icon.png",
         backgroundColor: "#000000"
       },
-      package: "com.praxis.app", // Renommé en Praxis
+      // Permissions réduites au strict nécessaire pour la Data
       permissions: [
-        "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
         "ACCESS_BACKGROUND_LOCATION",
-        "CAMERA",
         "FOREGROUND_SERVICE",
         "FOREGROUND_SERVICE_LOCATION",
-        "WAKE_LOCK",
-        "VIBRATE",
         "INTERNET",
-        "ACCESS_NETWORK_STATE",
-        "ACCESS_WIFI_STATE",
-        "CHANGE_WIFI_STATE",
-        "POST_NOTIFICATIONS"
+        "WAKE_LOCK"
       ]
     },
     plugins: [
       [
-        "expo-location",
+        "expo-build-properties",
         {
-          "locationAlwaysAndWhenInUsePermission": "Allow Praxis to use your location for team awareness."
+          android: {
+            kotlinVersion: "2.1.0",
+            compileSdkVersion: 35,
+            targetSdkVersion: 35,
+            buildToolsVersion: "35.0.0",
+            // Activation du nouveau moteur pour de meilleures performances Data
+            newArchEnabled: true
+          }
         }
       ],
       [
-        "expo-camera",
+        "@config-plugins/react-native-webrtc",
         {
-          "cameraPermission": "Allow Praxis to access your camera for QR scanning."
+          // Désactivation des permissions micro/caméra si vous ne faites que de la data
+          cameraPermission: false,
+          microphonePermission: false
         }
       ],
-      "expo-notifications"
-    ],
-    extra: {
-      eas: {
-        projectId: "your-project-id"
-      }
-    }
+      "expo-location",
+      "expo-notifications",
+      "expo-task-manager"
+    ]
   }
 };
