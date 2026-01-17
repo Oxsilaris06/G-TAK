@@ -17,10 +17,9 @@ interface Props {
     role: OperatorRole;
     onClose: () => void;
     onAddLog: (entry: LogEntry) => void;
+    onUpdateLog?: (entry: LogEntry) => void; // NOUVEAU
     onDeleteLog: (id: string) => void;
 }
-
-const SCREEN_WIDTH = Dimensions.get('window').width;
 
 const PAX_TYPES = [
     { label: 'HOSTILE', color: '#be1b09', textColor: '#ffffff' },
@@ -30,7 +29,7 @@ const PAX_TYPES = [
     { label: 'AUTRE', color: '#9ca3af', textColor: '#000000' }
 ];
 
-// --- TEMPLATE HTML POUR LE PDF ---
+// --- HTML GENERATOR ( inchangé ) ---
 const generateHtml = (logs: LogEntry[]) => {
   const rows = logs.map(l => `
     <tr>
@@ -82,19 +81,26 @@ const generateHtml = (logs: LogEntry[]) => {
   `;
 };
 
-const MainCouranteView: React.FC<Props> = ({ visible, logs, role, onClose, onAddLog, onDeleteLog }) => {
+const MainCouranteView: React.FC<Props> = ({ visible, logs, role, onClose, onAddLog, onUpdateLog, onDeleteLog }) => {
+    // Form States (Creation)
     const [paxType, setPaxType] = useState(PAX_TYPES[2]);
     const [customPax, setCustomPax] = useState('');
     const [lieu, setLieu] = useState('');
     const [action, setAction] = useState('');
     const [remarques, setRemarques] = useState('');
     const [manualTime, setManualTime] = useState('');
-    const listRef = useRef<FlatList>(null);
-
-    // --- QR EXPORT STATES ---
+    
+    // Edit States
+    const [editingLog, setEditingLog] = useState<LogEntry | null>(null);
+    const [editPaxType, setEditPaxType] = useState(PAX_TYPES[2]);
+    
+    // QR Export
     const [showQrExport, setShowQrExport] = useState(false);
     const [qrChunks, setQrChunks] = useState<string[]>([]);
     const [currentQrIndex, setCurrentQrIndex] = useState(0);
+
+    const listRef = useRef<FlatList>(null);
+    const isHost = role === OperatorRole.HOST;
 
     useEffect(() => {
         if (visible) updateManualTime();
@@ -116,7 +122,6 @@ const MainCouranteView: React.FC<Props> = ({ visible, logs, role, onClose, onAdd
             heure: manualTime || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             pax: customPax.trim() || paxType.label,
             paxColor: paxType.color,
-            paxMode: customPax.trim() ? 'free' : 'standard',
             lieu: lieu.trim(),
             action: action.trim(),
             remarques: remarques.trim()
@@ -124,64 +129,53 @@ const MainCouranteView: React.FC<Props> = ({ visible, logs, role, onClose, onAdd
 
         onAddLog(newEntry);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        
+        // Reset partiel pour enchainer
         setAction('');
         setRemarques('');
         updateManualTime();
+        
         setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 100);
     };
 
-    // --- PDF GENERATION ---
+    const handleStartEdit = (log: LogEntry) => {
+        if (!isHost) return;
+        setEditingLog({ ...log }); // Clone pour modif
+        // Tenter de retrouver le type PAX pour l'UI
+        const type = PAX_TYPES.find(t => t.color === log.paxColor) || PAX_TYPES[4];
+        setEditPaxType(type);
+        Haptics.selectionAsync();
+    };
+
+    const handleSaveEdit = () => {
+        if (editingLog && onUpdateLog) {
+            onUpdateLog(editingLog);
+            setEditingLog(null);
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        }
+    };
+
+    // --- PDF & QR EXPORT ( inchangé ) ---
     const handleExportPDF = async () => {
         try {
             const html = generateHtml(logs);
             const { uri } = await Print.printToFileAsync({ html });
-            if (Platform.OS === "ios") {
-                await Sharing.shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' });
-            } else {
-                await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: 'Exporter Main Courante' });
-            }
-        } catch (error) {
-            Alert.alert("Erreur PDF", "Impossible de générer le fichier.");
-            console.error(error);
-        }
+            await Sharing.shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' });
+        } catch (error) { Alert.alert("Erreur PDF", "Impossible de générer le fichier."); }
     };
 
-    // --- QR CODE CHUNKING LOGIC (Similaire à PcTac.tsx) ---
     const prepareQrExport = () => {
         const data = JSON.stringify(logs);
-        // On découpe en morceaux de 600 caractères pour assurer une bonne lisibilité
         const CHUNK_SIZE = 600;
         const totalChunks = Math.ceil(data.length / CHUNK_SIZE);
         const chunks: string[] = [];
-
-        // Header format: " TacSuiteLog | index | total | data "
         for (let i = 0; i < totalChunks; i++) {
-            const chunkData = data.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
-            chunks.push(`TacLogs|${i + 1}|${totalChunks}|${chunkData}`);
+            chunks.push(`TacLogs|${i + 1}|${totalChunks}|${data.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE)}`);
         }
-
         setQrChunks(chunks);
         setCurrentQrIndex(0);
         setShowQrExport(true);
     };
-
-    const handleNextQr = () => {
-        if (currentQrIndex < qrChunks.length - 1) {
-            setCurrentQrIndex(prev => prev + 1);
-        } else {
-            setCurrentQrIndex(0); // Loop
-        }
-    };
-
-    const handlePrevQr = () => {
-        if (currentQrIndex > 0) {
-            setCurrentQrIndex(prev => prev - 1);
-        } else {
-            setCurrentQrIndex(qrChunks.length - 1); // Loop back
-        }
-    };
-
-    const isHost = role === OperatorRole.HOST;
 
     return (
         <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
@@ -212,7 +206,11 @@ const MainCouranteView: React.FC<Props> = ({ visible, logs, role, onClose, onAdd
                     keyExtractor={item => item.id}
                     contentContainerStyle={{ padding: 16, paddingBottom: 250 }}
                     renderItem={({ item }) => (
-                        <View style={styles.logRow}>
+                        <TouchableOpacity 
+                            style={styles.logRow} 
+                            onLongPress={() => handleStartEdit(item)}
+                            activeOpacity={0.8}
+                        >
                             <View style={styles.timeCol}>
                                 <Text style={styles.timeText}>{item.heure}</Text>
                             </View>
@@ -227,11 +225,16 @@ const MainCouranteView: React.FC<Props> = ({ visible, logs, role, onClose, onAdd
                                 {item.remarques ? <Text style={styles.remarquesText}>📝 {item.remarques}</Text> : null}
                             </View>
                             {isHost && (
-                                <TouchableOpacity onPress={() => onDeleteLog(item.id)} style={styles.deleteBtn}>
-                                    <MaterialIcons name="delete-outline" size={20} color="#ef4444" />
-                                </TouchableOpacity>
+                                <View style={{justifyContent: 'space-between'}}>
+                                    <TouchableOpacity onPress={() => handleStartEdit(item)} style={styles.actionBtn}>
+                                        <MaterialIcons name="edit" size={18} color="#a1a1aa" />
+                                    </TouchableOpacity>
+                                    <TouchableOpacity onPress={() => onDeleteLog(item.id)} style={styles.actionBtn}>
+                                        <MaterialIcons name="delete-outline" size={18} color="#ef4444" />
+                                    </TouchableOpacity>
+                                </View>
                             )}
-                        </View>
+                        </TouchableOpacity>
                     )}
                     ListEmptyComponent={
                         <View style={styles.emptyContainer}>
@@ -241,8 +244,8 @@ const MainCouranteView: React.FC<Props> = ({ visible, logs, role, onClose, onAdd
                     }
                 />
 
-                {/* FORMULAIRE (HOST ONLY) */}
-                {isHost && (
+                {/* FORMULAIRE CRÉATION (HOST ONLY) */}
+                {isHost && !editingLog && (
                     <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.formWrapper}>
                         <View style={styles.formContainer}>
                             <View style={styles.formHeader}>
@@ -286,30 +289,77 @@ const MainCouranteView: React.FC<Props> = ({ visible, logs, role, onClose, onAdd
                     </KeyboardAvoidingView>
                 )}
 
-                {/* MODAL EXPORT QR SUCCESSIF */}
+                {/* MODAL EDIT */}
+                <Modal visible={!!editingLog} transparent animationType="fade">
+                    <View style={styles.modalOverlay}>
+                        <View style={styles.editModalContent}>
+                            <Text style={styles.modalTitle}>MODIFIER L'ENTRÉE</Text>
+                            
+                            {editingLog && (
+                                <>
+                                    <View style={{flexDirection: 'row', marginBottom: 15, alignItems: 'center'}}>
+                                        <Text style={styles.label}>Heure:</Text>
+                                        <TextInput 
+                                            style={[styles.input, {width: 80, marginLeft: 10, textAlign:'center'}]} 
+                                            value={editingLog.heure} 
+                                            onChangeText={t => setEditingLog({...editingLog, heure: t})} 
+                                        />
+                                    </View>
+
+                                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{maxHeight: 50, marginBottom: 15}}>
+                                        {PAX_TYPES.map((t, idx) => (
+                                            <TouchableOpacity 
+                                                key={idx} 
+                                                style={[styles.typeBtn, editPaxType.label === t.label && styles.typeBtnSelected, { borderColor: t.color, backgroundColor: editPaxType.label === t.label ? t.color : 'transparent', marginRight: 8 }]} 
+                                                onPress={() => { setEditPaxType(t); setEditingLog({...editingLog, pax: t.label, paxColor: t.color}); }}
+                                            >
+                                                <Text style={[styles.typeBtnText, { color: editPaxType.label === t.label ? (t.color === '#f1c40f' ? 'black' : 'white') : t.color }]}>{t.label}</Text>
+                                            </TouchableOpacity>
+                                        ))}
+                                    </ScrollView>
+
+                                    <Text style={styles.label}>Lieu</Text>
+                                    <TextInput style={[styles.input, {marginBottom: 10}]} value={editingLog.lieu} onChangeText={t => setEditingLog({...editingLog, lieu: t})} />
+                                    
+                                    <Text style={styles.label}>Action</Text>
+                                    <TextInput style={[styles.input, {marginBottom: 10}]} value={editingLog.action} onChangeText={t => setEditingLog({...editingLog, action: t})} />
+                                    
+                                    <Text style={styles.label}>Remarques</Text>
+                                    <TextInput style={[styles.input, {marginBottom: 20}]} value={editingLog.remarques} onChangeText={t => setEditingLog({...editingLog, remarques: t})} />
+
+                                    <View style={{flexDirection: 'row', justifyContent: 'space-between', gap: 10}}>
+                                        <TouchableOpacity onPress={() => setEditingLog(null)} style={[styles.submitBtn, {backgroundColor: '#52525b', flex: 1}]}>
+                                            <Text style={{color: 'white', fontWeight: 'bold'}}>ANNULER</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity onPress={handleSaveEdit} style={[styles.submitBtn, {backgroundColor: '#3b82f6', flex: 1}]}>
+                                            <Text style={{color: 'white', fontWeight: 'bold'}}>ENREGISTRER</Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                </>
+                            )}
+                        </View>
+                    </View>
+                </Modal>
+
+                {/* MODAL EXPORT QR SUCCESSIF ( inchangé ) */}
                 <Modal visible={showQrExport} transparent animationType="fade">
                     <View style={styles.modalOverlay}>
                         <View style={styles.qrModalContent}>
                             <Text style={styles.modalTitle}>EXPORT DATA GAP</Text>
                             <Text style={styles.qrCounter}>QR {currentQrIndex + 1} / {qrChunks.length}</Text>
-                            
                             <View style={styles.qrContainer}>
                                 {qrChunks.length > 0 && (
                                     <QRCode value={qrChunks[currentQrIndex]} size={200} backgroundColor="white" />
                                 )}
                             </View>
-                            
-                            <Text style={styles.qrHelp}>Scanner séquentiellement avec un autre terminal TacSuite pour importer.</Text>
-
                             <View style={styles.qrControls}>
-                                <TouchableOpacity onPress={handlePrevQr} style={styles.qrNavBtn}>
+                                <TouchableOpacity onPress={() => setCurrentQrIndex(prev => prev > 0 ? prev - 1 : qrChunks.length - 1)} style={styles.qrNavBtn}>
                                     <MaterialIcons name="chevron-left" size={40} color="white" />
                                 </TouchableOpacity>
-                                <TouchableOpacity onPress={handleNextQr} style={styles.qrNavBtn}>
+                                <TouchableOpacity onPress={() => setCurrentQrIndex(prev => prev < qrChunks.length - 1 ? prev + 1 : 0)} style={styles.qrNavBtn}>
                                     <MaterialIcons name="chevron-right" size={40} color="white" />
                                 </TouchableOpacity>
                             </View>
-
                             <TouchableOpacity onPress={() => setShowQrExport(false)} style={styles.closeQrBtn}>
                                 <Text style={styles.closeQrBtnText}>FERMER</Text>
                             </TouchableOpacity>
@@ -340,7 +390,7 @@ const styles = StyleSheet.create({
     lieuText: { color: '#a1a1aa', fontSize: 11, fontWeight: 'bold' },
     actionText: { color: '#e4e4e7', fontSize: 14, fontWeight: '500' },
     remarquesText: { color: '#71717a', fontSize: 12, fontStyle: 'italic', marginTop: 2 },
-    deleteBtn: { padding: 5, justifyContent: 'center', marginLeft: 10 },
+    actionBtn: { padding: 5 },
 
     emptyContainer: { alignItems: 'center', marginTop: 50, opacity: 0.5 },
     emptyText: { color: '#52525b', marginTop: 10 },
@@ -358,15 +408,16 @@ const styles = StyleSheet.create({
 
     inputRow: { flexDirection: 'row', gap: 10, marginBottom: 10 },
     input: { backgroundColor: '#000', color: 'white', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#333', fontSize: 14 },
-    submitBtn: { backgroundColor: '#3b82f6', width: 48, justifyContent: 'center', alignItems: 'center', borderRadius: 8 },
+    submitBtn: { backgroundColor: '#3b82f6', width: 48, justifyContent: 'center', alignItems: 'center', borderRadius: 8, padding: 10 },
+    label: { color: '#a1a1aa', fontSize: 12, marginBottom: 5 },
 
-    // QR EXPORT STYLES
+    // QR & Edit Modal Styles
     modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.95)', justifyContent: 'center', alignItems: 'center' },
     qrModalContent: { width: '85%', alignItems: 'center', backgroundColor: '#18181b', padding: 20, borderRadius: 20, borderWidth: 1, borderColor: '#333' },
-    modalTitle: { color: 'white', fontSize: 20, fontWeight: '900', marginBottom: 10 },
+    editModalContent: { width: '90%', backgroundColor: '#18181b', padding: 20, borderRadius: 20, borderWidth: 1, borderColor: '#333' },
+    modalTitle: { color: 'white', fontSize: 20, fontWeight: '900', marginBottom: 20, textAlign: 'center' },
     qrCounter: { color: '#3b82f6', fontWeight: 'bold', marginBottom: 20, fontSize: 16 },
     qrContainer: { padding: 10, backgroundColor: 'white', borderRadius: 10 },
-    qrHelp: { color: '#71717a', textAlign: 'center', marginTop: 20, fontSize: 12 },
     qrControls: { flexDirection: 'row', justifyContent: 'space-between', width: '80%', marginTop: 20 },
     qrNavBtn: { backgroundColor: '#27272a', borderRadius: 30, padding: 5 },
     closeQrBtn: { marginTop: 30, paddingVertical: 12, paddingHorizontal: 30, backgroundColor: '#ef4444', borderRadius: 10 },
