@@ -18,7 +18,7 @@ import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Magnetometer } from 'expo-sensors';
 import * as SplashScreen from 'expo-splash-screen';
-import * as Battery from 'expo-battery'; // IMPORT BATTERY
+import * as Battery from 'expo-battery';
 
 // --- IMPORTS LOCAUX ---
 import { UserData, OperatorStatus, OperatorRole, ViewType, PingData, AppSettings, DEFAULT_SETTINGS, PingType, HostileDetails, LogEntry } from './types';
@@ -125,12 +125,10 @@ const App: React.FC = () => {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [user, setUser] = useState<UserData>({ id: '', callsign: '', role: OperatorRole.OPR, status: OperatorStatus.CLEAR, joinedAt: Date.now(), bat: 100, head: 0, lat: 0, lng: 0, lastMsg: '' });
 
-  // Navigation
   const [view, setView] = useState<ViewType>('login');
   const [lastView, setLastView] = useState<ViewType>('menu'); 
   const [lastOpsView, setLastOpsView] = useState<ViewType>('map');
 
-  // Données Session
   const [peers, setPeers] = useState<Record<string, UserData>>({});
   const [pings, setPings] = useState<PingData[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -186,28 +184,6 @@ const App: React.FC = () => {
   const appState = useRef(AppState.currentState);
   const lastSysNotifId = useRef<string | null>(null);
 
-  // --- BATTERY MONITORING ---
-  useEffect(() => {
-      let battSub: any;
-      const setupBattery = async () => {
-          const level = await Battery.getBatteryLevelAsync();
-          setUser(u => ({ ...u, bat: Math.round(level * 100) }));
-          // Update local mais on ne broadcast pas immédiatement pour ne pas spammer
-          connectivityService.updateUser({ bat: Math.round(level * 100) });
-
-          battSub = Battery.addBatteryLevelListener(({ batteryLevel }) => {
-              const newLevel = Math.round(batteryLevel * 100);
-              // Broadcast seulement si changement > 2% ou critique
-              if (Math.abs(newLevel - userRef.current.bat) > 2 || newLevel < 20) {
-                  setUser(u => ({ ...u, bat: newLevel }));
-                  connectivityService.updateUser({ bat: newLevel });
-              }
-          });
-      };
-      setupBattery();
-      return () => { if(battSub) battSub.remove(); };
-  }, []);
-
   // --- HELPER FUNCTIONS ---
   const triggerAppNotification = (id: string, msg: string, type: 'alert' | 'info' | 'success' | 'warning') => {
       if (activeNotif && activeNotif.id === id && activeNotif.msg === msg) return;
@@ -260,12 +236,26 @@ const App: React.FC = () => {
               }
           } catch(e) {}
           await bootstrapPermissionsAsync();
+          
+          // INIT BATTERY
+          const level = await Battery.getBatteryLevelAsync();
+          if(mounted) setUser(u => ({ ...u, bat: Math.round(level * 100) }));
+          
           if (mounted) { 
               setIsAppReady(true); 
               setTimeout(async () => { await SplashScreen.hideAsync().catch(() => {}); }, 500); 
           }
       };
       initApp();
+
+      // Battery Listener
+      const battSub = Battery.addBatteryLevelListener(({ batteryLevel }) => {
+          const newLevel = Math.round(batteryLevel * 100);
+          if (Math.abs(newLevel - userRef.current.bat) > 2 || newLevel < 20) {
+              setUser(u => ({ ...u, bat: newLevel }));
+              connectivityService.updateUser({ bat: newLevel });
+          }
+      });
 
       const unsubConfig = configService.subscribe((newSettings) => {
           setSettings(newSettings);
@@ -281,7 +271,7 @@ const App: React.FC = () => {
           handleConnectivityEvent(event);
       });
       
-      return () => { mounted = false; unsubConfig(); unsubConn(); subscription.remove(); };
+      return () => { mounted = false; unsubConfig(); unsubConn(); subscription.remove(); battSub.remove(); };
   }, []);
 
   const bootstrapPermissionsAsync = async () => {
@@ -296,6 +286,8 @@ const App: React.FC = () => {
           }
           const { status } = await Location.getForegroundPermissionsAsync();
           if (status === 'granted') { await Location.requestBackgroundPermissionsAsync().catch(() => {}); setGpsStatus('OK'); }
+          const camStatus = await Camera.getCameraPermissionsAsync();
+          setHasCameraPermission(camStatus.status === 'granted');
       } catch (e) {}
   };
 
@@ -549,7 +541,6 @@ const App: React.FC = () => {
           return newLogs;
       });
   };
-  // NOUVEAU: Update logs
   const handleUpdateLog = (updatedEntry: LogEntry) => {
       setLogs(prev => {
           const newLogs = prev.map(l => l.id === updatedEntry.id ? updatedEntry : l);
@@ -838,7 +829,6 @@ const App: React.FC = () => {
       {/* OVERLAY ROUGE POUR NIGHT OPS (EN PLUS DU FILTRE CSS ET DES STYLES) */}
       {nightOpsMode && <View style={styles.nightOpsOverlay} pointerEvents="none" />}
       
-      {toast && ( <View style={[styles.toast, toast.type === 'error' && {backgroundColor: '#ef4444'}]}><Text style={styles.toastText}>{toast.msg}</Text></View> )}
     </View>
   );
 };
