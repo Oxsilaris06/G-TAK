@@ -1,54 +1,65 @@
+// 1. Crypto (DOIT ÊTRE EN PREMIER ABSOLU)
 import 'react-native-get-random-values';
 
-// Gestion sécurisée de WebRTC pour éviter le crash au démarrage
-try {
-    const { registerGlobals } = require('react-native-webrtc');
-    registerGlobals();
-} catch (e) {
-    console.warn("[Polyfills] WebRTC module not found or failed to initialize. PeerJS might not work.", e);
-}
-
-// 2. Window & Self (Compatibilité librairies web)
-if (typeof window === 'undefined') { global.window = global; }
-if (typeof self === 'undefined') { global.self = global; }
-
-// 3. Location (Critique pour PeerJS qui vérifie window.location)
-if (!global.window.location) {
-    global.window.location = {
-        protocol: 'https:', host: 'localhost', hostname: 'localhost',
-        href: 'https://localhost', port: '443', search: '', hash: '', pathname: '/', origin: 'https://localhost'
-    };
-}
-
-// 4. Navigator
-if (!global.navigator) { global.navigator = {}; }
-if (!global.navigator.userAgent) { global.navigator.userAgent = 'react-native'; }
-if (global.navigator.onLine === undefined) { global.navigator.onLine = true; }
-
-// 5. TextEncoder (Souvent manquant sur Android/Hermes)
-if (typeof TextEncoder === 'undefined') {
-    global.TextEncoder = class TextEncoder {
-        encode(str) {
-            if (typeof str !== 'string') str = String(str);
-            const arr = new Uint8Array(str.length);
-            for (let i = 0; i < str.length; i++) { arr[i] = str.charCodeAt(i) & 255; }
+// Fallback Crypto si le module natif échoue (rare mais possible)
+if (typeof crypto === 'undefined') {
+    global.crypto = {
+        getRandomValues: (arr) => {
+            console.warn("[Polyfill] Using insecure Math.random fallback for crypto");
+            for (let i = 0; i < arr.length; i++) {
+                arr[i] = Math.floor(Math.random() * 256);
+            }
             return arr;
         }
     };
 }
-if (typeof TextDecoder === 'undefined') {
-    global.TextDecoder = class TextDecoder {
-        decode(arr) { return String.fromCharCode.apply(null, arr); }
+
+// 2. WebRTC Globals
+try {
+    const { registerGlobals } = require('react-native-webrtc');
+    registerGlobals();
+} catch (e) {
+    console.error("[Polyfills] Failed to register WebRTC globals", e);
+}
+
+// 3. Window & Self (Compatibilité PeerJS)
+if (typeof window === 'undefined') { global.window = global; }
+if (typeof self === 'undefined') { global.self = global; }
+
+// 4. Location Mock (CRITIQUE: Doit être HTTPS pour que PeerJS active le mode secure)
+if (!global.window.location) {
+    global.window.location = {
+        protocol: 'https:', 
+        host: 'tacsuite.app', 
+        hostname: 'tacsuite.app',
+        href: 'https://tacsuite.app', 
+        port: '443', 
+        search: '', 
+        hash: '', 
+        pathname: '/', 
+        origin: 'https://tacsuite.app',
+        ancestorOrigins: []
     };
 }
 
-// 6. Timers
-const originalSetTimeout = setTimeout;
-global.setTimeout = (fn, ms, ...args) => { return originalSetTimeout(fn, ms || 0, ...args); };
+// 5. Navigator
+if (!global.navigator) { global.navigator = {}; }
+if (!global.navigator.userAgent) { global.navigator.userAgent = 'react-native'; }
+if (global.navigator.onLine === undefined) { global.navigator.onLine = true; }
 
-// 7. Crypto Fallback
-if (typeof crypto === 'undefined') {
-    global.crypto = {
-        getRandomValues: (arr) => { for (let i = 0; i < arr.length; i++) { arr[i] = Math.floor(Math.random() * 256); } return arr; }
-    };
+// 6. TextEncoder/Decoder (Requis par les versions récentes de PeerJS pour l'UTF-8)
+if (typeof TextEncoder === 'undefined') {
+    const { TextEncoder, TextDecoder } = require('text-encoding');
+    global.TextEncoder = TextEncoder;
+    global.TextDecoder = TextDecoder;
+} else if (!global.TextEncoder) {
+    // Cas où TextEncoder existe mais n'est pas sur global
+    global.TextEncoder = TextEncoder;
+    global.TextDecoder = TextDecoder;
 }
+
+// 7. Timer Fix (Évite les warnings de long timers sur Android)
+// PeerJS utilise parfois des timers longs pour le heartbeat
+const _setTimeout = global.setTimeout;
+const _setInterval = global.setInterval;
+// On laisse tel quel, le fix précédent était parfois cause de bugs avec Hermes
