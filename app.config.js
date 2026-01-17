@@ -31,12 +31,10 @@ export default {
         "expo-build-properties",
         {
           android: {
-            // Configuration Kotlin/SDK pour Expo 51 Standard
             kotlinVersion: "1.9.23",
             compileSdkVersion: 34,
             targetSdkVersion: 34,
             buildToolsVersion: "34.0.0",
-            // On reste sur l'ancienne architecture pour garantir la compatibilité WebRTC 118
             newArchEnabled: false
           }
         }
@@ -44,6 +42,7 @@ export default {
       [
         "@config-plugins/react-native-webrtc",
         {
+          // On désactive explicitement les permissions caméra/micro
           cameraPermission: false,
           microphonePermission: false
         }
