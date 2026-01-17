@@ -32,6 +32,8 @@ import OperatorActionModal from './components/OperatorActionModal';
 import MainCouranteView from './components/MainCouranteView';
 import PrivacyConsentModal from './components/PrivacyConsentModal';
 import { NotificationToast } from './components/NotificationToast';
+import ComposantOrdreInitial from './components/ComposantOrdreInitial'; // IMPORT DU COMPOSANT OI
+import ShinyText from './components/ShinyText'; // IMPORT DU BOUTON SHINY
 
 try { SplashScreen.preventAutoHideAsync().catch(() => {}); } catch (e) {}
 
@@ -52,7 +54,8 @@ const App: React.FC = () => {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [user, setUser] = useState<UserData>({ id: '', callsign: '', role: OperatorRole.OPR, status: OperatorStatus.CLEAR, joinedAt: Date.now(), bat: 100, head: 0, lat: 0, lng: 0, lastMsg: '' });
 
-  const [view, setView] = useState<ViewType>('login');
+  // MODIFICATION: Ajout de 'oi' comme type possible, ou gestion via un state séparé pour l'overlay
+  const [view, setView] = useState<ViewType | 'oi'>('login'); 
   const [lastView, setLastView] = useState<ViewType>('menu'); 
   const [lastOpsView, setLastOpsView] = useState<ViewType>('map');
   const [mapState, setMapState] = useState<{lat: number, lng: number, zoom: number} | undefined>(undefined);
@@ -531,18 +534,18 @@ const App: React.FC = () => {
   const renderHeader = () => {
       if (navTargetId && navInfo) {
           return (
-             <View style={styles.headerContent}>
-                 <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
-                     <MaterialIcons name="navigation" size={24} color="#06b6d4" />
-                     <View>
-                        <Text style={{color:'#06b6d4', fontWeight:'bold', fontSize: 16}}>RALLIEMENT</Text>
-                        <Text style={{color:'white', fontSize: 12}}>{peers[navTargetId]?.callsign} - {navInfo.dist} - {navInfo.time}</Text>
-                     </View>
-                 </View>
-                 <TouchableOpacity onPress={() => setNavTargetId(null)} style={{padding: 8}}>
-                     <MaterialIcons name="close" size={28} color="white" />
-                 </TouchableOpacity>
-             </View>
+              <View style={styles.headerContent}>
+                  <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
+                      <MaterialIcons name="navigation" size={24} color="#06b6d4" />
+                      <View>
+                         <Text style={{color:'#06b6d4', fontWeight:'bold', fontSize: 16}}>RALLIEMENT</Text>
+                         <Text style={{color:'white', fontSize: 12}}>{peers[navTargetId]?.callsign} - {navInfo.dist} - {navInfo.time}</Text>
+                      </View>
+                  </View>
+                  <TouchableOpacity onPress={() => setNavTargetId(null)} style={{padding: 8}}>
+                      <MaterialIcons name="close" size={28} color="white" />
+                  </TouchableOpacity>
+              </View>
           );
       }
       return (
@@ -552,7 +555,7 @@ const App: React.FC = () => {
               <View style={{flexDirection: 'row', gap: 15}}>
                   <TouchableOpacity onPress={() => setShowLogs(true)}><MaterialIcons name="history-edu" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
                   <TouchableOpacity onPress={() => setNightOpsMode(!nightOpsMode)}><MaterialIcons name="nightlight-round" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
-                  <TouchableOpacity onPress={() => { setLastView(view); setView('settings'); }}><MaterialIcons name="settings" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
+                  <TouchableOpacity onPress={() => { setLastView(view as ViewType); setView('settings'); }}><MaterialIcons name="settings" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
                   <TouchableOpacity onPress={() => { 
                       if(view === 'map') { setView('ops'); setLastOpsView('ops'); }
                       else { setView('map'); setLastOpsView('map'); }
@@ -653,7 +656,7 @@ const App: React.FC = () => {
       <StatusBar style="light" backgroundColor="#050505" />
       {view === 'settings' ? (
           <SettingsView 
-            onClose={() => setView(lastView)} 
+            onClose={() => setView(lastView as ViewType)} 
             onUpdate={s => { 
                 setSettings(s); 
                 setUser(u => ({...u, paxColor: s.userArrowColor})); 
@@ -663,6 +666,10 @@ const App: React.FC = () => {
             }} 
           />
        ) : 
+       view === 'oi' ? (
+         // INTÉGRATION DE LA VUE ORDRE INITIAL
+         <ComposantOrdreInitial onClose={() => setView('login')} />
+       ) :
        view === 'login' ? (
         <View style={styles.centerContainer}>
           <Image source={require('./assets/icon2.png')} style={{width: 100, height: 100, marginBottom: 30, borderRadius: 20}} />
@@ -675,6 +682,20 @@ const App: React.FC = () => {
               setUser(prev => ({ ...prev, callsign: loginInput.toUpperCase(), joinedAt: Date.now() }));
               setView('menu');
           }} style={styles.loginBtn}><Text style={styles.loginBtnText}>CONNEXION</Text></TouchableOpacity>
+          
+          <View style={{ marginTop: 20 }}>
+            <ShinyText 
+                text="Stratégica" 
+                onPress={() => setView('oi')}
+                speed={1.5}
+                shineColor="#1e0ff0"
+                spread={115}
+                direction="right"
+                yoyo
+                textStyle={{ fontSize: 18, letterSpacing: 3, fontWeight: 'bold' }}
+            />
+          </View>
+
           <PrivacyConsentModal onConsentGiven={() => {}} />
         </View>
        ) :
