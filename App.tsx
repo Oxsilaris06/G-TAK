@@ -109,7 +109,6 @@ const App: React.FC = () => {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [hostId, setHostId] = useState<string>('');
   
-  // REFS SYNCHRONES
   const pingsRef = useRef(pings);
   const logsRef = useRef(logs);
   const peersRef = useRef(peers);
@@ -131,6 +130,7 @@ const App: React.FC = () => {
   
   const [showQRModal, setShowQRModal] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
+  const [hasCameraPermission, setHasCameraPermission] = useState(false);
   const [showQuickMsgModal, setShowQuickMsgModal] = useState(false);
   const [showPingMenu, setShowPingMenu] = useState(false);
   const [showPingForm, setShowPingForm] = useState(false);
@@ -235,7 +235,6 @@ const App: React.FC = () => {
               setPeers(prev => {
                   const newPeers = { ...prev };
                   Object.values(event.peers).forEach(p => newPeers[p.id] = p);
-                  // On garde toujours l'utilisateur courant et les pairs valides
                   return newPeers;
               });
               break;
@@ -355,6 +354,27 @@ const App: React.FC = () => {
       setShowPingForm(false); setTempPingLoc(null); setIsPingMode(false);
   };
 
+  const handlePingMove = (updatedPing: PingData) => {
+      setPings(prev => prev.map(p => p.id === updatedPing.id ? updatedPing : p));
+      connectivityService.broadcast({ type: 'PING_MOVE', id: updatedPing.id, lat: updatedPing.lat, lng: updatedPing.lng });
+  };
+
+  const savePingEdit = () => {
+      if (!editingPing) return;
+      const updatedPing = { ...editingPing, msg: pingMsgInput, details: editingPing.type === 'HOSTILE' ? hostileDetails : undefined };
+      setPings(prev => prev.map(p => p.id === editingPing.id ? updatedPing : p));
+      connectivityService.broadcast({ type: 'PING_UPDATE', id: editingPing.id, msg: pingMsgInput, details: updatedPing.details });
+      setEditingPing(null);
+  };
+  
+  // --- FONCTION MANQUANTE DANS LA VERSION PRECEDENTE ---
+  const deletePing = () => {
+      if (!editingPing) return;
+      setPings(prev => prev.filter(p => p.id !== editingPing.id));
+      connectivityService.broadcast({ type: 'PING_DELETE', id: editingPing.id });
+      setEditingPing(null);
+  };
+
   const handleAddLog = (entry: LogEntry) => {
       setLogs(prev => {
           const newLogs = [...prev, entry];
@@ -362,7 +382,6 @@ const App: React.FC = () => {
           return newLogs;
       });
   };
-  
   const handleUpdateLog = (updatedEntry: LogEntry) => {
       setLogs(prev => {
           const newLogs = prev.map(l => l.id === updatedEntry.id ? updatedEntry : l);
@@ -370,7 +389,6 @@ const App: React.FC = () => {
           return newLogs;
       });
   };
-
   const handleDeleteLog = (id: string) => {
       setLogs(prev => {
           const newLogs = prev.filter(l => l.id !== id);
@@ -430,7 +448,7 @@ const App: React.FC = () => {
                       pingMode={isPingMode} navTargetId={navTargetId}
                       nightOpsMode={nightOpsMode} 
                       onPing={(loc) => { setTempPingLoc(loc); setShowPingMenu(true); }}
-                      onPingMove={(p) => { setPings(prev => prev.map(x => x.id === p.id ? p : x)); connectivityService.broadcast({ type: 'PING_MOVE', ...p }); }}
+                      onPingMove={handlePingMove} 
                       onPingClick={(id) => { 
                           const p = pings.find(ping => ping.id === id);
                           if (!p) return;
@@ -528,8 +546,10 @@ const App: React.FC = () => {
        ) : renderMainContent()
       }
 
+      {/* MODALES & ELEMENTS FLOTTANTS */}
       <OperatorActionModal visible={!!selectedOperatorId} targetOperator={peers[selectedOperatorId || ''] || null} currentUserRole={user.role} onClose={() => setSelectedOperatorId(null)} onKick={handleOperatorActionKick} onNavigate={handleOperatorActionNavigate} />
       
+      {/* NOUVEAU COMPOSANT MAIN COURANTE */}
       <MainCouranteView 
         visible={showLogs} 
         logs={logs} 
@@ -647,6 +667,8 @@ const App: React.FC = () => {
       {activeNotif && <NavNotification message={`${activeNotif.id ? activeNotif.id + ': ' : ''}${activeNotif.msg}`} type={activeNotif.type} isNightOps={nightOpsMode} onDismiss={() => setActiveNotif(null)} />}
       
       {nightOpsMode && <View style={styles.nightOpsOverlay} pointerEvents="none" />}
+      
+      {/* CORRECTION : PLUS DE RENDU TOAST ICI, TOUT PASSE PAR NAVNOTIFICATION */}
     </View>
   );
 };
