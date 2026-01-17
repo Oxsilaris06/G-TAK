@@ -53,7 +53,7 @@ const NavNotification = ({ message, type, isNightOps, onDismiss }: { message: st
     const opacityAnim = useRef(new Animated.Value(0)).current;
     
     useEffect(() => {
-        // FIX: useNativeDriver: false pour éviter le conflit "JS driven animation on native node"
+        // useNativeDriver: false pour éviter conflit avec PanResponder
         Animated.parallel([
             Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: false }),
             Animated.timing(opacityAnim, { toValue: 1, duration: 200, useNativeDriver: false })
@@ -118,25 +118,23 @@ const NavNotification = ({ message, type, isNightOps, onDismiss }: { message: st
 const App: React.FC = () => {
   useKeepAwake();
   
-  // --- STATE GESTION ---
+  // --- STATE ---
   const [isAppReady, setIsAppReady] = useState(false);
   const [activeNotif, setActiveNotif] = useState<{ id: string, msg: string, type: 'alert' | 'info' | 'success' | 'warning' } | null>(null);
   
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [user, setUser] = useState<UserData>({ id: '', callsign: '', role: OperatorRole.OPR, status: OperatorStatus.CLEAR, joinedAt: Date.now(), bat: 100, head: 0, lat: 0, lng: 0, lastMsg: '' });
 
-  // Navigation
   const [view, setView] = useState<ViewType>('login');
   const [lastView, setLastView] = useState<ViewType>('menu'); 
   const [lastOpsView, setLastOpsView] = useState<ViewType>('map');
 
-  // Données Session
   const [peers, setPeers] = useState<Record<string, UserData>>({});
   const [pings, setPings] = useState<PingData[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [hostId, setHostId] = useState<string>('');
   
-  // REFS POUR ACCÈS SYNCHRONE
+  // REFS (Pour accès synchrone dans les listeners)
   const pingsRef = useRef(pings);
   const logsRef = useRef(logs);
   const peersRef = useRef(peers);
@@ -147,7 +145,7 @@ const App: React.FC = () => {
   useEffect(() => { peersRef.current = peers; }, [peers]);
   useEffect(() => { userRef.current = user; }, [user]);
 
-  // UI State & Formulaires
+  // UI
   const [loginInput, setLoginInput] = useState('');
   const [hostInput, setHostInput] = useState('');
   const [mapMode, setMapMode] = useState<'dark' | 'light' | 'satellite'>('satellite');
@@ -157,6 +155,7 @@ const App: React.FC = () => {
   const [nightOpsMode, setNightOpsMode] = useState(false);
   const [showLogs, setShowLogs] = useState(false);
   
+  // Modales
   const [showQRModal, setShowQRModal] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
   const [hasCameraPermission, setHasCameraPermission] = useState(false);
@@ -176,7 +175,7 @@ const App: React.FC = () => {
   const [navTargetId, setNavTargetId] = useState<string | null>(null);
   const [bannedPeers, setBannedPeers] = useState<string[]>([]);
 
-  // System
+  // Services
   const [isServicesReady, setIsServicesReady] = useState(false);
   const [gpsStatus, setGpsStatus] = useState<'WAITING' | 'OK' | 'ERROR'>('WAITING');
   const lastLocationRef = useRef<any>(null);
@@ -185,12 +184,9 @@ const App: React.FC = () => {
   const appState = useRef(AppState.currentState);
   const lastSysNotifId = useRef<string | null>(null);
 
-  // --- NOTIFICATIONS & TOASTS ---
+  // --- HELPER FUNCTIONS ---
   const triggerAppNotification = (id: string, msg: string, type: 'alert' | 'info' | 'success' | 'warning') => {
-      // Éviter les doublons
-      if (activeNotif && activeNotif.msg === msg) return;
-      
-      // Ici, on ne met plus le "Toast:" ou autre préfixe dans l'ID si c'est juste visuel
+      if (activeNotif && activeNotif.id === id && activeNotif.msg === msg) return;
       setActiveNotif({ id, msg, type });
       if (type === 'alert' || type === 'warning') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       else if (type === 'success') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -209,7 +205,6 @@ const App: React.FC = () => {
       triggerAppNotification('', msg, type);
   };
 
-  // --- ACTIONS GLOBALES ---
   const copyToClipboard = async () => { 
       await Clipboard.setStringAsync(hostId || user.id || ''); 
       showToast("ID Copié", "success"); 
@@ -222,7 +217,7 @@ const App: React.FC = () => {
       } else { setView('login'); }
   };
 
-  // --- INITIALISATION APP ---
+  // --- INITIALISATION ---
   useEffect(() => {
       let mounted = true;
       const subscription = AppState.addEventListener('change', nextAppState => {
@@ -288,7 +283,7 @@ const App: React.FC = () => {
       setHasCameraPermission(res.status === 'granted');
   };
 
-  // --- LOGIQUE RÉSEAU (Event Handler) ---
+  // --- LOGIQUE RÉSEAU ---
   const handleConnectivityEvent = (event: ConnectivityEvent) => {
       switch (event.type) {
           case 'PEER_OPEN': 
@@ -361,21 +356,16 @@ const App: React.FC = () => {
   const handleProtocolData = (data: any, fromId: string) => {
       if (bannedPeers.includes(fromId)) return;
 
-      // SYNC HOST
       if (data.type === 'FULL' && userRef.current.role === OperatorRole.HOST) {
           connectivityService.sendTo(fromId, { type: 'SYNC_PINGS', pings: pingsRef.current });
           connectivityService.sendTo(fromId, { type: 'SYNC_LOGS', logs: logsRef.current });
       }
-
-      // SYNC DATA
       else if (data.type === 'SYNC_PINGS' && Array.isArray(data.pings)) {
           setPings(data.pings);
       }
       else if (data.type === 'SYNC_LOGS' && Array.isArray(data.logs)) {
           setLogs(data.logs);
       }
-
-      // PINGS & ALERTS
       else if (data.type === 'PING') {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             setPings(prev => [...prev, data.ping]);
@@ -397,8 +387,6 @@ const App: React.FC = () => {
           setLogs(data.logs);
           if (showLogs) showToast("Main Courante mise à jour", "info");
       }
-      
-      // USER UPDATES
       else if ((data.type === 'UPDATE' || data.type === 'UPDATE_USER') && data.user) {
           const u = data.user;
           const currentPeer = peersRef.current[u.id]; 
@@ -562,7 +550,6 @@ const App: React.FC = () => {
                       <TouchableOpacity onPress={handleBackPress}><MaterialIcons name="arrow-back" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
                       <Text style={[styles.headerTitle, nightOpsMode && {color: '#ef4444'}]}>TacSuite</Text>
                       <View style={{flexDirection: 'row', gap: 15}}>
-                          <TouchableOpacity onPress={() => setShowLogs(true)}><MaterialIcons name="history-edu" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
                           <TouchableOpacity onPress={() => setNightOpsMode(!nightOpsMode)}><MaterialIcons name="nightlight-round" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
                           <TouchableOpacity onPress={() => { setLastView(view); setView('settings'); }}><MaterialIcons name="settings" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
                           <TouchableOpacity onPress={() => { setView('map'); setLastOpsView('map'); }}><MaterialIcons name="map" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
@@ -621,7 +608,7 @@ const App: React.FC = () => {
           <View style={[styles.footer, nightOpsMode && {borderTopColor: '#7f1d1d'}]}>
                 <View style={styles.statusRow}>
                   {[OperatorStatus.PROGRESSION, OperatorStatus.CONTACT, OperatorStatus.CLEAR].map(s => (
-                      <TouchableOpacity key={s} onPress={() => handleChangeStatus(s)} style={[styles.statusBtn, user.status === s ? { backgroundColor: STATUS_COLORS[s], borderColor: 'white' } : null, nightOpsMode && {borderColor: '#7f1d1d', backgroundColor: user.status === s ? '#7f1d1d' : '#000'}]}>
+                      <TouchableOpacity key={s} onPress={() => { setUser(u => ({...u, status:s})); connectivityService.updateUserStatus(s); }} style={[styles.statusBtn, user.status === s ? { backgroundColor: STATUS_COLORS[s], borderColor: 'white' } : null, nightOpsMode && {borderColor: '#7f1d1d', backgroundColor: user.status === s ? '#7f1d1d' : '#000'}]}>
                           <Text style={[styles.statusBtnText, user.status === s ? {color:'white'} : null, nightOpsMode && {color: '#ef4444'}]}>{s}</Text>
                       </TouchableOpacity>
                   ))}
@@ -700,7 +687,6 @@ const App: React.FC = () => {
       {/* MODALES & ELEMENTS FLOTTANTS */}
       <OperatorActionModal visible={!!selectedOperatorId} targetOperator={peers[selectedOperatorId || ''] || null} currentUserRole={user.role} onClose={() => setSelectedOperatorId(null)} onKick={handleOperatorActionKick} onNavigate={handleOperatorActionNavigate} />
       
-      {/* NOUVEAU COMPOSANT MAIN COURANTE */}
       <MainCouranteView 
         visible={showLogs} 
         logs={logs} 
@@ -729,9 +715,9 @@ const App: React.FC = () => {
               <View style={styles.pingMenuContainer}>
                   <Text style={styles.modalTitle}>TYPE DE MARQUEUR</Text>
                   <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 15, justifyContent: 'center'}}>
-                      <TouchableOpacity onPress={() => selectPingType('HOSTILE')} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(239, 68, 68, 0.2)', borderColor: '#ef4444'}]}><MaterialIcons name="warning" size={30} color="#ef4444" /><Text style={{color: '#ef4444', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>ADVERSAIRE</Text></TouchableOpacity>
-                      <TouchableOpacity onPress={() => selectPingType('FRIEND')} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(34, 197, 94, 0.2)', borderColor: '#22c55e'}]}><MaterialIcons name="shield" size={30} color="#22c55e" /><Text style={{color: '#22c55e', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>AMI</Text></TouchableOpacity>
-                      <TouchableOpacity onPress={() => selectPingType('INTEL')} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(234, 179, 8, 0.2)', borderColor: '#eab308'}]}><MaterialIcons name="visibility" size={30} color="#eab308" /><Text style={{color: '#eab308', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>RENS</Text></TouchableOpacity>
+                      <TouchableOpacity onPress={() => { setCurrentPingType('HOSTILE'); setShowPingMenu(false); setPingMsgInput(''); setHostileDetails({position: tempPingLoc ? `${tempPingLoc.lat.toFixed(5)}, ${tempPingLoc.lng.toFixed(5)}` : '', nature: '', attitude: '', volume: '', armes: '', substances: ''}); setShowPingForm(true); }} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(239, 68, 68, 0.2)', borderColor: '#ef4444'}]}><MaterialIcons name="warning" size={30} color="#ef4444" /><Text style={{color: '#ef4444', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>ADVERSAIRE</Text></TouchableOpacity>
+                      <TouchableOpacity onPress={() => { setCurrentPingType('FRIEND'); setShowPingMenu(false); setPingMsgInput(''); setShowPingForm(true); }} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(34, 197, 94, 0.2)', borderColor: '#22c55e'}]}><MaterialIcons name="shield" size={30} color="#22c55e" /><Text style={{color: '#22c55e', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>AMI</Text></TouchableOpacity>
+                      <TouchableOpacity onPress={() => { setCurrentPingType('INTEL'); setShowPingMenu(false); setPingMsgInput(''); setShowPingForm(true); }} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(234, 179, 8, 0.2)', borderColor: '#eab308'}]}><MaterialIcons name="visibility" size={30} color="#eab308" /><Text style={{color: '#eab308', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>RENS</Text></TouchableOpacity>
                   </View>
                   <TouchableOpacity onPress={() => setShowPingMenu(false)} style={[styles.closeBtn, {marginTop: 20, backgroundColor: '#27272a'}]}><Text style={{color:'white'}}>ANNULER</Text></TouchableOpacity>
               </View>
@@ -820,7 +806,6 @@ const App: React.FC = () => {
       {/* OVERLAY ROUGE POUR NIGHT OPS (EN PLUS DU FILTRE CSS ET DES STYLES) */}
       {nightOpsMode && <View style={styles.nightOpsOverlay} pointerEvents="none" />}
       
-      {toast && ( <View style={[styles.toast, toast.type === 'error' && {backgroundColor: '#ef4444'}]}><Text style={styles.toastText}>{toast.msg}</Text></View> )}
     </View>
   );
 };
