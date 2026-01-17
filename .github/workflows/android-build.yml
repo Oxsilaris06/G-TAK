@@ -1,4 +1,4 @@
-name: Build & Release Praxis (Force Bundle Fix)
+name: Build & Release Praxis (Camera Fix)
 
 on:
   workflow_dispatch:
@@ -30,12 +30,15 @@ jobs:
       - name: Installation des dépendances
         run: |
           npm install --legacy-peer-deps
+          # FORCE INSTALL : On installe explicitement expo-camera pour être sûr à 100% qu'il est là
+          npx expo install expo-camera -- --legacy-peer-deps
+          # Puis on fixe le reste
           npx expo install --fix -- --legacy-peer-deps
 
       - name: Expo Prebuild
         run: npx expo prebuild --platform android --clean
 
-      # --- PATCH WEBRTC (Indispensable pour Data Only) ---
+      # PATCH WEBRTC (Toujours nécessaire)
       - name: Patch WebRTC (Remove USB Camera Dep)
         run: |
           echo "Patching react-native-webrtc build.gradle..."
@@ -47,14 +50,10 @@ jobs:
             echo "Fichier non trouvé: $FILE"
           fi
 
-      # --- LE CORRECTIF "UNABLE TO LOAD SCRIPT" ---
-      # On force la création du fichier index.android.bundle
+      # FORCE BUNDLE JS
       - name: Force Bundle JS
         run: |
-          # Création du dossier assets s'il n'existe pas
           mkdir -p android/app/src/main/assets
-          
-          # Génération du bundle (Le cerveau de l'app)
           npx react-native bundle \
             --platform android \
             --dev false \
@@ -67,19 +66,17 @@ jobs:
         run: |
           cd android
           chmod +x gradlew
-          # On ajoute l'option -x bundleReleaseJsAndAssets pour éviter un doublon
-          # Mais comme on est en Debug, Gradle ne le ferait pas de base, d'où l'erreur précédente.
           ./gradlew assembleDebug --no-daemon --warning-mode all
 
       - name: Renommer et Publier
         run: |
-          mv android/app/build/outputs/apk/debug/app-debug.apk Praxis.apk
+          mv android/app/build/outputs/apk/debug/app-debug.apk Praxis-CamFix.apk
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v4.0.1-fix-${{ github.run_number }}
-          name: "Praxis Fix Script Load #${{ github.run_number }}"
-          files: Praxis-BundleFix.apk
+          tag_name: v4.0.3-cam-${{ github.run_number }}
+          name: "Praxis Release #${{ github.run_number }}"
+          files: Praxis-CamFix.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
