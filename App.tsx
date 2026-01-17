@@ -33,7 +33,6 @@ import MainCouranteView from './components/MainCouranteView';
 import PrivacyConsentModal from './components/PrivacyConsentModal';
 import { NotificationToast } from './components/NotificationToast';
 
-// Empêcher le splash screen de disparaître automatiquement avant que l'app ne soit prête
 try { SplashScreen.preventAutoHideAsync().catch(() => {}); } catch (e) {}
 
 Notifications.setNotificationHandler({
@@ -50,7 +49,6 @@ const App: React.FC = () => {
   const [isAppReady, setIsAppReady] = useState(false);
   const [activeNotif, setActiveNotif] = useState<{ id: string, msg: string, type: 'alert' | 'info' | 'success' | 'warning' } | null>(null);
   
-  // Settings initialization with explicit defaults
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [user, setUser] = useState<UserData>({ id: '', callsign: '', role: OperatorRole.OPR, status: OperatorStatus.CLEAR, joinedAt: Date.now(), bat: 100, head: 0, lat: 0, lng: 0, lastMsg: '' });
 
@@ -64,7 +62,6 @@ const App: React.FC = () => {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [hostId, setHostId] = useState<string>('');
   
-  // Refs for background logic
   const pingsRef = useRef(pings);
   const logsRef = useRef(logs);
   const peersRef = useRef(peers);
@@ -115,7 +112,6 @@ const App: React.FC = () => {
       else if (type === 'success') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   }, []);
 
-  // --- BOOTSTRAP PERMISSIONS (RESTAURÉ) ---
   const bootstrapPermissionsAsync = async () => {
     try {
         if (Platform.OS === 'android') {
@@ -143,7 +139,6 @@ const App: React.FC = () => {
     }
   };
 
-  // --- NOUVELLE GESTION NOTIFICATIONS SYSTÈME (Event-Driven) ---
   const triggerTacticalNotification = async (title: string, body: string) => {
       if (AppState.currentState !== 'background' || settings.disableBackgroundNotifications) return;
       
@@ -192,14 +187,12 @@ const App: React.FC = () => {
               console.log("Erreur Config Init:", e);
           }
           
-          // Appel critique - S'assurer qu'il ne bloque pas tout
           try {
              await bootstrapPermissionsAsync();
           } catch (e) {
              console.log("Erreur Bootstrap:", e);
           }
 
-          // Initialisation Batterie
           try {
               const level = await Battery.getBatteryLevelAsync();
               if(mounted && level) setUser(u => ({ ...u, bat: Math.round(level * 100) }));
@@ -318,7 +311,6 @@ const App: React.FC = () => {
             const isHostile = data.ping.type === 'HOSTILE';
             showToast(`${senderName}: ${data.ping.msg}`, isHostile ? 'alert' : 'info');
             
-            // --- NOTIFICATION PING CRITIQUE ---
             if (isHostile) {
                 triggerTacticalNotification(
                     `${senderName} - Contact`, 
@@ -334,8 +326,6 @@ const App: React.FC = () => {
       
       else if (data.type === 'LOG_UPDATE' && Array.isArray(data.logs)) {
           const oldLogs = logsRef.current;
-          
-          // --- NOTIFICATION MAIN COURANTE (HOSTILE SEULEMENT) ---
           const newEntries = data.logs.filter((l: LogEntry) => !oldLogs.find(ol => ol.id === l.id));
           const hostileEntry = newEntries.find((l: LogEntry) => l.pax.toUpperCase().includes("HOSTILE") || l.paxColor === '#be1b09');
           
@@ -345,20 +335,21 @@ const App: React.FC = () => {
                   `Lieu: ${hostileEntry.lieu || 'N/C'} - Action: ${hostileEntry.action || 'N/C'} - Rem: ${hostileEntry.remarques || 'RAS'}`
               );
           }
-          
           setLogs(data.logs);
       }
       
-      else if (data.type === 'UPDATE_USER' && data.user) {
+      // MODIFICATION ICI : Écouter à la fois UPDATE_USER (position) et UPDATE (statut/msg)
+      else if ((data.type === 'UPDATE_USER' || data.type === 'UPDATE') && data.user) {
           const u = data.user as UserData;
-          
-          // --- NOTIFICATION CHANGEMENT DE STATUT CONTACT ---
           const prevStatus = peersRef.current[u.id]?.status;
+          const prevMsg = peersRef.current[u.id]?.lastMsg;
+
+          // --- LOGIQUE NOTIFICATION STATUS ---
           if (u.status === 'CONTACT' && prevStatus !== 'CONTACT') {
               showToast(`${u.callsign} : CONTACT !`, 'alert');
               triggerTacticalNotification(
-                  `${u.callsign} - Contact`, 
-                  `Position GPS: ${u.lat.toFixed(5)}, ${u.lng.toFixed(5)}`
+                  `${u.callsign} - CONTACT`, 
+                  `Position GPS: ${u.lat?.toFixed(5) || 'N/A'}, ${u.lng?.toFixed(5) || 'N/A'}`
               );
           }
 
@@ -367,9 +358,16 @@ const App: React.FC = () => {
                   showToast(`${u.callsign} : OCCUPÉ`, 'warning');
               }
           }
-          if (u.lastMsg && u.lastMsg !== peersRef.current[u.id]?.lastMsg) {
+
+          // --- LOGIQUE NOTIFICATION MESSAGES ---
+          if (u.lastMsg && u.lastMsg !== prevMsg) {
              if(u.lastMsg !== 'RAS / Effacer' && u.lastMsg !== '') {
                  showToast(`${u.callsign}: ${u.lastMsg}`, 'info');
+                 // Ajout notification système pour les messages
+                 triggerTacticalNotification(
+                     `${u.callsign} - Message`,
+                     u.lastMsg
+                 );
              }
           }
       }
@@ -597,7 +595,6 @@ const App: React.FC = () => {
                       <TouchableOpacity onPress={() => setIsPingMode(!isPingMode)} style={[styles.mapBtn, isPingMode ? {backgroundColor: '#dc2626', borderColor: '#f87171'} : null, nightOpsMode && {borderColor: '#7f1d1d', backgroundColor: isPingMode ? '#7f1d1d' : '#000'}]}><MaterialIcons name="ads-click" size={24} color="white" /></TouchableOpacity>
                   </View>
 
-                   {/* RALLY INFO MODAL */}
                   {navTargetId && navInfo && (
                       <View style={[styles.navModal, nightOpsMode && {backgroundColor: 'rgba(0,0,0,0.8)', borderColor: '#7f1d1d'}]}>
                           <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
@@ -622,7 +619,6 @@ const App: React.FC = () => {
               </View>
           </View>
 
-          {/* ... Footer & Modals ... */}
           <View style={[styles.footer, nightOpsMode && {borderTopColor: '#7f1d1d'}]}>
                 <View style={styles.statusRow}>
                   {[OperatorStatus.PROGRESSION, OperatorStatus.CONTACT, OperatorStatus.CLEAR].map(s => (
@@ -709,7 +705,6 @@ const App: React.FC = () => {
        ) : renderMainContent()
       }
 
-      {/* MODALES & ELEMENTS FLOTTANTS */}
       <OperatorActionModal visible={!!selectedOperatorId} targetOperator={peers[selectedOperatorId || ''] || null} currentUserRole={user.role} onClose={() => setSelectedOperatorId(null)} onKick={handleOperatorActionKick} onNavigate={handleOperatorActionNavigate} />
       <MainCouranteView visible={showLogs} logs={logs} role={user.role} onClose={() => setShowLogs(false)} onAddLog={handleAddLog} onUpdateLog={handleUpdateLog} onDeleteLog={handleDeleteLog} />
       <Modal visible={showQuickMsgModal} animationType="fade" transparent><KeyboardAvoidingView behavior="padding" style={styles.modalOverlay}><View style={[styles.modalContent, {backgroundColor: '#18181b', borderWidth: 1, borderColor: '#333', maxHeight: '80%'}]}><Text style={[styles.modalTitle, {color: '#06b6d4', marginBottom: 15}]}>MESSAGE RAPIDE</Text><View style={{flexDirection: 'row', marginBottom: 15, width: '100%'}}><TextInput style={[styles.pingInput, {flex: 1, marginBottom: 0, textAlign: 'left'}]} placeholder="Message libre..." placeholderTextColor="#52525b" value={freeMsgInput} onChangeText={setFreeMsgInput} /><TouchableOpacity onPress={() => handleSendQuickMessage(freeMsgInput)} style={[styles.modalBtn, {backgroundColor: '#06b6d4', marginLeft: 10, flex: 0, width: 50}]}><MaterialIcons name="send" size={20} color="white" /></TouchableOpacity></View><FlatList data={quickMessagesList} keyExtractor={(item, index) => index.toString()} renderItem={({item}) => (<TouchableOpacity onPress={() => handleSendQuickMessage(item.includes("Effacer") ? "" : item)} style={styles.quickMsgItem}><Text style={styles.quickMsgText}>{item}</Text></TouchableOpacity>)} ItemSeparatorComponent={() => <View style={{height: 1, backgroundColor: '#27272a'}} />} /><TouchableOpacity onPress={() => setShowQuickMsgModal(false)} style={[styles.closeBtn, {backgroundColor: '#27272a', marginTop: 15}]}><Text style={{color: '#a1a1aa'}}>ANNULER</Text></TouchableOpacity></View></KeyboardAvoidingView></Modal>
