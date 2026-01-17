@@ -1,8 +1,12 @@
-TacSuite - Suivi Tactique de Groupe
-TacSuite est une solution open-source de Situation Awareness (SA) et de suivi tactique sur réseau maillé décentralisé (Peer-to-Peer). Conçue pour les environnements dégradés ou les opérations de groupe (MilSim, Airsoft, Randonnée, Secours), elle permet de partager positions, statuts et alertes en temps réel sans serveur central.
+Praxis - Suivi Tactique de Groupe
+Praxis est une solution open-source de Situation Awareness (SA) et de suivi tactique sur réseau maillé décentralisé (Peer-to-Peer). Conçue pour les environnements dégradés ou les opérations de groupe (MilSim, Airsoft, Randonnée, Secours), elle permet de partager positions, statuts et alertes en temps réel sans serveur central.
 Fonctionnalités Clés
  * Réseau Mesh Hybride : Utilise PeerJS (WebRTC Data Channels) pour créer un réseau P2P résilient entre terminaux via 4G/5G/Wi-Fi. Pas de serveur backend propriétaire requis.
  * Blue Force Tracking (BFT) : Affichage en temps réel des positions, orientations (compas) et statuts de tous les équipiers.
+ * Main Courante Tactique (NOUVEAU) :
+   * Journalisation : Enregistrement horodaté des événements, actions et observations (Log Book).
+   * Collaboration : Partage automatique des entrées avec l'Hôte de session.
+   * Export Data Gap : Génération de rapports PDF et export des données via QR Code dynamique pour extraire les logs sans connexion réseau (Air-gapped).
  * Cartographie Tactique :
    * Fonds de carte multiples (Sombre, Clair, Satellite).
    * Système de Pings Avancés :
@@ -17,10 +21,10 @@ Fonctionnalités Clés
    * Exclusion d'utilisateurs.
  * Sécurité & Discrétion :
    * Mode "Silence Radio" global piloté par l'hôte.
-   * Données éphémères (rien n'est stocké sur un serveur).
-   * Thème sombre optimisé pour la nuit (OLED friendly).
+   * Données éphémères (rien n'est stocké sur un serveur, tout est en RAM).
+   * Thème sombre "Night Ops" optimisé pour la nuit (OLED friendly).
 Installation (.apk)
- * Téléchargez le fichier TacSuite.apk depuis la section Releases.
+ * Téléchargez le fichier Praxis.apk depuis la section Releases.
  * Autorisez l'installation d'applications de sources inconnues sur votre appareil Android.
  * Installez l'APK.
  * Au premier lancement, acceptez les permissions (Localisation, Caméra pour QR, Notifications).
@@ -34,6 +38,7 @@ Guide Rapide
  * Cliquez sur "REJOINDRE".
 3. Interface Tactique
  * Carte : Affiche les positions. Double-cliquez n'importe où pour poser un marqueur (Ping).
+ * Main Courante : Cliquez sur l'icône "Historique" (en haut à droite) pour ouvrir le journal des événements.
  * Menu Pings : Choisissez le type (Hostile/Ami/Rens). Remplissez les détails (SALTA pour Hostile).
  * Statuts : En bas, changez votre statut (CLEAR, CONTACT, PROGRESSION) pour informer l'équipe.
  * Messages : Cliquez sur "MSG" pour envoyer une info rapide.
@@ -54,4 +59,4 @@ npm install
 npx expo start
 
 Avertissement
-TacSuite est un outil d'aide à la coordination. Il ne doit pas être utilisé comme unique moyen de navigation ou de communication dans des situations critiques où la sécurité des personnes est en jeu. Le fonctionnement dépend de la connectivité réseau (Data) de l'appareil.
+Praxis est un outil d'aide à la coordination. Il ne doit pas être utilisé comme unique moyen de navigation ou de communication dans des situations critiques où la sécurité des personnes est en jeu. Le fonctionnement dépend de la connectivité réseau (Data/WiFi) de l'appareil.
