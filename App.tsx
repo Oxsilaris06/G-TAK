@@ -33,6 +33,7 @@ import MainCouranteView from './components/MainCouranteView';
 import PrivacyConsentModal from './components/PrivacyConsentModal';
 import { NotificationToast } from './components/NotificationToast';
 
+// Empêcher le splash screen de disparaître automatiquement avant que l'app ne soit prête
 try { SplashScreen.preventAutoHideAsync().catch(() => {}); } catch (e) {}
 
 Notifications.setNotificationHandler({
@@ -56,7 +57,7 @@ const App: React.FC = () => {
   const [view, setView] = useState<ViewType>('login');
   const [lastView, setLastView] = useState<ViewType>('menu'); 
   const [lastOpsView, setLastOpsView] = useState<ViewType>('map');
-  const [mapState, setMapState] = useState<{lat: number, lng: number, zoom: number} | undefined>(undefined); // Ajout
+  const [mapState, setMapState] = useState<{lat: number, lng: number, zoom: number} | undefined>(undefined);
 
   const [peers, setPeers] = useState<Record<string, UserData>>({});
   const [pings, setPings] = useState<PingData[]>([]);
@@ -76,7 +77,7 @@ const App: React.FC = () => {
 
   const [loginInput, setLoginInput] = useState('');
   const [hostInput, setHostInput] = useState('');
-  const [mapMode, setMapMode] = useState<'dark' | 'light' | 'satellite' | 'custom'>('satellite'); // Update type
+  const [mapMode, setMapMode] = useState<'dark' | 'light' | 'satellite' | 'custom'>('satellite');
   const [showTrails, setShowTrails] = useState(true);
   const [showPings, setShowPings] = useState(true);
   const [isPingMode, setIsPingMode] = useState(false);
@@ -114,19 +115,46 @@ const App: React.FC = () => {
       else if (type === 'success') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   }, []);
 
+  // --- BOOTSTRAP PERMISSIONS (RESTAURÉ) ---
+  const bootstrapPermissionsAsync = async () => {
+    try {
+        if (Platform.OS === 'android') {
+            await PermissionsAndroid.requestMultiple([
+                PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+                PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION,
+                PermissionsAndroid.PERMISSIONS.ACCESS_BACKGROUND_LOCATION,
+                PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
+                PermissionsAndroid.PERMISSIONS.CAMERA
+            ]).catch(() => {});
+        }
+        
+        const { status } = await Location.getForegroundPermissionsAsync();
+        if (status === 'granted') {
+            await Location.requestBackgroundPermissionsAsync().catch(() => {});
+            setGpsStatus('OK');
+        } else {
+            setGpsStatus('ERROR');
+        }
+
+        const camStatus = await Camera.requestCameraPermissionsAsync();
+        setHasCameraPermission(camStatus.status === 'granted');
+    } catch (e) {
+        console.log("Erreur permissions:", e);
+    }
+  };
+
   // --- NOUVELLE GESTION NOTIFICATIONS SYSTÈME (Event-Driven) ---
   const triggerTacticalNotification = async (title: string, body: string) => {
-      // On ne notifie que si l'app est en background ET que les notifs sont activées
       if (AppState.currentState !== 'background' || settings.disableBackgroundNotifications) return;
       
       await Notifications.scheduleNotificationAsync({
           content: { 
               title, 
               body, 
-              sound: true, // Alerte sonore importante pour le tactique
-              priority: Notifications.AndroidNotificationPriority.HIGH // Haute priorité
+              sound: true, 
+              priority: Notifications.AndroidNotificationPriority.HIGH 
           },
-          trigger: null, // Immédiat
+          trigger: null, 
       });
   };
 
@@ -134,12 +162,10 @@ const App: React.FC = () => {
     const subscription = AppState.addEventListener('change', async nextAppState => {
       if (nextAppState === 'active') {
         connectivityService.handleAppStateChange('active');
-        // Nettoyage des notifications au retour dans l'app
         await Notifications.dismissAllNotificationsAsync();
         startGpsTracking(settings.gpsUpdateInterval);
       } else if (nextAppState === 'background') {
         connectivityService.handleAppStateChange('background');
-        // Plus de notification persistante générique ici
       }
     });
     return () => subscription.remove();
@@ -152,7 +178,6 @@ const App: React.FC = () => {
               const s = await configService.init();
               if (mounted) {
                   setSettings(s);
-                  // On initialise aussi la couleur utilisateur
                   if (s.username) { 
                       setUser(prev => ({...prev, callsign: s.username, paxColor: s.userArrowColor})); 
                       setLoginInput(s.username); 
@@ -163,8 +188,22 @@ const App: React.FC = () => {
                   setQuickMessagesList(s.quickMessages || DEFAULT_SETTINGS.quickMessages);
                   if (s.customMapUrl) setMapMode('custom');
               }
+          } catch(e) {
+              console.log("Erreur Config Init:", e);
+          }
+          
+          // Appel critique - S'assurer qu'il ne bloque pas tout
+          try {
+             await bootstrapPermissionsAsync();
+          } catch (e) {
+             console.log("Erreur Bootstrap:", e);
+          }
+
+          // Initialisation Batterie
+          try {
+              const level = await Battery.getBatteryLevelAsync();
+              if(mounted && level) setUser(u => ({ ...u, bat: Math.round(level * 100) }));
           } catch(e) {}
-          await bootstrapPermissionsAsync();
           
           if (mounted) { 
               setIsAppReady(true); 
@@ -281,13 +320,11 @@ const App: React.FC = () => {
             
             // --- NOTIFICATION PING CRITIQUE ---
             if (isHostile) {
-                // EX: "MHX - Contact - Position GPS"
                 triggerTacticalNotification(
                     `${senderName} - Contact`, 
                     `Position GPS: ${data.ping.lat.toFixed(5)}, ${data.ping.lng.toFixed(5)}`
                 );
             } else if (data.ping.msg.toLowerCase().includes("renfort") || data.ping.msg.toLowerCase().includes("soutien")) {
-                // EX: "TVR - Demande de renfort"
                 triggerTacticalNotification(
                     `${senderName} - Demande de renfort`, 
                     `Urgence signalée à ${data.ping.lat.toFixed(5)}, ${data.ping.lng.toFixed(5)}`
@@ -299,12 +336,10 @@ const App: React.FC = () => {
           const oldLogs = logsRef.current;
           
           // --- NOTIFICATION MAIN COURANTE (HOSTILE SEULEMENT) ---
-          // On cherche les nouvelles entrées qui sont "HOSTILE"
           const newEntries = data.logs.filter((l: LogEntry) => !oldLogs.find(ol => ol.id === l.id));
-          const hostileEntry = newEntries.find((l: LogEntry) => l.pax.toUpperCase().includes("HOSTILE") || l.paxColor === '#be1b09'); // Check Textuel ou Couleur Rouge
+          const hostileEntry = newEntries.find((l: LogEntry) => l.pax.toUpperCase().includes("HOSTILE") || l.paxColor === '#be1b09');
           
           if (hostileEntry) {
-              // EX: "Hote - (PCTAC) : Hostile : Lieu... - Action... - Rem..."
               triggerTacticalNotification(
                   "Hote - (PCTAC) : Hostile", 
                   `Lieu: ${hostileEntry.lieu || 'N/C'} - Action: ${hostileEntry.action || 'N/C'} - Rem: ${hostileEntry.remarques || 'RAS'}`
@@ -321,7 +356,6 @@ const App: React.FC = () => {
           const prevStatus = peersRef.current[u.id]?.status;
           if (u.status === 'CONTACT' && prevStatus !== 'CONTACT') {
               showToast(`${u.callsign} : CONTACT !`, 'alert');
-              // EX: "MHX - Contact - Position GPS"
               triggerTacticalNotification(
                   `${u.callsign} - Contact`, 
                   `Position GPS: ${u.lat.toFixed(5)}, ${u.lng.toFixed(5)}`
@@ -340,7 +374,6 @@ const App: React.FC = () => {
           }
       }
       
-      // Standard handlers...
       else if (data.type === 'SYNC_PINGS') setPings(data.pings);
       else if (data.type === 'SYNC_LOGS') setLogs(data.logs);
       else if (data.type === 'PING_MOVE') setPings(prev => prev.map(p => p.id === data.id ? { ...p, lat: data.lat, lng: data.lng } : p));
@@ -358,14 +391,12 @@ const App: React.FC = () => {
       const finalId = id || hostInput.toUpperCase();
       if (!finalId) return;
       setHostId(finalId);
-      // Envoi de la couleur lors du join
       setUser(prev => ({ ...prev, role: OperatorRole.OPR, paxColor: settings.userArrowColor }));
       connectivityService.init({ ...user, role: OperatorRole.OPR, paxColor: settings.userArrowColor }, OperatorRole.OPR, finalId);
       setView('map'); setLastOpsView('map');
   };
 
   const createSession = async () => {
-      // Envoi de la couleur lors du create
       setUser(prev => ({ ...prev, role: OperatorRole.HOST, paxColor: settings.userArrowColor }));
       connectivityService.init({ ...user, role: OperatorRole.HOST, paxColor: settings.userArrowColor }, OperatorRole.HOST);
       setView('map'); setLastOpsView('map');
@@ -382,7 +413,6 @@ const App: React.FC = () => {
       setView('map'); 
       setLastOpsView('map'); 
       showToast("Ralliement activé");
-      // Notify target
       connectivityService.sendTo(targetId, { type: 'RALLY_REQ', sender: user.callsign });
   };
 
@@ -472,7 +502,6 @@ const App: React.FC = () => {
       } else { setView('login'); }
   };
 
-  // Calcul info navigation (Distance/Temps)
   useEffect(() => {
       if (navTargetId && peers[navTargetId] && user.lat && peers[navTargetId].lat) {
           const target = peers[navTargetId];
@@ -485,7 +514,7 @@ const App: React.FC = () => {
           const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
           const distM = R * c;
           
-          const speed = 1.4; // 5km/h approx
+          const speed = 1.4; 
           const seconds = distM / speed;
           const min = Math.round(seconds / 60);
           
@@ -545,7 +574,7 @@ const App: React.FC = () => {
                       userArrowColor={settings.userArrowColor}
                       pingMode={isPingMode} navTargetId={navTargetId}
                       nightOpsMode={nightOpsMode} 
-                      initialCenter={mapState} // Restauration état
+                      initialCenter={mapState} 
                       onPing={(loc) => { setTempPingLoc(loc); setShowPingMenu(true); }}
                       onPingMove={(p) => { 
                          setPings(prev => prev.map(pi => pi.id === p.id ? p : pi));
@@ -559,7 +588,7 @@ const App: React.FC = () => {
                           } else { showToast(`Ping de ${p.sender}`, 'info'); }
                       }} 
                       onNavStop={() => setNavTargetId(null)} 
-                      onMapMoveEnd={(center, zoom) => setMapState({...center, zoom})} // Sauvegarde état
+                      onMapMoveEnd={(center, zoom) => setMapState({...center, zoom})} 
                   />
                   <View style={styles.mapControls}>
                       <TouchableOpacity onPress={() => setMapMode(m => m === 'custom' ? 'dark' : m === 'dark' ? 'light' : m === 'light' ? 'satellite' : settings.customMapUrl ? 'custom' : 'dark')} style={[styles.mapBtn, nightOpsMode && {borderColor: '#7f1d1d', backgroundColor: '#000'}]}><MaterialIcons name={mapMode === 'dark' ? 'dark-mode' : mapMode === 'light' ? 'light-mode' : mapMode === 'custom' ? 'map' : 'satellite'} size={24} color={nightOpsMode ? "#ef4444" : "#d4d4d8"} /></TouchableOpacity>
@@ -599,7 +628,6 @@ const App: React.FC = () => {
                   {[OperatorStatus.PROGRESSION, OperatorStatus.CONTACT, OperatorStatus.CLEAR].map(s => (
                       <TouchableOpacity key={s} onPress={() => { 
                           setUser(u => ({...u, status:s})); 
-                          // Envoi de la couleur UNIQUEMENT pertinente en PROGRESSION, mais transmise à chaque update
                           connectivityService.updateUser({ status: s, paxColor: settings.userArrowColor }); 
                       }} style={[styles.statusBtn, user.status === s ? { backgroundColor: STATUS_COLORS[s], borderColor: 'white' } : null, nightOpsMode && {borderColor: '#7f1d1d', backgroundColor: user.status === s ? '#7f1d1d' : '#000'}]}>
                           <Text style={[styles.statusBtnText, user.status === s ? {color:'white'} : null, nightOpsMode && {color: '#ef4444'}]}>{s}</Text>
@@ -612,8 +640,7 @@ const App: React.FC = () => {
       </View>
   );
 
-  // ... (Code existant pour le chargement, login, menu, modales - Reste identique au précédent sauf pour SettingsView callback) ...
-  if (!isAppReady) return <View style={{flex: 1, backgroundColor: '#000'}}><ActivityIndicator /></View>;
+  if (!isAppReady) return <View style={{flex: 1, backgroundColor: '#000'}}><ActivityIndicator size="large" color="#2563eb" style={{marginTop: 50}} /></View>;
 
   return (
     <View style={styles.container}>
@@ -623,7 +650,6 @@ const App: React.FC = () => {
             onClose={() => setView(lastView)} 
             onUpdate={s => { 
                 setSettings(s); 
-                // Application immédiate de la couleur et redémarrage des services si intervalles changés
                 setUser(u => ({...u, paxColor: s.userArrowColor})); 
                 connectivityService.updateUser({paxColor: s.userArrowColor}); 
                 if(s.gpsUpdateInterval !== settings.gpsUpdateInterval) startGpsTracking(s.gpsUpdateInterval);
