@@ -3,7 +3,7 @@ import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { 
   StyleSheet, View, Text, TextInput, TouchableOpacity, 
   SafeAreaView, Platform, Modal, StatusBar as RNStatusBar, Alert, ScrollView, ActivityIndicator,
-  PermissionsAndroid, Animated, PanResponder, FlatList, KeyboardAvoidingView, AppState, AppStateStatus, Image
+  PermissionsAndroid, FlatList, KeyboardAvoidingView, AppState, Image
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import QRCode from 'react-native-qrcode-svg';
@@ -31,6 +31,7 @@ import SettingsView from './components/SettingsView';
 import OperatorActionModal from './components/OperatorActionModal';
 import MainCouranteView from './components/MainCouranteView';
 import PrivacyConsentModal from './components/PrivacyConsentModal';
+import { NotificationToast } from './components/NotificationToast';
 
 try { SplashScreen.preventAutoHideAsync().catch(() => {}); } catch (e) {}
 
@@ -41,41 +42,6 @@ Notifications.setNotificationHandler({
     shouldSetBadge: false,
   }),
 });
-
-// --- COMPOSANT NOTIF UNIQUE ---
-const NavNotification = ({ message, type, isNightOps, onDismiss }: { message: string, type: 'alert' | 'info' | 'success' | 'warning', isNightOps: boolean, onDismiss: () => void }) => {
-    const fadeAnim = useRef(new Animated.Value(0)).current;
-    
-    useEffect(() => {
-        fadeAnim.setValue(0);
-        Animated.timing(fadeAnim, { toValue: 1, duration: 300, useNativeDriver: true }).start();
-        if (type !== 'alert') {
-            const timer = setTimeout(onDismiss, 4000);
-            return () => clearTimeout(timer);
-        }
-    }, [message, type]); 
-
-    const getColors = () => {
-        if (isNightOps) return { bg: '#000', border: '#7f1d1d', text: '#ef4444', icon: '#ef4444' };
-        switch(type) {
-            case 'alert': return { bg: '#450a0a', border: '#ef4444', text: '#fff', icon: '#ef4444' };
-            case 'success': return { bg: '#052e16', border: '#22c55e', text: '#fff', icon: '#22c55e' };
-            case 'warning': return { bg: '#422006', border: '#eab308', text: '#fff', icon: '#eab308' };
-            default: return { bg: '#18181b', border: '#3b82f6', text: '#fff', icon: '#3b82f6' };
-        }
-    };
-    const colors = getColors();
-
-    return (
-      <Animated.View style={[styles.navNotif, { opacity: fadeAnim, backgroundColor: colors.bg, borderColor: colors.border }]}>
-          <MaterialIcons name={type === 'alert' ? "warning" : type === 'success' ? "check-circle" : type === 'warning' ? "wifi-off" : "info"} size={28} color={colors.icon} />
-          <Text style={[styles.navNotifText, {color: colors.text}]} numberOfLines={2}>{message}</Text>
-          <TouchableOpacity onPress={onDismiss} hitSlop={{top:10,bottom:10,left:10,right:10}}>
-              <MaterialIcons name="close" size={20} color={colors.text} style={{opacity: 0.5}} />
-          </TouchableOpacity>
-      </Animated.View>
-    );
-};
 
 const App: React.FC = () => {
   useKeepAwake();
@@ -131,12 +97,14 @@ const App: React.FC = () => {
   const [editingPing, setEditingPing] = useState<PingData | null>(null);
   const [selectedOperatorId, setSelectedOperatorId] = useState<string | null>(null);
   const [navTargetId, setNavTargetId] = useState<string | null>(null);
+  const [navInfo, setNavInfo] = useState<{dist: string, time: string} | null>(null);
 
   const [isServicesReady, setIsServicesReady] = useState(false);
   const [gpsStatus, setGpsStatus] = useState<'WAITING' | 'OK' | 'ERROR'>('WAITING');
   const lastLocationRef = useRef<any>(null);
   const gpsSubscription = useRef<Location.LocationSubscription | null>(null);
   const magSubscription = useRef<any>(null);
+  const bgNotificationId = useRef<string | null>(null);
 
   const showToast = useCallback((msg: string, type: 'info' | 'error' | 'success' | 'warning' = 'info') => {
       setActiveNotif({ id: Date.now().toString(), msg, type });
@@ -172,16 +140,49 @@ const App: React.FC = () => {
   }, [isServicesReady, user.role]);
 
   useEffect(() => {
-    const subscription = AppState.addEventListener('change', nextAppState => {
+    const subscription = AppState.addEventListener('change', async nextAppState => {
       if (nextAppState === 'active') {
         connectivityService.handleAppStateChange('active');
+        // Clear background notification when app is active
+        await Notifications.dismissAllNotificationsAsync();
         startGpsTracking(settings.gpsUpdateInterval);
       } else if (nextAppState === 'background') {
         connectivityService.handleAppStateChange('background');
+        // Trigger system notification
+        updateBackgroundNotification();
       }
     });
     return () => subscription.remove();
   }, [settings.gpsUpdateInterval]);
+
+  // Persistent System Notification Logic
+  const updateBackgroundNotification = async () => {
+      if (settings.disableBackgroundNotifications) return;
+      
+      const peerCount = Object.keys(peersRef.current).length;
+      const statusText = userRef.current.status;
+      const contacts = Object.values(peersRef.current).filter(p => p.status === 'CONTACT').length;
+      
+      let body = `Membres: ${peerCount + 1} | Statut: ${statusText}`;
+      if (contacts > 0) body = `⚠️ CONTACT EN COURS (${contacts}) | ` + body;
+
+      await Notifications.scheduleNotificationAsync({
+          content: {
+              title: "Praxis - Suivi Tactique Actif",
+              body: body,
+              sticky: true,
+              priority: Notifications.AndroidNotificationPriority.LOW,
+          },
+          trigger: null,
+      });
+  };
+
+  // Listen to peer updates to refresh notification if backgrounded
+  useEffect(() => {
+      if (AppState.currentState === 'background') {
+          updateBackgroundNotification();
+      }
+  }, [peers]); // Dependency on peers
 
   useEffect(() => {
       let mounted = true;
@@ -225,6 +226,33 @@ const App: React.FC = () => {
           if(magSubscription.current) magSubscription.current.remove();
       };
   }, []);
+
+  // NAV Calculation Logic
+  useEffect(() => {
+      if (navTargetId && peers[navTargetId] && user.lat && peers[navTargetId].lat) {
+          const target = peers[navTargetId];
+          const R = 6371e3;
+          const φ1 = user.lat * Math.PI/180;
+          const φ2 = target.lat * Math.PI/180;
+          const Δφ = (target.lat-user.lat) * Math.PI/180;
+          const Δλ = (target.lng-user.lng) * Math.PI/180;
+          const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ/2) * Math.sin(Δλ/2);
+          const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+          const distM = R * c;
+          
+          // Estimate time (Average walking speed 5km/h = ~1.4 m/s)
+          const speed = 1.4; 
+          const seconds = distM / speed;
+          const min = Math.round(seconds / 60);
+          
+          setNavInfo({
+              dist: distM > 1000 ? `${(distM/1000).toFixed(1)} km` : `${Math.round(distM)} m`,
+              time: min > 60 ? `${Math.floor(min/60)}h ${min%60}min` : `${min} min`
+          });
+      } else {
+          setNavInfo(null);
+      }
+  }, [navTargetId, user.lat, user.lng, peers]);
 
   useEffect(() => {
     if (view === 'map' || view === 'ops') { _toggleMagnetometer(); }
@@ -272,33 +300,40 @@ const App: React.FC = () => {
               setIsServicesReady(true); 
               break;
           case 'PEERS_UPDATED': 
-              // Fusion intelligente pour éviter les doublons (Ghost Users)
               setPeers(prev => {
                   const incoming = event.peers;
-                  const allPeers = Object.values({ ...prev, ...incoming });
+                  // Merged list of all candidates
+                  const candidates = Object.values({ ...prev, ...incoming });
                   
-                  // Tri par date d'arrivée (le plus récent en premier)
-                  allPeers.sort((a, b) => (b.joinedAt || 0) - (a.joinedAt || 0));
-
-                  const uniquePeers: Record<string, UserData> = {};
-                  const seenCallsigns = new Set<string>();
-
-                  // CORRECTIF ÉTAPE 1 : On ajoute d'abord NOTRE callsign pour être sûr 
-                  // de ne jamais ajouter un "fantôme" de nous-même (ancien ID) dans la liste des pairs.
-                  if (userRef.current.callsign) {
-                      seenCallsigns.add(userRef.current.callsign);
-                  }
-
-                  allPeers.forEach(p => {
-                      // On garde le premier rencontré (le plus récent) pour chaque Callsign
-                      if (p.id !== userRef.current.id) {
-                          if (!seenCallsigns.has(p.callsign)) {
-                              seenCallsigns.add(p.callsign);
-                              uniquePeers[p.id] = p;
-                          }
-                      }
+                  // Strict Grouping by Callsign
+                  const byCallsign: Record<string, UserData[]> = {};
+                  
+                  // 1. Group all peers by callsign
+                  candidates.forEach(p => {
+                      if (!byCallsign[p.callsign]) byCallsign[p.callsign] = [];
+                      byCallsign[p.callsign].push(p);
                   });
-                  return uniquePeers;
+
+                  const cleanPeers: Record<string, UserData> = {};
+
+                  // 2. For each callsign, pick ONLY the "freshest" one
+                  Object.keys(byCallsign).forEach(sign => {
+                      if (sign === userRef.current.callsign) return; // Don't include self in peers list
+
+                      const group = byCallsign[sign];
+                      // Sort by joinedAt descending (newest first)
+                      // If timestamps are identical, fallback to ID string comparison for stability
+                      group.sort((a, b) => {
+                          if (b.joinedAt !== a.joinedAt) return b.joinedAt - a.joinedAt;
+                          return b.id.localeCompare(a.id);
+                      });
+
+                      // Winner is the first one
+                      const winner = group[0];
+                      cleanPeers[winner.id] = winner;
+                  });
+
+                  return cleanPeers;
               });
               break;
           case 'HOST_CONNECTED': 
@@ -424,7 +459,15 @@ const App: React.FC = () => {
       finishLogout();
   };
 
-  const handleOperatorActionNavigate = (targetId: string) => { setNavTargetId(targetId); setView('map'); setLastOpsView('map'); showToast("Guidage GPS activé"); };
+  const handleOperatorActionNavigate = (targetId: string) => { 
+      setNavTargetId(targetId); 
+      setView('map'); 
+      setLastOpsView('map'); 
+      showToast("Ralliement activé");
+      // Notify target
+      connectivityService.sendTo(targetId, { type: 'RALLY_REQ', sender: user.callsign });
+  };
+
   const handleOperatorActionKick = (targetId: string) => {
       connectivityService.kickUser(targetId);
       const newPeers = { ...peers }; delete newPeers[targetId]; setPeers(newPeers);
@@ -560,6 +603,29 @@ const App: React.FC = () => {
                       <TouchableOpacity onPress={() => setShowPings(!showPings)} style={[styles.mapBtn, nightOpsMode && {borderColor: '#7f1d1d', backgroundColor: '#000'}]}><MaterialIcons name={showPings ? 'location-on' : 'location-off'} size={24} color={nightOpsMode ? "#ef4444" : "#d4d4d8"} /></TouchableOpacity>
                       <TouchableOpacity onPress={() => setIsPingMode(!isPingMode)} style={[styles.mapBtn, isPingMode ? {backgroundColor: '#dc2626', borderColor: '#f87171'} : null, nightOpsMode && {borderColor: '#7f1d1d', backgroundColor: isPingMode ? '#7f1d1d' : '#000'}]}><MaterialIcons name="ads-click" size={24} color="white" /></TouchableOpacity>
                   </View>
+                  
+                  {/* RALLY INFO MODAL */}
+                  {navTargetId && navInfo && (
+                      <View style={[styles.navModal, nightOpsMode && {backgroundColor: 'rgba(0,0,0,0.8)', borderColor: '#7f1d1d'}]}>
+                          <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
+                              <View>
+                                  <Text style={[styles.navTitle, nightOpsMode && {color:'#ef4444'}]}>RALLIEMENT</Text>
+                                  <Text style={[styles.navSubtitle, nightOpsMode && {color:'#ef4444'}]}>Vers: {peers[navTargetId]?.callsign || 'Inconnu'}</Text>
+                              </View>
+                              <TouchableOpacity onPress={() => setNavTargetId(null)} style={{padding: 5}}><MaterialIcons name="close" size={20} color={nightOpsMode ? '#ef4444' : 'white'}/></TouchableOpacity>
+                          </View>
+                          <View style={{flexDirection: 'row', gap: 15, marginTop: 10}}>
+                              <View style={styles.navStat}>
+                                  <MaterialIcons name="straighten" size={16} color="#3b82f6" />
+                                  <Text style={styles.navValue}>{navInfo.dist}</Text>
+                              </View>
+                              <View style={styles.navStat}>
+                                  <MaterialIcons name="timer" size={16} color="#3b82f6" />
+                                  <Text style={styles.navValue}>{navInfo.time}</Text>
+                              </View>
+                          </View>
+                      </View>
+                  )}
               </View>
           </View>
 
@@ -772,7 +838,7 @@ const App: React.FC = () => {
         </View>
       </Modal>
 
-      {activeNotif && <NavNotification message={`${activeNotif.id && activeNotif.id.length < 10 ? activeNotif.id + ': ' : ''}${activeNotif.msg}`} type={activeNotif.type} isNightOps={nightOpsMode} onDismiss={() => setActiveNotif(null)} />}
+      {activeNotif && <NotificationToast message={`${activeNotif.id && activeNotif.id.length < 10 ? activeNotif.id + ': ' : ''}${activeNotif.msg}`} type={activeNotif.type} isNightOps={nightOpsMode} onDismiss={() => setActiveNotif(null)} />}
       
       {nightOpsMode && <View style={styles.nightOpsOverlay} pointerEvents="none" />}
     </View>
@@ -801,8 +867,6 @@ const styles = StyleSheet.create({
   headerTitle: { color: 'white', fontWeight: '900', fontSize: 18 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', padding: 16, gap: 12 },
   scannerClose: { position: 'absolute', top: 50, right: 20, padding: 10, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 20 },
-  navNotif: { position: 'absolute', top: 100, left: 20, right: 20, borderRadius: 12, borderWidth: 1, padding: 15, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', gap: 15, zIndex: 10000, elevation: 10000 },
-  navNotifText: { color: 'white', fontWeight: 'bold', flex: 1, fontSize: 14 },
   mapControls: { position: 'absolute', top: 16, right: 16, gap: 12, zIndex: 2000, elevation: 2000 },
   mapBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#18181b', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
   footer: { backgroundColor: '#050505', borderTopWidth: 1, borderTopColor: '#27272a', paddingBottom: 20, zIndex: 2000, elevation: 2000 },
@@ -826,7 +890,12 @@ const styles = StyleSheet.create({
   iconBtnDanger: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#ef4444', justifyContent: 'center', alignItems: 'center', elevation: 5 },
   iconBtnSecondary: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#52525b', justifyContent: 'center', alignItems: 'center', elevation: 5 },
   iconBtnSuccess: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#22c55e', justifyContent: 'center', alignItems: 'center', elevation: 5 },
-  nightOpsOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(127, 29, 29, 0.2)', zIndex: 99999, pointerEvents: 'none' }
+  nightOpsOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(127, 29, 29, 0.2)', zIndex: 99999, pointerEvents: 'none' },
+  navModal: { position: 'absolute', top: 80, left: 20, right: 20, backgroundColor: 'rgba(24, 24, 27, 0.95)', borderRadius: 12, padding: 15, borderWidth: 1, borderColor: '#06b6d4', zIndex: 2000 },
+  navTitle: { color: '#06b6d4', fontWeight: '900', fontSize: 14 },
+  navSubtitle: { color: '#71717a', fontSize: 12 },
+  navStat: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  navValue: { color: 'white', fontWeight: 'bold', fontSize: 16 }
 });
 
 export default App;
