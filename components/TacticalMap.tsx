@@ -7,7 +7,8 @@ interface TacticalMapProps {
   me: UserData;
   peers: Record<string, UserData>;
   pings: PingData[];
-  mapMode: 'dark' | 'light' | 'satellite';
+  mapMode: 'dark' | 'light' | 'satellite' | 'custom';
+  customMapUrl?: string;
   showTrails: boolean;
   showPings: boolean;
   isHost: boolean;
@@ -15,17 +16,24 @@ interface TacticalMapProps {
   navTargetId?: string | null;
   pingMode?: boolean; 
   nightOpsMode?: boolean;
+  initialCenter?: {lat: number, lng: number, zoom: number};
   onPing: (loc: { lat: number; lng: number }) => void;
   onPingMove: (ping: PingData) => void;
   onPingClick: (id: string) => void; 
   onNavStop: () => void;
+  onMapMoveEnd: (center: {lat: number, lng: number}, zoom: number) => void;
 }
 
 const TacticalMap: React.FC<TacticalMapProps> = ({
-  me, peers, pings, mapMode, showTrails, showPings, isHost, userArrowColor, navTargetId, pingMode, nightOpsMode,
-  onPing, onPingMove, onPingClick, onNavStop
+  me, peers, pings, mapMode, customMapUrl, showTrails, showPings, isHost, userArrowColor, navTargetId, pingMode, nightOpsMode, initialCenter,
+  onPing, onPingMove, onPingClick, onNavStop, onMapMoveEnd
 }) => {
   const webViewRef = useRef<WebView>(null);
+
+  // Injection des données initiales pour éviter le recentrage intempestif
+  const startLat = initialCenter ? initialCenter.lat : (me.lat || 48.85);
+  const startLng = initialCenter ? initialCenter.lng : (me.lng || 2.35);
+  const startZoom = initialCenter ? initialCenter.zoom : 15;
 
   const leafletHTML = `
     <!DOCTYPE html>
@@ -54,16 +62,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         .ping-icon { font-size: 24px; filter: drop-shadow(0px 2px 2px rgba(0,0,0,0.8)); transition: transform 0.2s; }
         .ping-label { background: rgba(0,0,0,0.7); color: white; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: bold; margin-bottom: 2px; border: 1px solid rgba(255,255,255,0.3); white-space: nowrap; max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
 
-        .ping-details-popup .leaflet-popup-content-wrapper { background: rgba(24, 24, 27, 0.95); border: 1px solid #ef4444; border-radius: 8px; color: white; }
-        .ping-details-popup .leaflet-popup-tip { background: #ef4444; }
-        .ping-details-popup .leaflet-popup-close-button { color: white; }
-        .hostile-info b { color: #ef4444; display: block; border-bottom: 1px solid #333; margin-bottom: 5px; padding-bottom: 2px; }
-        .hostile-row { font-size: 12px; margin-bottom: 2px; }
-        .hostile-label { color: #a1a1aa; font-weight: bold; }
-        
-        .copy-btn { margin-left: 5px; background: none; border: none; font-size: 14px; cursor: pointer; }
-        .edit-btn { display: block; width: 100%; margin-top: 8px; background: #333; color: white; border: 1px solid #555; padding: 5px; border-radius: 4px; font-size: 10px; cursor: pointer; font-weight: bold; }
-
+        /* Compass Styles */
         #compass { position: absolute; top: 20px; left: 20px; width: 60px; height: 60px; z-index: 9999; background: rgba(0,0,0,0.6); border-radius: 50%; border: 2px solid rgba(255,255,255,0.2); display: flex; justify-content: center; align-items: center; backdrop-filter: blur(2px); pointer-events: none; }
         #compass-indicator { position: absolute; top: -5px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 8px solid #ef4444; z-index: 20; }
         #compass-rose { position: relative; width: 100%; height: 100%; transition: transform 0.1s linear; }
@@ -80,11 +79,14 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
       <div id="compass"><div id="compass-indicator"></div><div id="compass-rose"><span class="compass-label compass-n">N</span><span class="compass-label compass-e">E</span><span class="compass-label compass-s">S</span><span class="compass-label compass-w">O</span></div></div>
 
       <script>
-        const map = L.map('map', { zoomControl: false, attributionControl: false, doubleClickZoom: false }).setView([48.85, 2.35], 13);
+        // Init Map
+        const map = L.map('map', { zoomControl: false, attributionControl: false, doubleClickZoom: false }).setView([${startLat}, ${startLng}], ${startZoom});
+        
         const layers = {
             dark: L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {subdomains:'abcd', maxZoom:19}),
             light: L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {subdomains:'abcd', maxZoom:19}),
-            satellite: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {maxZoom:19})
+            satellite: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {maxZoom:19}),
+            custom: null
         };
         let currentLayer = layers.dark; currentLayer.addTo(map);
 
@@ -93,31 +95,16 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         map.createPane('trailPane'); map.getPane('trailPane').style.zIndex = 400;
 
         const markers = {};
-        const trails = {}; // Storage for trail data: { userId: [ [lat,lng], ... ] }
-        const trailPolylines = {}; // Storage for Leaflet Polyline objects
-        
+        const trails = {}; 
+        const trailPolylines = {}; 
         const pingLayer = L.layerGroup().addTo(map);
-        let navLine = null; // Line for navigation/rally
+        let navLine = null;
         
         let pings = {};
-        let userArrowColor = '#3b82f6';
+        let userArrowColor = '${userArrowColor}';
         let pingMode = false;
         let lastMePos = null;
-        let autoCentered = false;
-
-        function getPingIcon(type) {
-            if(type === 'HOSTILE') return '🔴';
-            if(type === 'FRIEND') return '🔵';
-            if(type === 'INTEL') return '👁️';
-            return '📍';
-        }
-
-        function getPingColor(type) {
-            if(type === 'HOSTILE') return '#ef4444'; 
-            if(type === 'FRIEND') return '#22c55e';
-            if(type === 'INTEL') return '#eab308';
-            return 'white';
-        }
+        let autoCentered = ${initialCenter ? 'true' : 'false'};
 
         function hexToRgba(hex, alpha) {
             let r = parseInt(hex.slice(1, 3), 16),
@@ -131,8 +118,10 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         document.addEventListener('message', (event) => handleData(JSON.parse(event.data)));
         window.addEventListener('message', (event) => handleData(JSON.parse(event.data)));
 
-        map.on('dblclick', function(e) {
-             sendToApp({ type: 'MAP_CLICK', lat: e.latlng.lat, lng: e.latlng.lng });
+        // Event listener pour sauvegarder la position de la carte
+        map.on('moveend', () => {
+            const center = map.getCenter();
+            sendToApp({ type: 'MAP_MOVE_END', center: {lat: center.lat, lng: center.lng}, zoom: map.getZoom() });
         });
 
         map.on('click', (e) => {
@@ -146,13 +135,10 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                 if(data.userArrowColor) userArrowColor = data.userArrowColor;
                 pingMode = data.pingMode; 
                 
-                if (data.nightOpsMode) {
-                    document.body.classList.add('night-ops');
-                } else {
-                    document.body.classList.remove('night-ops');
-                }
+                if (data.nightOpsMode) document.body.classList.add('night-ops');
+                else document.body.classList.remove('night-ops');
                 
-                updateMapMode(data.mode);
+                updateMapMode(data.mode, data.customMapUrl);
                 updateMarkers(data.me, data.peers, data.showTrails);
                 updatePings(data.pings, data.showPings, data.isHost, data.me.callsign);
                 updateNavigation(data.me, data.navTargetId, data.peers);
@@ -163,37 +149,33 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                     if(el) el.style.transform = 'rotate(' + rot + 'deg)';
                 }
 
-                if (data.me && data.me.lat !== 0 && data.me.lng !== 0) {
-                    const newPos = L.latLng(data.me.lat, data.me.lng);
-                    if (!autoCentered || (lastMePos && lastMePos.distanceTo(newPos) > 100)) { 
-                         map.setView(newPos, 16);
-                         autoCentered = true;
-                         lastMePos = newPos;
-                    }
+                // Auto-center uniquement si pas encore centré OU si bouton "Locate Me" (optionnel, ici auto sur mouvement)
+                if (!autoCentered && data.me && data.me.lat !== 0 && data.me.lng !== 0) {
+                     // On ne centre automatiquement qu'au premier fix valide si pas de state initial
+                     map.setView([data.me.lat, data.me.lng], 16);
+                     autoCentered = true;
                 }
             }
         }
         
-        function updateMapMode(mode) {
-            const newLayer = layers[mode] || layers.dark;
-            if (currentLayer !== newLayer) { map.removeLayer(currentLayer); newLayer.addTo(map); currentLayer = newLayer; }
-        }
+        function updateMapMode(mode, customUrl) {
+            if (mode === 'custom' && customUrl) {
+                if (!layers.custom || layers.custom._url !== customUrl) {
+                    if(layers.custom) map.removeLayer(layers.custom);
+                    // Support basique des tuiles locales/serveur
+                    // Si c'est un fichier local, cela dépendra du file system, ici on assume une URL serveur ou localhost
+                    layers.custom = L.tileLayer(customUrl, {maxZoom: 20});
+                }
+            }
 
-        function updateNavigation(me, targetId, peers) {
-             if (navLine) { map.removeLayer(navLine); navLine = null; }
-             if (!targetId || !me || !me.lat) return;
+            let newLayer = layers[mode] || layers.dark;
+            if (mode === 'custom' && layers.custom) newLayer = layers.custom;
 
-             const target = peers[targetId];
-             if (target && target.lat) {
-                 // Draw dashed line for rally point
-                 navLine = L.polyline([[me.lat, me.lng], [target.lat, target.lng]], {
-                     color: '#06b6d4',
-                     weight: 3,
-                     dashArray: '10, 10',
-                     opacity: 0.8
-                 }).addTo(map);
-                 // Add a small animation effect if possible or just static
-             }
+            if (currentLayer !== newLayer) { 
+                map.removeLayer(currentLayer); 
+                newLayer.addTo(map); 
+                currentLayer = newLayer; 
+            }
         }
 
         function updateMarkers(me, peers, showTrails) {
@@ -201,10 +183,9 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
             const all = [me, ...validPeers].filter(u => u && u.lat);
             const activeIds = all.map(u => u.id);
             
-            // Cleanup markers
             Object.keys(markers).forEach(id => { if(!activeIds.includes(id)) { map.removeLayer(markers[id]); delete markers[id]; } });
             
-            // Cleanup Trails if user gone
+            // Nettoyage trails
             Object.keys(trailPolylines).forEach(id => { 
                 if(!activeIds.includes(id)) { 
                     map.removeLayer(trailPolylines[id]); 
@@ -213,45 +194,28 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                 } 
             });
 
-            // Toggle Trail Visibility
             if (!showTrails) {
                 Object.values(trailPolylines).forEach(p => map.removeLayer(p));
             }
 
             all.forEach(u => {
-                let colorHex = (u.status === 'CONTACT') ? '#ef4444' : (u.status === 'CLEAR') ? '#22c55e' : (u.status === 'APPUI') ? '#eab308' : (u.status === 'BUSY') ? '#a855f7' : userArrowColor;
+                // --- LOGIQUE COULEUR CORRIGÉE ---
+                // Par défaut, couleur basée sur le statut tactique
+                let colorHex = '#71717a'; // Gris si inconnu
                 
-                // --- TRAIL LOGIC ---
-                if (showTrails) {
-                    if (!trails[u.id]) trails[u.id] = [];
-                    const history = trails[u.id];
-                    const newPt = [u.lat, u.lng];
-                    
-                    // Add point if moved significantly (> 5m) or first point
-                    const lastPt = history.length > 0 ? history[history.length - 1] : null;
-                    if (!lastPt || Math.abs(lastPt[0] - newPt[0]) > 0.00005 || Math.abs(lastPt[1] - newPt[1]) > 0.00005) {
-                        history.push(newPt);
-                        if (history.length > 50) history.shift(); // Keep last 50 points
-                    }
-
-                    if (trailPolylines[u.id]) {
-                        trailPolylines[u.id].setLatLngs(history);
-                        trailPolylines[u.id].setStyle({ color: colorHex });
-                        if (!map.hasLayer(trailPolylines[u.id])) trailPolylines[u.id].addTo(map);
-                    } else {
-                        trailPolylines[u.id] = L.polyline(history, { 
-                            color: colorHex, 
-                            weight: 2, 
-                            opacity: 0.6, 
-                            dashArray: '4, 4',
-                            pane: 'trailPane' 
-                        }).addTo(map);
-                    }
+                if (u.status === 'CONTACT') colorHex = '#ef4444'; // Rouge
+                else if (u.status === 'CLEAR') colorHex = '#22c55e'; // Vert
+                else if (u.status === 'BUSY') colorHex = '#a855f7'; // Violet
+                else if (u.status === 'PROGRESSION') {
+                    // C'est UNIQUEMENT ici que la couleur personnalisée du membre s'applique
+                    colorHex = u.paxColor || '#3b82f6'; // Bleu par défaut si pas de couleur choisie
+                } else {
+                    // Fallback APPUI ou autre
+                    colorHex = '#eab308'; // Jaune
                 }
-                // ----------------
+                // ---------------------------------
 
                 let bgRgba = hexToRgba(colorHex, 0.6);
-                
                 const rot = u.head || 0;
                 const extraClass = (u.status === 'CONTACT') ? 'tac-marker-heartbeat' : '';
                 
@@ -267,15 +231,49 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                 else { 
                     markers[u.id] = L.marker([u.lat, u.lng], { icon: icon, pane: 'userPane' }).addTo(map); 
                 }
+
+                // --- TRAIL LOGIC ---
+                if (showTrails) {
+                    if (!trails[u.id]) trails[u.id] = [];
+                    const history = trails[u.id];
+                    const newPt = [u.lat, u.lng];
+                    
+                    const lastPt = history.length > 0 ? history[history.length - 1] : null;
+                    if (!lastPt || Math.abs(lastPt[0] - newPt[0]) > 0.00005 || Math.abs(lastPt[1] - newPt[1]) > 0.00005) {
+                        history.push(newPt);
+                        if (history.length > 50) history.shift();
+                    }
+
+                    if (trailPolylines[u.id]) {
+                        trailPolylines[u.id].setLatLngs(history);
+                        trailPolylines[u.id].setStyle({ color: colorHex }); // Trail suit la couleur du statut
+                        if (!map.hasLayer(trailPolylines[u.id])) trailPolylines[u.id].addTo(map);
+                    } else {
+                        trailPolylines[u.id] = L.polyline(history, { 
+                            color: colorHex, 
+                            weight: 2, 
+                            opacity: 0.6, 
+                            dashArray: '4, 4',
+                            pane: 'trailPane' 
+                        }).addTo(map);
+                    }
+                }
             });
         }
         
-        window.editPing = function(id) {
-            sendToApp({ type: 'PING_CLICK', id: id });
-        }
+        function updateNavigation(me, targetId, peers) {
+             if (navLine) { map.removeLayer(navLine); navLine = null; }
+             if (!targetId || !me || !me.lat) return;
 
-        window.copyPos = function(pos) {
-            sendToApp({ type: 'COPY_POS', text: pos });
+             const target = peers[targetId];
+             if (target && target.lat) {
+                 navLine = L.polyline([[me.lat, me.lng], [target.lat, target.lng]], {
+                     color: '#06b6d4',
+                     weight: 3,
+                     dashArray: '10, 10',
+                     opacity: 0.8
+                 }).addTo(map);
+             }
         }
 
         function updatePings(serverPings, showPings, isHost, myCallsign) {
@@ -287,48 +285,24 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
             
             serverPings.forEach(p => {
                 const canDrag = isHost || (p.sender === myCallsign);
-                const iconChar = getPingIcon(p.type || 'FRIEND');
-                const color = getPingColor(p.type || 'FRIEND');
+                const iconChar = (p.type === 'HOSTILE') ? '🔴' : (p.type === 'FRIEND') ? '🔵' : '👁️';
+                const color = (p.type === 'HOSTILE') ? '#ef4444' : (p.type === 'FRIEND') ? '#22c55e' : '#eab308';
                 
-                const html = \`
-                    <div id="ping-\${p.id}" data-type="\${p.type}" class="ping-marker-box">
-                        <div class="ping-label" style="border-color: \${color}">\${p.msg}</div>
-                        <div class="ping-icon">\${iconChar}</div>
-                    </div>
-                \`;
+                const html = \`<div id="ping-\${p.id}" class="ping-marker-box"><div class="ping-label" style="border-color: \${color}">\${p.msg}</div><div class="ping-icon">\${iconChar}</div></div>\`;
 
                 if (pings[p.id]) {
-                    if(!pings[p.id].dragging || !pings[p.id].dragging.enabled()) {
-                        pings[p.id].setLatLng([p.lat, p.lng]);
-                    }
+                    pings[p.id].setLatLng([p.lat, p.lng]);
+                    // Update content if needed (not optimized here for brevity but functional)
                     if(pings[p.id]._icon) pings[p.id]._icon.innerHTML = html;
-                    if(pings[p.id].dragging) { canDrag ? pings[p.id].dragging.enable() : pings[p.id].dragging.disable(); }
                 } else {
-                    const icon = L.divIcon({ className: 'custom-div-icon', html: iconHtml, iconSize: [100, 60], iconAnchor: [50, 50] });
+                    const icon = L.divIcon({ className: 'custom-div-icon', html: html, iconSize: [100, 60], iconAnchor: [50, 50] });
                     const m = L.marker([p.lat, p.lng], { icon: icon, draggable: canDrag, pane: 'pingPane' });
                     
-                    if (p.type === 'HOSTILE') {
-                        const d = p.details || {};
-                        const popupContent = \`
-                            <div class="ping-details-popup hostile-info">
-                                <b>ENNEMI IDENTIFIÉ</b>
-                                <div class="hostile-row"><span class="hostile-label">POS:</span> \${d.position || '-'} <span class="copy-btn" onclick="copyPos('\${d.position}')">📋</span></div>
-                                <div class="hostile-row"><span class="hostile-label">NAT:</span> \${d.nature || '-'}</div>
-                                <div class="hostile-row"><span class="hostile-label">ATT:</span> \${d.attitude || '-'}</div>
-                                <div class="hostile-row"><span class="hostile-label">VOL:</span> \${d.volume || '-'}</div>
-                                <div class="hostile-row"><span class="hostile-label">ARM:</span> \${d.armes || '-'}</div>
-                                <div class="hostile-row"><span class="hostile-label">DIV:</span> \${d.substances || '-'}</div>
-                                \${canDrag ? \`<button class="edit-btn" onclick="editPing('\${p.id}')">ÉDITER / SUPPRIMER</button>\` : ''}
-                            </div>
-                        \`;
-                        m.bindPopup(popupContent, { closeButton: false, offset: [0, -30], className: 'ping-details-popup' });
-                    } else {
-                        m.on('click', () => {
-                            sendToApp({ type: 'PING_CLICK', id: p.id });
-                        });
-                    }
-
+                    // Click Event pour Éditer ou voir détails
+                    m.on('click', () => sendToApp({ type: 'PING_CLICK', id: p.id }));
+                    // Drag Event
                     m.on('dragend', (e) => sendToApp({ type: 'PING_MOVE', id: p.id, lat: e.target.getLatLng().lat, lng: e.target.getLatLng().lng }));
+                    
                     pings[p.id] = m;
                     pingLayer.addLayer(m);
                 }
@@ -342,11 +316,12 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
   useEffect(() => {
     if (webViewRef.current) {
       webViewRef.current.postMessage(JSON.stringify({
-        type: 'UPDATE_MAP', me, peers, pings, mode: mapMode, showTrails, showPings, isHost,
+        type: 'UPDATE_MAP', me, peers, pings, mode: mapMode, customMapUrl,
+        showTrails, showPings, isHost,
         userArrowColor, navTargetId, pingMode, nightOpsMode
       }));
     }
-  }, [me, peers, pings, mapMode, showTrails, showPings, isHost, userArrowColor, navTargetId, pingMode, nightOpsMode]);
+  }, [me, peers, pings, mapMode, customMapUrl, showTrails, showPings, isHost, userArrowColor, navTargetId, pingMode, nightOpsMode]);
 
   const handleMessage = (event: any) => {
     try {
@@ -355,7 +330,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
       if (data.type === 'PING_CLICK') onPingClick(data.id); 
       if (data.type === 'PING_MOVE') onPingMove({ ...pings.find(p => p.id === data.id)!, lat: data.lat, lng: data.lng });
       if (data.type === 'NAV_STOP') { if (onNavStop) onNavStop(); }
-      if (data.type === 'COPY_POS') { if(onPingMove) onPingMove({ ...pings.find(p => true)!, msg: 'COPY_TRIGGER', lat:0, lng:0, type:'FRIEND', id: 'COPY_TRIGGER' }); } 
+      if (data.type === 'MAP_MOVE_END') onMapMoveEnd(data.center, data.zoom);
     } catch(e) {}
   };
 
@@ -371,7 +346,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         domStorageEnabled={true}
         startInLoadingState={true}
         cacheEnabled={true}
-        cacheMode="LOAD_CACHE_ELSE_NETWORK"
         renderLoading={() => <ActivityIndicator size="large" color="#3b82f6" style={styles.loader} />}
       />
     </View>
