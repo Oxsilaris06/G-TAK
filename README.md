@@ -20,7 +20,6 @@ Fonctionnalités Clés
    * Rôles Hôte / Opérateur.
    * Exclusion d'utilisateurs.
  * Sécurité & Discrétion :
-   * Mode "Silence Radio" global piloté par l'hôte.
    * Données éphémères (rien n'est stocké sur un serveur, tout est en RAM).
    * Thème sombre "Night Ops" optimisé pour la nuit (OLED friendly).
 Installation (.apk)
