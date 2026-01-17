@@ -1,4 +1,4 @@
-name: Build & Release Praxis (Stable)
+name: Build & Release Praxis (Stable Fix)
 
 on:
   workflow_dispatch:
@@ -21,7 +21,6 @@ jobs:
           node-version: '20'
           cache: ''
 
-      # JDK 17 est le standard pour Expo 51 (RN 0.74)
       - name: Configuration de Java (JDK 17)
         uses: actions/setup-java@v4
         with:
@@ -30,16 +29,15 @@ jobs:
 
       - name: Installation des dépendances
         run: |
-          # On installe d'abord ce qui est dans le package.json
           npm install --legacy-peer-deps
-          # Puis on laisse Expo corriger les incompatibilités mineures
-          npx expo install --fix
+          # CORRECTION ICI : On passe --legacy-peer-deps à la commande install d'Expo
+          # Le séparateur -- permet de passer des arguments à la commande npm sous-jacente
+          npx expo install --fix -- --legacy-peer-deps
 
       - name: Expo Prebuild
         run: npx expo prebuild --platform android --clean
 
-      # On force Gradle 9 pour tester la performance, compatible grâce à Expo 51
-      - name: Upgrade Gradle Wrapper
+      - name: Upgrade Gradle Wrapper (9.0)
         run: |
           cd android
           chmod +x gradlew
@@ -53,13 +51,13 @@ jobs:
 
       - name: Renommer et Publier
         run: |
-          mv android/app/build/outputs/apk/debug/app-debug.apk Praxis-Rel.apk
+          mv android/app/build/outputs/apk/debug/app-debug.apk Praxis-Stable.apk
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: build-${{ github.run_number }}
+          tag_name: v4.0.0-build-${{ github.run_number }}
           name: "Praxis Build #${{ github.run_number }}"
-          files: Praxis-Rel.apk
+          files: Praxis-Stable.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
