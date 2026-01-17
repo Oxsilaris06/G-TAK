@@ -1,4 +1,4 @@
-name: Build & Release Praxis (Stable Fix)
+name: Build & Release Praxis (Production)
 
 on:
   workflow_dispatch:
@@ -21,6 +21,7 @@ jobs:
           node-version: '20'
           cache: ''
 
+      # JDK 17 est le standard strict pour Gradle 8.8 & Expo 51
       - name: Configuration de Java (JDK 17)
         uses: actions/setup-java@v4
         with:
@@ -30,34 +31,32 @@ jobs:
       - name: Installation des dépendances
         run: |
           npm install --legacy-peer-deps
-          # CORRECTION ICI : On passe --legacy-peer-deps à la commande install d'Expo
-          # Le séparateur -- permet de passer des arguments à la commande npm sous-jacente
+          # On laisse Expo fixer les versions natives
           npx expo install --fix -- --legacy-peer-deps
 
       - name: Expo Prebuild
         run: npx expo prebuild --platform android --clean
 
-      - name: Upgrade Gradle Wrapper (9.0)
-        run: |
-          cd android
-          chmod +x gradlew
-          ./gradlew wrapper --gradle-version 9.0 --distribution-type all
+      # SUPPRESSION DE L'ÉTAPE UPGRADE WRAPPER
+      # Le log a confirmé que Gradle 8.8 est déjà présent et fonctionnel.
+      # Tenter de passer à 9.0 manuellement brise le build car l'URL est introuvable.
 
       - name: Build Android APK
         run: |
           cd android
           chmod +x gradlew
+          # Gradle 8.8 est performant, on garde les options d'optimisation
           ./gradlew assembleDebug --no-daemon --warning-mode all
 
       - name: Renommer et Publier
         run: |
-          mv android/app/build/outputs/apk/debug/app-debug.apk Praxis-Stable.apk
+          mv android/app/build/outputs/apk/debug/app-debug.apk Praxis-Final.apk
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v4.0.0-build-${{ github.run_number }}
-          name: "Praxis Build #${{ github.run_number }}"
-          files: Praxis-Stable.apk
+          name: "Praxis Release #${{ github.run_number }}"
+          files: Praxis-Final.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
