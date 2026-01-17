@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Modal, View, Text, StyleSheet, TouchableOpacity, ScrollView, Linking, Platform, Alert } from 'react-native';
+import { Modal, View, Text, StyleSheet, TouchableOpacity, ScrollView, Linking } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialIcons } from '@expo/vector-icons';
 
-// Clé de stockage mise à jour pour Praxis
-const CONSENT_KEY = 'Praxis_GDPR_Consent_v1';
+// Clé de stockage mise à jour pour Praxis (Version 2 pour forcer le ré-affichage si mise à jour)
+const CONSENT_KEY = 'Praxis_Privacy_Consent_v2';
 
 interface PrivacyConsentModalProps {
   onConsentGiven: () => void; // Fonction appelée quand l'utilisateur accepte
@@ -35,34 +35,7 @@ export default function PrivacyConsentModal({ onConsentGiven }: PrivacyConsentMo
     try {
       await AsyncStorage.setItem(CONSENT_KEY, 'true');
       setModalVisible(false);
-      
-      // --- SÉQUENCE D'ACTIVATION ACCESSIBILITÉ (Android Uniquement) ---
-      if (Platform.OS === 'android') {
-          Alert.alert(
-              "Configuration Tactique Requise",
-              "Pour que les boutons physiques fonctionnent écran éteint, vous devez activer les services d'accessibilité pour Praxis si demandé.",
-              [
-                  {
-                      text: "PLUS TARD",
-                      style: "cancel",
-                      onPress: () => onConsentGiven()
-                  },
-                  { 
-                      text: "OUVRIR RÉGLAGES", 
-                      onPress: () => {
-                          // Ouvre directement le menu Accessibilité Android
-                          Linking.sendIntent('android.settings.ACCESSIBILITY_SETTINGS');
-                          // On lance l'app
-                          onConsentGiven();
-                      }
-                  }
-              ],
-              { cancelable: false }
-          );
-      } else {
-          onConsentGiven();
-      }
-
+      onConsentGiven();
     } catch (error) {
       console.error('Erreur sauvegarde consentement:', error);
       onConsentGiven();
@@ -70,7 +43,7 @@ export default function PrivacyConsentModal({ onConsentGiven }: PrivacyConsentMo
   };
 
   const openPrivacyPolicy = () => {
-    // Lien mis à jour vers le dépôt g-tak
+    // Lien vers le fichier hébergé sur GitHub (à adapter si nécessaire)
     Linking.openURL('https://github.com/oxsilaris06/g-tak/blob/main/PRIVACY.md');
   };
 
@@ -93,7 +66,7 @@ export default function PrivacyConsentModal({ onConsentGiven }: PrivacyConsentMo
           
           <ScrollView style={styles.scrollView} indicatorStyle="white">
             <Text style={styles.modalText}>
-              Bienvenue dans Praxis. Pour assurer le fonctionnement tactique de l'application, l'accès aux capteurs suivants est requis :
+              Bienvenue dans <Text style={{fontWeight: 'bold', color: '#3b82f6'}}>Praxis</Text>. Cette application de suivi tactique fonctionne en réseau maillé (Peer-to-Peer) sans serveur central.
             </Text>
 
             <View style={styles.bulletPoint}>
@@ -102,28 +75,38 @@ export default function PrivacyConsentModal({ onConsentGiven }: PrivacyConsentMo
                 <Text style={styles.bulletTitle}>GÉOLOCALISATION (GPS)</Text>
               </View>
               <Text style={styles.bulletText}>
-                Utilisée pour afficher votre position sur la carte tactique et la partager en temps réel avec votre escouade via une connexion sécurisée P2P.
+                Indispensable pour afficher votre position sur la carte et la partager <Text style={{fontWeight: 'bold', color: '#d4d4d8'}}>uniquement</Text> avec les membres connectés à votre session. Aucune position n'est stockée sur un serveur tiers.
               </Text>
             </View>
 
             <View style={styles.bulletPoint}>
               <View style={styles.bulletHeader}>
-                <MaterialIcons name="mic" size={20} color="#22c55e" />
-                <Text style={styles.bulletTitle}>MICROPHONE & AUDIO</Text>
+                <MaterialIcons name="qr-code-scanner" size={20} color="#eab308" />
+                <Text style={styles.bulletTitle}>CAMÉRA</Text>
               </View>
               <Text style={styles.bulletText}>
-                Nécessaire pour les communications vocales (VoIP) et l'analyse du niveau sonore ambiant (VOX). Aucune donnée audio n'est enregistrée sur nos serveurs.
+                Accès requis uniquement pour scanner les QR Codes de session afin de rejoindre rapidement un groupe. Aucune image n'est enregistrée.
+              </Text>
+            </View>
+
+            <View style={styles.bulletPoint}>
+              <View style={styles.bulletHeader}>
+                <MaterialIcons name="notifications-active" size={20} color="#22c55e" />
+                <Text style={styles.bulletTitle}>NOTIFICATIONS</Text>
+              </View>
+              <Text style={styles.bulletText}>
+                Pour vous alerter (Pings Hostiles, Messages Flash) même lorsque l'application est en arrière-plan ou l'écran éteint.
               </Text>
             </View>
 
             <View style={styles.infoBox}>
                <Text style={styles.infoText}>
-                 <Text style={{fontWeight: 'bold'}}>Architecture P2P :</Text> Vos données transitent directement entre les appareils. Serveur "Stateless" (pas d'historique).
+                 <Text style={{fontWeight: 'bold'}}>Architecture Éphémère :</Text> Dès que vous quittez l'application ou la session, toutes les données tactiques (positions, historique, messages) sont effacées de la mémoire de l'appareil.
                </Text>
             </View>
 
             <Text style={styles.legalText}>
-              En continuant, vous acceptez notre politique de confidentialité et le traitement de ces données pour le fonctionnement de l'application.
+              En continuant, vous acceptez le partage de votre position en temps réel avec votre groupe et notre politique de confidentialité "Zéro Log".
             </Text>
             
             <TouchableOpacity onPress={openPrivacyPolicy} style={styles.linkContainer}>
