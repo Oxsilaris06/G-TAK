@@ -17,7 +17,6 @@ export default {
         foregroundImage: "./assets/adaptive-icon.png",
         backgroundColor: "#000000"
       },
-      // Permissions réduites au strict nécessaire pour la Data
       permissions: [
         "ACCESS_FINE_LOCATION",
         "ACCESS_BACKGROUND_LOCATION",
@@ -32,19 +31,19 @@ export default {
         "expo-build-properties",
         {
           android: {
-            kotlinVersion: "2.1.0",
-            compileSdkVersion: 35,
-            targetSdkVersion: 35,
-            buildToolsVersion: "35.0.0",
-            // Activation du nouveau moteur pour de meilleures performances Data
-            newArchEnabled: true
+            // Configuration stable pour supporter les dépendances actuelles
+            kotlinVersion: "1.9.23",
+            compileSdkVersion: 34,
+            targetSdkVersion: 34,
+            buildToolsVersion: "34.0.0",
+            // On garde l'ancienne architecture pour garantir la compatibilité WebRTC 118
+            newArchEnabled: false
           }
         }
       ],
       [
         "@config-plugins/react-native-webrtc",
         {
-          // Désactivation des permissions micro/caméra si vous ne faites que de la data
           cameraPermission: false,
           microphonePermission: false
         }
