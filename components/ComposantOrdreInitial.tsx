@@ -447,22 +447,19 @@ export default function OIView({ onClose }: OIViewProps) {
 
   // --- HTML GENERATOR FOR PDF ---
   const generateHTML = () => {
-    const { date_op, adversaire_1 } = formData;
-    const wrap = (tag: string, content: string, style = "") => `<${tag} style="${style}">${content}</${tag}>`;
-    const title = (t: string) => wrap('h2', t, `color: ${COLORS.primary}; border-bottom: 2px solid ${COLORS.primary}; margin-top: 10px; font-family: 'Oswald'; font-size: 14px;`);
-    const sub = (t: string) => wrap('h3', t, `color: ${COLORS.primary}; margin-top: 5px; font-family: 'Oswald'; font-size: 12px;`);
-    const row = (l: string, v: string) => `<tr><td style="padding: 2px; border: 1px solid #ccc; width: 30%; font-weight:bold;">${l}</td><td style="padding: 2px; border: 1px solid #ccc;">${v || '-'}</td></tr>`;
+    const { date_op } = formData;
     
-    const getPhotoHtml = (category: string, label: string) => {
+    // HELPERS GRAPHIQUES
+    const getPhotoHtml = (category: string, label: string, width = "100%", maxHeight = "300px") => {
         const photo = photos.find(p => p.category === category);
         if (!photo) return '';
         return `
-            <div style="border: 1px solid ${COLORS.primary}; padding: 2px; background: #eee; margin-top: 5px; width: 250px;">
-                <div style="text-align:center; font-weight:bold; color:${COLORS.primary}; font-size:10px;">${label}</div>
-                <div style="position: relative; display: inline-block; width: 100%;">
-                    <img src="${photo.uri}" style="width: 100%; height: auto; display: block;" />
+            <div style="border: 2px solid #000; padding: 5px; margin-bottom: 10px; background: #fff;">
+                <div style="text-align:center; font-weight:bold; margin-bottom:5px; border-bottom:1px solid #000; background:#eee;">${label}</div>
+                <div style="position: relative; display: block; width: ${width}; margin: 0 auto;">
+                    <img src="${photo.uri}" style="width: 100%; max-height: ${maxHeight}; object-fit:contain; display: block;" />
                     ${photo.annotations.map(a => `
-                        <div style="position: absolute; left: ${a.x}%; top: ${a.y}%; width: 15px; height: 15px; background: rgba(255,0,0,0.7); color: white; border-radius: 50%; text-align: center; line-height: 15px; font-size: 8px; transform: translate(-50%, -50%); border: 1px solid white;">
+                        <div style="position: absolute; left: ${a.x}%; top: ${a.y}%; width: 20px; height: 20px; background: red; color: white; border-radius: 50%; text-align: center; line-height: 20px; font-size: 12px; font-weight:bold; transform: translate(-50%, -50%); border: 2px solid white;">
                             ${a.text}
                         </div>
                     `).join('')}
@@ -471,41 +468,66 @@ export default function OIView({ onClose }: OIViewProps) {
         `;
     };
 
-    const renderAdversaireTable = (adv: IAdversaire, titleStr: string, photoCat: string) => {
-        const photo = getPhotoHtml(photoCat, `Photo ${titleStr}`);
+    const drawTableAdv = (adv: IAdversaire, title: string) => {
+        if (!adv.nom) return '';
         return `
-        <div style="margin-top:5px;">
-             ${sub(titleStr)}
-             <div class="row-container">
-                <div style="flex:1;">
-                    <table>
-                        ${row('Nom', adv.nom)}
-                        ${row('Domicile', adv.domicile)}
-                        ${row('Né(e) le', adv.date_naissance + ' à ' + adv.lieu_naissance)}
-                        ${row('Physique', `${adv.stature} - ${adv.ethnie}`)}
-                        ${row('Signes', adv.signes)}
-                        ${row('Véhicules', adv.vehicules_list.join(', '))}
-                        ${row('Armes', adv.armes)}
-                        ${row('Antécédents', adv.antecedents)}
-                    </table>
-                </div>
-                ${photo ? `<div style="flex:0 0 auto; margin-left:10px;">${photo}</div>` : ''}
-             </div>
+        <div style="margin-bottom: 20px; border: 2px solid #000;">
+            <div style="background:#000; color:#fff; padding:5px; font-weight:bold; font-size:14px;">${title}: ${adv.nom}</div>
+            <table style="width:100%; border-collapse:collapse; font-size:10px;">
+                <tr style="background:#ddd;"><th style="border:1px solid #000; width:30%;">INFORMATION</th><th style="border:1px solid #000;">DÉTAIL</th></tr>
+                <tr><td style="border:1px solid #000; font-weight:bold;">Domicile</td><td style="border:1px solid #000;">${adv.domicile}</td></tr>
+                <tr><td style="border:1px solid #000; font-weight:bold;">Naissance</td><td style="border:1px solid #000;">${adv.date_naissance} à ${adv.lieu_naissance}</td></tr>
+                <tr><td style="border:1px solid #000; font-weight:bold;">Physique</td><td style="border:1px solid #000;">${adv.stature} / ${adv.ethnie} / ${adv.signes}</td></tr>
+                <tr><td style="border:1px solid #000; font-weight:bold;">Profession</td><td style="border:1px solid #000;">${adv.profession}</td></tr>
+                <tr><td style="border:1px solid #000; font-weight:bold;">Antécédents</td><td style="border:1px solid #000;">${adv.antecedents}</td></tr>
+                <tr><td style="border:1px solid #000; font-weight:bold;">État d'esprit</td><td style="border:1px solid #000;">${adv.etat_esprit.join(', ')} / ${adv.attitude}</td></tr>
+                <tr><td style="border:1px solid #000; font-weight:bold;">Véhicules</td><td style="border:1px solid #000;">${adv.vehicules_list.join(', ')}</td></tr>
+                <tr><td style="border:1px solid #000; font-weight:bold;">Armes / ME</td><td style="border:1px solid #000;">${adv.armes} / ${adv.me_list.join(', ')}</td></tr>
+            </table>
         </div>
         `;
     };
 
-    const renderComposition = (prefix: string) => {
-        const allMembers = vehicles.flatMap(v => v.members).concat(poolMembers);
-        const relevant = allMembers.filter(m => m.cellule.toLowerCase().startsWith(prefix.toLowerCase()));
-        const grouped: {[key:string]: string[]} = {};
-        relevant.forEach(m => {
-            if (!grouped[m.cellule]) grouped[m.cellule] = [];
-            grouped[m.cellule].push(`${m.trigramme}${m.fonction !== 'Sans' ? ` (${m.fonction})` : ''}`);
-        });
-        return Object.keys(grouped).sort().map(k => 
-            `<div style="margin-bottom:2px;"><strong style="color:${COLORS.danger}">${k}</strong> : ${grouped[k].join(' - ')}</div>`
-        ).join('');
+    const drawPatrac = () => {
+        return vehicles.map(v => `
+            <div style="margin-bottom: 15px;">
+                <div style="background:#ccc; border:1px solid #000; padding:4px; font-weight:bold;">VÉHICULE: ${v.name} (${v.type})</div>
+                <table style="width:100%; border-collapse:collapse; font-size:9px; text-align:center;">
+                    <thead style="background:#eee;">
+                        <tr>
+                            <th style="border:1px solid #000;">TRIG.</th>
+                            <th style="border:1px solid #000;">FCT</th>
+                            <th style="border:1px solid #000;">CELLULE</th>
+                            <th style="border:1px solid #000;">PRINC.</th>
+                            <th style="border:1px solid #000;">SEC.</th>
+                            <th style="border:1px solid #000;">AFI</th>
+                            <th style="border:1px solid #000;">GREN.</th>
+                            <th style="border:1px solid #000;">EQUIP 1</th>
+                            <th style="border:1px solid #000;">EQUIP 2</th>
+                            <th style="border:1px solid #000;">TENUE</th>
+                            <th style="border:1px solid #000;">GPB</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${v.members.map(m => `
+                        <tr>
+                            <td style="border:1px solid #000; font-weight:bold;">${m.trigramme}</td>
+                            <td style="border:1px solid #000;">${m.fonction}</td>
+                            <td style="border:1px solid #000;">${m.cellule}</td>
+                            <td style="border:1px solid #000;">${m.principales}</td>
+                            <td style="border:1px solid #000;">${m.secondaires}</td>
+                            <td style="border:1px solid #000;">${m.afis}</td>
+                            <td style="border:1px solid #000;">${m.grenades}</td>
+                            <td style="border:1px solid #000;">${m.equipement}</td>
+                            <td style="border:1px solid #000;">${m.equipement2}</td>
+                            <td style="border:1px solid #000;">${m.tenue}</td>
+                            <td style="border:1px solid #000;">${m.gpb}</td>
+                        </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `).join('');
     };
 
     return `
@@ -516,118 +538,175 @@ export default function OIView({ onClose }: OIViewProps) {
         <style>
           @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Oswald:wght@500&display=swap');
           @page { size: A4 landscape; margin: 1cm; }
-          body { font-family: 'JetBrains Mono', sans-serif; background: #fff; color: #000; padding: 0; font-size: 10px; }
-          table { width: 100%; border-collapse: collapse; margin-bottom: 2px; }
-          .banner { text-align: center; margin-bottom: 5px; border: 2px solid #000; padding: 5px; background: #f0f0f0; }
-          .row-container { display: flex; flex-direction: row; gap: 15px; align-items: flex-start; }
-          .col-half { flex: 1; }
+          body { font-family: 'JetBrains Mono', sans-serif; background: #fff; color: #000; padding: 0; font-size: 11px; }
           .page-break { page-break-before: always; }
-          h2 { margin-bottom: 5px; } h3 { margin-bottom: 2px; } p { margin: 2px 0; }
+          h1 { font-family: 'Oswald'; text-align: center; font-size: 36px; border: 4px solid #000; padding: 20px; margin-bottom: 50px; text-transform: uppercase; letter-spacing: 2px; }
+          h2 { font-family: 'Oswald'; font-size: 16px; border-bottom: 2px solid #000; margin-top: 20px; margin-bottom: 10px; padding-bottom: 2px; text-transform: uppercase; }
+          h3 { font-size: 12px; font-weight: bold; margin-top: 10px; margin-bottom: 5px; text-decoration: underline; }
+          p { margin: 2px 0; text-align: justify; }
+          .row { display: flex; flex-direction: row; gap: 20px; }
+          .col { flex: 1; }
+          .box { border: 1px solid #000; padding: 10px; margin-bottom: 10px; }
+          table { width: 100%; border-collapse: collapse; }
+          td, th { border: 1px solid #000; padding: 4px; }
+          .highlight { background-color: #eee; font-weight: bold; }
         </style>
       </head>
       <body>
-        <div class="banner">
-            <h1 style="font-family:'Oswald'; margin:0; font-size: 18px;">ORDRE INITIAL</h1>
-            <div>${adversaire_1.nom} // ${date_op}</div>
-        </div>
 
-        <div class="row-container">
-            <div class="col-half">
-                ${title('1. SITUATION')}
-                ${sub('1.1 Générale')}${wrap('div', formData.situation_generale)}
-                ${sub('1.2 Particulière')}${wrap('div', formData.situation_particuliere)}
-                
-                ${title('3. ENVIRONNEMENT')}
-                 <table>
-                    ${row('Amis', formData.amis)}
-                    ${row('Terrain / Météo', formData.terrain_info)}
-                    ${row('Population', formData.population)}
-                    ${row('Cadre Juridique', formData.cadre_juridique)}
-                 </table>
-            </div>
-            <div class="col-half">
-                ${title('4. MISSION PSIG')}
-                <div style="font-weight: bold; border: 2px solid ${COLORS.danger}; padding: 5px; text-align: center; background: #fff0f0; white-space: pre-wrap;">
-                    ${formData.missions_psig}
-                </div>
-                ${title('5. EXÉCUTION')}
-                ${wrap('div', `<strong>Pour le:</strong> ${formData.date_execution} à ${formData.heure_execution}`)}
-                ${wrap('div', formData.action_body_text.replace(/\n/g, '<br>'))}
-                ${sub('Chronologie')}
-                <table>
-                    <tr style="background:#eee;"><th>T</th><th>Action</th><th>Heure</th></tr>
-                    ${formData.chronologie.map(e => `<tr><td style="border:1px solid #ccc; font-weight:bold;">${e.type}</td><td style="border:1px solid #ccc;">${e.label}</td><td style="border:1px solid #ccc;">${e.hour}</td></tr>`).join('')}
-                </table>
-                 ${sub('Hypothèses')}
-                 <div><strong>H1:</strong> ${formData.hypothese_h1}</div>
-                 <div><strong>H2:</strong> ${formData.hypothese_h2}</div>
-                 <div><strong>H3:</strong> ${formData.hypothese_h3}</div>
-            </div>
+        <!-- PAGE 1: COUVERTURE -->
+        <div style="display: flex; flex-direction: column; justify-content: center; height: 90vh;">
+            <h1>OI PELOTON<br/>DU ${date_op}<br/><br/>SURVEILLANCE<br/>INTERVENTION</h1>
+            <div style="text-align: center; font-size: 14px; font-weight: bold;">CIBLE: ${formData.adversaire_1.nom}</div>
         </div>
-
-        ${title('2. ADVERSAIRE(S)')}
-        ${renderAdversaireTable(formData.adversaire_1, 'Adversaire Principal', 'photo_adv_1')}
-        ${formData.adversaire_2.nom ? renderAdversaireTable(formData.adversaire_2, 'Adversaire Secondaire', 'photo_adv_2') : ''}
-        ${getPhotoHtml('photo_renforts', 'Renforts')}
 
         <div class="page-break"></div>
 
-        ${title('6. ARTICULATION')}
-        ${wrap('div', `<strong>Place du Chef:</strong> ${formData.place_chef_gen}`)}
-
-        <div class="row-container">
-            <div class="col-half" style="border-right: 1px solid #ccc; padding-right: 5px;">
-                ${sub('INDIA (INTER)')}
-                ${renderComposition('India')}
-                ${wrap('div', `<strong>Mission:</strong> ${formData.india_mission}`)}
-                ${wrap('div', `<strong>Objectif:</strong> ${formData.india_objectif}`)}
-                ${wrap('div', `<strong>Itinéraire:</strong> ${formData.india_itineraire}`)}
-                ${wrap('div', `<strong>Points Part.:</strong> ${formData.india_points}`)}
-                <div style="background:#eee; padding:5px; margin-top:5px; border:1px solid #999; font-size:9px;">
-                    <strong>CAT:</strong><br/>${formData.india_cat.replace(/\n/g, '<br>')}
+        <!-- PAGE 2: SITUATION / ENVIRONNEMENT -->
+        <div class="row">
+            <div class="col">
+                <h2>1. SITUATION</h2>
+                <h3>1.1 Situation Générale</h3>
+                <p>${formData.situation_generale.replace(/\n/g, '<br>')}</p>
+                
+                <h3>1.2 Situation Particulière</h3>
+                <p>${formData.situation_particuliere.replace(/\n/g, '<br>')}</p>
+            </div>
+            <div class="col">
+                <h2>3. ENVIRONNEMENT</h2>
+                <div class="box">
+                    <strong>AMIS:</strong> ${formData.amis}<br/>
+                    <strong>TERRAIN:</strong> ${formData.terrain_info}<br/>
+                    <strong>POPULATION:</strong> ${formData.population}<br/>
+                    <strong>JURIDIQUE:</strong> ${formData.cadre_juridique}
                 </div>
-                ${getPhotoHtml('photo_india_iti', 'Itinéraire India')}
             </div>
-            <div class="col-half">
-                ${sub('AO (APPUI/OBS)')}
-                ${renderComposition('AO')}
-                ${wrap('div', `<strong>Zone Install.:</strong> ${formData.ao_zone}`)}
-                ${wrap('div', `<strong>Mission:</strong> ${formData.ao_mission}`)}
-                ${wrap('div', `<strong>Secteur:</strong> ${formData.ao_secteur}`)}
-                ${wrap('div', `<strong>Points Part.:</strong> ${formData.ao_points}`)}
-                ${wrap('div', `<strong>Chef AO:</strong> ${formData.ao_chef}`)}
-                 <div style="background:#eee; padding:5px; margin-top:5px; border:1px solid #999; font-size:9px;">
-                    <strong>CAT:</strong><br/>${formData.ao_cat.replace(/\n/g, '<br>')}
+        </div>
+
+        <div class="page-break"></div>
+
+        <!-- PAGE 3: ADVERSAIRES -->
+        <h2>2. ADVERSAIRE(S)</h2>
+        <div class="row">
+            <div class="col">
+                ${drawTableAdv(formData.adversaire_1, 'CIBLE 1')}
+            </div>
+            <div class="col" style="flex: 0 0 300px;">
+                ${getPhotoHtml('photo_adv_1', 'PHOTO CIBLE 1', '100%')}
+            </div>
+        </div>
+        ${formData.adversaire_2.nom ? `
+        <div class="row">
+            <div class="col">
+                ${drawTableAdv(formData.adversaire_2, 'CIBLE 2')}
+            </div>
+            <div class="col" style="flex: 0 0 300px;">
+                ${getPhotoHtml('photo_adv_2', 'PHOTO CIBLE 2', '100%')}
+            </div>
+        </div>` : ''}
+        
+        ${getPhotoHtml('photo_renforts', 'RENFORTS / ENVIRONNEMENT', '50%')}
+
+        <div class="page-break"></div>
+
+        <!-- PAGE 4: MISSION & EXECUTION -->
+        <div class="row">
+            <div class="col">
+                 <h2>4. MISSION PSIG</h2>
+                 <div class="box" style="text-align:center; font-weight:bold; font-size:14px; background:#f0f0f0;">
+                    ${formData.missions_psig.replace(/\n/g, '<br>')}
+                 </div>
+
+                 <h2>5. EXÉCUTION</h2>
+                 <div class="box">
+                    <strong>POUR LE:</strong> ${formData.date_execution} à ${formData.heure_execution}<br/><br/>
+                    ${formData.action_body_text.replace(/\n/g, '<br>')}
+                 </div>
+            </div>
+            <div class="col">
+                <h3>CHRONOLOGIE</h3>
+                <table>
+                    <tr class="highlight"><th>H</th><th>PHASE</th></tr>
+                    ${formData.chronologie.map(c => `<tr><td style="text-align:center;">${c.hour}</td><td>${c.type} - ${c.label}</td></tr>`).join('')}
+                </table>
+                <h3>HYPOTHÈSES</h3>
+                <ul>
+                    <li><strong>H1:</strong> ${formData.hypothese_h1}</li>
+                    <li><strong>H2:</strong> ${formData.hypothese_h2}</li>
+                    <li><strong>H3:</strong> ${formData.hypothese_h3}</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="page-break"></div>
+
+        <!-- PAGE 5: ARTICULATION -->
+        <h2>6. ARTICULATION</h2>
+        <div style="border:1px solid #000; padding:5px; margin-bottom:10px; background:#ddd; font-weight:bold; text-align:center;">
+            PLACE DU CHEF: ${formData.place_chef_gen}
+        </div>
+
+        <div class="row">
+            <div class="col" style="border-right: 2px dashed #000; padding-right: 10px;">
+                <div style="background:#000; color:#fff; padding:5px; font-weight:bold; text-align:center;">INDIA (INTER)</div>
+                <div class="box">
+                    <strong>MISSION:</strong> ${formData.india_mission}<br/>
+                    <strong>OBJECTIF:</strong> ${formData.india_objectif}<br/>
+                    <strong>ITINÉRAIRE:</strong> ${formData.india_itineraire}<br/>
                 </div>
-                ${getPhotoHtml('photo_ao_vue', 'Vue AO')}
+                ${getPhotoHtml('photo_india_iti', 'ITINÉRAIRE INDIA')}
+                <div class="box" style="font-size:9px;">
+                    <strong>CAT SPÉCIFIQUE:</strong><br/>
+                    ${formData.india_cat.replace(/\n/g, '<br>')}
+                </div>
+            </div>
+            <div class="col" style="padding-left: 10px;">
+                <div style="background:#000; color:#fff; padding:5px; font-weight:bold; text-align:center;">AO (APPUI)</div>
+                <div class="box">
+                    <strong>MISSION:</strong> ${formData.ao_mission}<br/>
+                    <strong>ZONE:</strong> ${formData.ao_zone}<br/>
+                    <strong>SECTEUR:</strong> ${formData.ao_secteur}<br/>
+                    <strong>CHEF AO:</strong> ${formData.ao_chef}
+                </div>
+                ${getPhotoHtml('photo_ao_vue', 'VUE AO')}
+                <div class="box" style="font-size:9px;">
+                    <strong>CAT SPÉCIFIQUE:</strong><br/>
+                    ${formData.ao_cat.replace(/\n/g, '<br>')}
+                </div>
             </div>
         </div>
 
-        ${title('7. PATRACDVR')}
-        ${vehicles.map(v => `
-            <div style="margin-bottom: 2px; border: 1px solid #ccc; padding: 2px; background: #fafafa;">
-                <strong>${v.name} (${v.type})</strong>: 
-                ${v.members.map(m => `${m.trigramme} (${m.principales}/${m.tenue})`).join(', ')}
-            </div>
-        `).join('')}
+        <div class="page-break"></div>
 
-        ${title('9. CONDUITES À TENIR & DIVERS')}
-        <div class="row-container">
-            <div class="col-half">
-                ${sub('Générales')}
-                ${wrap('div', formData.cat_generales.replace(/\n/g, '<br>'))}
-                 ${getPhotoHtml('photo_logistique', 'Logistique')}
+        <!-- PAGE 6: PATRACDVR -->
+        <h2>7. PATRACDVR</h2>
+        ${drawPatrac()}
+
+        <div class="page-break"></div>
+
+        <!-- PAGE 7: CAT & LOGISTIQUE -->
+        <h2>9. DIVERS & SÉCURITÉ</h2>
+        <div class="row">
+            <div class="col">
+                <h3>CONDUITES À TENIR GÉNÉRALES</h3>
+                <div class="box">
+                    ${formData.cat_generales.replace(/\n/g, '<br>')}
+                </div>
+                ${formData.no_go ? `<div class="box" style="border:2px solid red; color:red; font-weight:bold;">NO GO: ${formData.no_go}</div>` : ''}
             </div>
-            <div class="col-half">
-                ${formData.no_go ? `<div style="color:red; font-weight:bold; border: 2px solid red; padding: 5px; margin-bottom:5px;">NO GO: ${formData.no_go}</div>` : ''}
-                ${sub('Liaison')}
-                ${wrap('div', formData.cat_liaison.replace(/\n/g, '<br>'))}
+            <div class="col">
+                <h3>LIAISON</h3>
+                <div class="box">
+                    ${formData.cat_liaison.replace(/\n/g, '<br>')}
+                </div>
+                ${getPhotoHtml('photo_logistique', 'LOGISTIQUE / EFFRACTION')}
             </div>
         </div>
 
-        <div style="margin-top: 20px; text-align: right; font-size: 8px; color: #666;">
-            Généré par G-TAK // ${new Date().toLocaleString()}
+        <div style="margin-top: 50px; text-align: center; font-size: 8px;">
+            DOCUMENT GÉNÉRÉ PAR G-TAK // ${new Date().toLocaleString()}
         </div>
+
       </body>
       </html>
     `;
