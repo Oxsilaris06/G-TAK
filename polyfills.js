@@ -1,5 +1,6 @@
-// 1. Crypto (DOIT ÊTRE EN PREMIER ABSOLU)
+// 1. Crypto & Encodage (DOIT ÊTRE EN PREMIER ABSOLU)
 import 'react-native-get-random-values';
+import 'fast-text-encoding'; // Installe TextEncoder/TextDecoder sur global automatiquement
 
 // Fallback Crypto si le module natif échoue (rare mais possible)
 if (typeof crypto === 'undefined') {
@@ -47,19 +48,7 @@ if (!global.navigator) { global.navigator = {}; }
 if (!global.navigator.userAgent) { global.navigator.userAgent = 'react-native'; }
 if (global.navigator.onLine === undefined) { global.navigator.onLine = true; }
 
-// 6. TextEncoder/Decoder (Requis par les versions récentes de PeerJS pour l'UTF-8)
-if (typeof TextEncoder === 'undefined') {
-    const { TextEncoder, TextDecoder } = require('text-encoding');
-    global.TextEncoder = TextEncoder;
-    global.TextDecoder = TextDecoder;
-} else if (!global.TextEncoder) {
-    // Cas où TextEncoder existe mais n'est pas sur global
-    global.TextEncoder = TextEncoder;
-    global.TextDecoder = TextDecoder;
-}
-
-// 7. Timer Fix (Évite les warnings de long timers sur Android)
+// 6. Timer Fix (Évite les warnings de long timers sur Android)
 // PeerJS utilise parfois des timers longs pour le heartbeat
 const _setTimeout = global.setTimeout;
 const _setInterval = global.setInterval;
-// On laisse tel quel, le fix précédent était parfois cause de bugs avec Hermes
