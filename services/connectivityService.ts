@@ -110,8 +110,10 @@ class ConnectivityService {
 
       // Petit délai pour laisser le système OS libérer les sockets (vital sur Android)
       setTimeout(() => {
-          // On recrée avec le même ID si possible pour que les autres nous retrouvent
-          const targetId = (this.role === OperatorRole.HOST && this.user?.id) ? this.user.id : undefined;
+          // On essaie de récupérer notre ancien ID, quel que soit notre rôle
+          // Si on est HOST, c'est crucial. Si on est Client, ça évite les doublons.
+          const targetId = this.user?.id;
+          console.log(`[NET] Tentative de récupération ID: ${targetId || 'Aucun'}`);
           this.createPeer(targetId);
       }, 500);
   }
@@ -256,7 +258,16 @@ class ConnectivityService {
             if (err.type === 'unavailable-id') {
                 // Si l'ID est pris (ex: ancien Host fantôme), on en génère un nouveau
                 this.notify({ type: 'TOAST', msg: 'ID Hôte indisponible, nouvel ID...', level: 'warning' });
-                setTimeout(() => this.createPeer(undefined), 500);
+                
+                // CORRECTION : Si l'ID court est pris, on en génère un NOUVEAU court.
+                // Au lieu de laisser PeerJS mettre un UUID long moche.
+                let nextId = undefined;
+                if (this.role === OperatorRole.HOST) {
+                    nextId = this.generateShortId();
+                    console.log(`[NET] Fallback sur nouvel ID court: ${nextId}`);
+                }
+                
+                setTimeout(() => this.createPeer(nextId), 500);
             } else if (err.type === 'peer-unavailable') {
                 // L'hôte n'est pas (encore) là
                 if (!this.isDestroyed && this.role === OperatorRole.OPR) {
@@ -296,8 +307,8 @@ class ConnectivityService {
               try { this.peer.destroy(); } catch(e) {}
               this.peer = null;
           }
-          // On essaye de reprendre notre ID si on était Host pour que les clients nous retrouvent
-          const targetId = (this.role === OperatorRole.HOST && this.user?.id) ? this.user.id : undefined;
+          // On essaye de reprendre notre ID actuel pour conserver l'identité
+          const targetId = this.user?.id;
           this.createPeer(targetId);
       }, delay);
   }
@@ -463,7 +474,7 @@ class ConnectivityService {
               if (u.id !== this.user?.id) newMap[u.id] = u;
           });
           this.peersMap = newMap;
-          this.notiAfy({ type: 'PEERS_UPDATED', peers: this.peersMap });
+          this.notify({ type: 'PEERS_UPDATED', peers: this.peersMap });
       } else if (data.type === 'KICK' && fromId === this.hostId) {
           this.cleanup();
           this.notify({ type: 'DISCONNECTED', reason: 'KICKED' });
