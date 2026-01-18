@@ -519,7 +519,7 @@ export default function OIView({ onClose }: OIViewProps) {
     let result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: false, 
-      quality: 0.5, // Reduced quality for smart compression (target < 4MB)
+      quality: 0.65, // Reduced quality for smart compression (target < 4MB)
       base64: true 
     });
     if (!result.canceled && result.assets && result.assets.length > 0) {
