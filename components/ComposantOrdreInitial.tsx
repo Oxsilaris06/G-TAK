@@ -31,7 +31,7 @@ interface OIViewProps {
 
 const MEMBER_CONFIG = {
   options: {
-    fonctions: ["Chef inter", "Chef dispo", "Chef Oscar", "DE", "Cyno", "Inter", "Effrac", "AO", "Sans"],
+    fonctions: ["Chef inter", "Chef dispo", "Chef Oscar", "DE", "Cyno", "Inter", "Effrac", "AO", "Sanitaire", "Radio", "Sans"],
     cellules: ["AO1", "AO2", "AO3", "AO4", "AO5", "AO6", "AO7", "AO8", "India 1", "India 2", "India 3", "India 4", "India 5", "Effrac", "Commandement", "Sans"],
     principales: [ "G36", "UMP9", "FAP", "MP5", "Sans"],
     afis: ["PIE", "LBD40", "LBD44", "PIE", "Sans"],
@@ -87,7 +87,7 @@ interface IAdversaire {
 
 interface IOIState {
   date_op: string;
-  trigramme_redacteur: string; // Ajouté pour le footer PDF
+  trigramme_redacteur: string;
   situation_generale: string;
   situation_particuliere: string;
   adversaire_1: IAdversaire;
@@ -153,7 +153,7 @@ interface IPhotoAnnotation {
 interface IPhoto {
   id: string;
   uri: string;
-  base64?: string; // Indispensable pour PDF
+  base64?: string;
   category: string;
   annotations: IPhotoAnnotation[];
 }
@@ -493,17 +493,12 @@ export default function OIView({ onClose }: OIViewProps) {
     setVehicles([...vehicles, newVeh]);
   };
 
-  // NOUVEAU: Logique de suppression de véhicule avec retour des membres
   const removeVehicle = (vehicle: IVehicle) => {
-      // D'abord on récupère les membres pour les remettre dans le pool
       const membersToReturn = vehicle.members;
-      
-      // On met à jour les états
       setVehicles(prev => prev.filter(v => v.id !== vehicle.id));
       setPoolMembers(prev => [...prev, ...membersToReturn]);
   };
 
-  // NOUVEAU: Logique de renommage de véhicule
   const openRenameVehicle = (vehicle: IVehicle) => {
       setVehicleToRename(vehicle);
       setNewVehicleName(vehicle.name);
@@ -524,15 +519,15 @@ export default function OIView({ onClose }: OIViewProps) {
     let result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: false, 
-      quality: 0.7, 
-      base64: true // IMPORTANT: Base64 requis pour PDF
+      quality: 0.5, // Reduced quality for smart compression (target < 4MB)
+      base64: true 
     });
     if (!result.canceled && result.assets && result.assets.length > 0) {
       const asset = result.assets[0];
       const newPhoto: IPhoto = { 
           id: Date.now().toString(), 
           uri: asset.uri, 
-          base64: asset.base64 || undefined, // Stockage explicite
+          base64: asset.base64 || undefined, 
           category, 
           annotations: [] 
       };
@@ -562,24 +557,29 @@ export default function OIView({ onClose }: OIViewProps) {
     const { date_op, trigramme_redacteur } = formData;
     
     // HELPERS GRAPHIQUES
-    const getPhotosHtml = (category: string, label: string, width = "100%", maxHeight = "300px", pageBreakBefore = false) => {
+    const getPhotosHtml = (category: string, label: string, pageBreakBefore = false) => {
         const catPhotos = photos.filter(p => p.category === category);
         if (catPhotos.length === 0) return '';
         
         let html = '';
         if (pageBreakBefore) html += `<div class="page-break"></div>`;
         
-        html += `<h2 style="margin-top:20px;">${label}</h2>`;
-        html += `<div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 10px;">`;
+        html += `<h2 style="margin-top:20px; height: 10%; box-sizing: border-box;">${label}</h2>`;
         
+        // Layout: 1 photo -> 90% width, 2+ photos -> 45% width each
+        // CSS allows images to fill the container completely
+        html += `<div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 2%; height: 85%; align-content: flex-start;">`;
+        
+        const itemWidth = catPhotos.length === 1 ? '90%' : '45%';
+        const maxHeight = catPhotos.length === 1 ? '600px' : '400px';
+
         catPhotos.forEach(photo => {
-            // CORRECTION: Utilisation du Base64 pour garantir l'affichage
             const imageSrc = photo.base64 ? `data:image/jpeg;base64,${photo.base64}` : photo.uri;
 
             html += `
-            <div style="border: 2px solid #000; padding: 5px; margin-bottom: 10px; background: #fff; width: ${width}; page-break-inside: avoid;">
-                <div style="position: relative; display: block; width: 100%; margin: 0 auto;">
-                    <img src="${imageSrc}" style="width: 100%; max-height: ${maxHeight}; object-fit:contain; display: block;" />
+            <div style="border: 2px solid #000; padding: 0; margin-bottom: 10px; background: #fff; width: ${itemWidth}; page-break-inside: avoid; box-sizing: border-box; overflow: hidden;">
+                <div style="position: relative; display: block; width: 100%; height: 100%; margin: 0 auto;">
+                    <img src="${imageSrc}" style="width: 100%; height: auto; max-height: ${maxHeight}; object-fit: contain; display: block; margin: 0 auto;" />
                     ${photo.annotations.map(a => `
                         <div style="position: absolute; left: ${a.x}%; top: ${a.y}%; width: 20px; height: 20px; background: red; color: white; border-radius: 50%; text-align: center; line-height: 20px; font-size: 12px; font-weight:bold; transform: translate(-50%, -50%); border: 2px solid white;">
                             ${a.text}
@@ -603,7 +603,7 @@ export default function OIView({ onClose }: OIViewProps) {
             return `
             <div style="border: 2px solid #000; padding: 2px; margin-bottom: 5px; background: #fff;">
                 <div style="position: relative;">
-                    <img src="${imageSrc}" style="width: 100%; max-height: 200px; object-fit:contain; display: block;" />
+                    <img src="${imageSrc}" style="width: 100%; max-height: 300px; object-fit:contain; display: block;" />
                     ${photo.annotations.map(a => `
                         <div style="position: absolute; left: ${a.x}%; top: ${a.y}%; width: 15px; height: 15px; background: red; color: white; border-radius: 50%; text-align: center; line-height: 15px; font-size: 10px; font-weight:bold; transform: translate(-50%, -50%); border: 1px solid white;">
                             ${a.text}
@@ -614,15 +614,12 @@ export default function OIView({ onClose }: OIViewProps) {
         `;}).join('');
     };
 
-    // CORRECTION ARTICULATION: Formatage "Cellule : XXX/NNN (India1)"
     const formatCelluleMembers = (prefix: string) => {
         const allMembers = vehicles.flatMap(v => v.members).concat(poolMembers);
-        // Filtrer par préfixe (ex: membres contenant "India" ou "AO")
         const relevantMembers = allMembers.filter(m => m.cellule && m.cellule.toLowerCase().includes(prefix.toLowerCase()));
         
         if (relevantMembers.length === 0) return '';
 
-        // Grouper par Nom de cellule EXACT (ex: "India 1", "India 2")
         const grouped: {[key:string]: string[]} = {};
         relevantMembers.forEach(m => {
             const cellName = m.cellule;
@@ -630,7 +627,6 @@ export default function OIView({ onClose }: OIViewProps) {
             grouped[cellName].push(m.trigramme);
         });
 
-        // Formater string
         const parts = Object.keys(grouped).sort().map(cellName => {
             const trigs = grouped[cellName].join('/');
             return `${trigs} (${cellName})`;
@@ -764,7 +760,8 @@ export default function OIView({ onClose }: OIViewProps) {
             <div class="col">
                 ${drawTableAdv(formData.adversaire_1, 'CIBLE 1')}
             </div>
-            <div class="col" style="flex: 0 0 300px;">
+            <!-- Cible 1 Photo Container (40% approx) -->
+            <div class="col" style="flex: 0 0 40%;">
                 ${getSingleSidePhotoHtml('photo_adv_1')}
             </div>
         </div>
@@ -773,13 +770,14 @@ export default function OIView({ onClose }: OIViewProps) {
             <div class="col">
                 ${drawTableAdv(formData.adversaire_2, 'CIBLE 2')}
             </div>
-            <div class="col" style="flex: 0 0 300px;">
+            <!-- Cible 2 Photo Container (40% approx) -->
+            <div class="col" style="flex: 0 0 40%;">
                 ${getSingleSidePhotoHtml('photo_adv_2')}
             </div>
         </div>` : ''}
         
         <!-- RENFORTS: PAGE DÉDIÉE -->
-        ${getPhotosHtml('photo_renforts', 'RENFORTS / ENVIRONNEMENT', '48%', '400px', true)}
+        ${getPhotosHtml('photo_renforts', 'RENFORTS / ENVIRONNEMENT', true)}
 
         <div class="page-break"></div>
 
@@ -853,10 +851,10 @@ export default function OIView({ onClose }: OIViewProps) {
         </div>
 
         <!-- PAGES DÉDIÉES PHOTOS (ORDRE DEMANDÉ) -->
-        ${getPhotosHtml('photo_logistique', 'LOGISTIQUE', '48%', '400px', true)}
-        ${getPhotosHtml('photo_ao_vue', 'VUE EMPLACEMENT AO', '48%', '400px', true)}
-        ${getPhotosHtml('photo_india_iti', 'ITINÉRAIRE INDIA', '48%', '400px', true)}
-        ${getPhotosHtml('photo_effrac', 'DÉTAILS EFFRACTION', '48%', '400px', true)}
+        ${getPhotosHtml('photo_logistique', 'LOGISTIQUE', true)}
+        ${getPhotosHtml('photo_ao_vue', 'VUE EMPLACEMENT AO', true)}
+        ${getPhotosHtml('photo_india_iti', 'ITINÉRAIRE INDIA', true)}
+        ${getPhotosHtml('photo_effrac', 'DÉTAILS EFFRACTION', true)}
 
         <div class="page-break"></div>
 
@@ -896,7 +894,12 @@ export default function OIView({ onClose }: OIViewProps) {
   const handleGeneratePDF = async () => {
     try {
       const html = generateHTML();
-      const { uri } = await Print.printToFileAsync({ html, width: 842, height: 595 });
+      const { uri } = await Print.printToFileAsync({ 
+          html, 
+          width: 842, 
+          height: 595,
+          compress: true // Compression activée
+      });
       await Sharing.shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' });
     } catch (e) {
       Alert.alert("Erreur", "Impossible de générer le PDF.");
@@ -1245,7 +1248,7 @@ export default function OIView({ onClose }: OIViewProps) {
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity onPress={onClose} style={styles.backButton}><Text style={styles.backButtonText}>{"<"}</Text></TouchableOpacity>
-        <Text style={styles.headerTitle} numberOfLines={1}>G-TAK OI WIZARD</Text>
+        <Text style={styles.headerTitle} numberOfLines={1}>Strategica - OI</Text>
         <View style={{width: 40}} />
       </View>
 
