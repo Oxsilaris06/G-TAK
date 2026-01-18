@@ -38,7 +38,7 @@ import PrivacyConsentModal from './components/PrivacyConsentModal';
 import { NotificationToast } from './components/NotificationToast';
 import ComposantOrdreInitial from './components/ComposantOrdreInitial'; 
 import ShinyText from './components/ShinyText'; 
-import LightPillar from './components/LightPillar'; // Ajout de l'import
+import LightPillar from './components/LightPillar';
 
 try { SplashScreen.preventAutoHideAsync().catch(() => {}); } catch (e) {}
 
@@ -590,8 +590,17 @@ const App: React.FC = () => {
     } else if (view === 'login') {
       return (
         <View style={styles.centerContainer}>
-          {/* ARRIÈRE PLAN 3D AJOUTÉ ICI */}
-          <LightPillar />
+          {/* ARRIÈRE PLAN 3D AVEC RÉGLAGES */}
+          <LightPillar 
+            topColor="#2100a3"
+            bottomColor="#021369"
+            intensity={0.7}
+            glowAmount={0.005}
+            pillarWidth={10}
+            pillarHeight={1}
+            noiseIntensity={0.7}
+            pillarRotation={72}
+          />
 
           <TextInput style={styles.input} placeholder="TRIGRAMME" placeholderTextColor="#52525b" maxLength={6} value={loginInput} onChangeText={setLoginInput} autoCapitalize="characters" />
           
@@ -770,11 +779,21 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#050505' },
   centerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 30 },
   title: { fontSize: 32, fontWeight: '900', color: 'white', letterSpacing: 5, marginBottom: 50 },
-  input: { width: '100%', borderBottomWidth: 2, borderBottomColor: '#27272a', fontSize: 30, color: 'white', textAlign: 'center', padding: 10 },
+  input: { 
+    width: '100%', 
+    borderBottomWidth: 2, 
+    borderBottomColor: '#27272a', 
+    borderWidth: 1, // Bordure fine autour
+    borderColor: '#000000', // Noir pour l'encadré
+    fontSize: 30, 
+    color: 'white', 
+    textAlign: 'center', 
+    padding: 10 
+  },
   loginBtn: { marginTop: 50, width: '100%', backgroundColor: '#2563eb', padding: 20, borderRadius: 16, alignItems: 'center' },
   loginBtnText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
   
-  // Style pour le bouton Stratégica classique
+  // Style pour le bouton Stratégica classique (utilisé aussi pour Praxis)
   strategicaBtn: {
     padding: 10,
     marginTop: 20,
