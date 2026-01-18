@@ -37,6 +37,8 @@ import MainCouranteView from './components/MainCouranteView';
 import PrivacyConsentModal from './components/PrivacyConsentModal';
 import { NotificationToast } from './components/NotificationToast';
 import ComposantOrdreInitial from './components/ComposantOrdreInitial'; 
+import ShinyText from './components/ShinyText'; 
+import LightPillar from './components/LightPillar'; // Ajout de l'import
 
 try { SplashScreen.preventAutoHideAsync().catch(() => {}); } catch (e) {}
 
@@ -588,25 +590,31 @@ const App: React.FC = () => {
     } else if (view === 'login') {
       return (
         <View style={styles.centerContainer}>
-          <Image source={require('./assets/icon2.png')} style={{width: 100, height: 100, marginBottom: 30, borderRadius: 20}} />
-          <Text style={styles.title}>Praxis</Text>
+          {/* ARRIÈRE PLAN 3D AJOUTÉ ICI */}
+          <LightPillar />
+
           <TextInput style={styles.input} placeholder="TRIGRAMME" placeholderTextColor="#52525b" maxLength={6} value={loginInput} onChangeText={setLoginInput} autoCapitalize="characters" />
-          <TouchableOpacity onPress={() => {
+          
+          <ShinyText 
+            text="Praxis"
+            onPress={() => {
               if (loginInput.length < 2) return;
               try { AsyncStorage.setItem(CONFIG.TRIGRAM_STORAGE_KEY, loginInput.toUpperCase()); } catch (e) {}
               if (loginInput.toUpperCase() !== settings.username) configService.update({ username: loginInput.toUpperCase() });
               setUser(prev => ({ ...prev, callsign: loginInput.toUpperCase(), joinedAt: Date.now() }));
               setView('menu');
-          }} style={styles.loginBtn}><Text style={styles.loginBtnText}>CONNEXION</Text></TouchableOpacity>
+            }}
+            style={{ ...styles.strategicaBtn, marginTop: 50, width: '100%', backgroundColor: 'rgba(0,0,0,0.5)' }} 
+            textStyle={styles.strategicaBtnText}
+          />
           
           <View style={{ marginTop: 20 }}>
-            {/* BOUTON MODIFIÉ : Classique au lieu de ShinyText */}
-            <TouchableOpacity 
+            <ShinyText 
+              text="Stratégica"
               onPress={() => setView('oi')}
               style={styles.strategicaBtn}
-            >
-              <Text style={styles.strategicaBtnText}>Stratégica</Text>
-            </TouchableOpacity>
+              textStyle={styles.strategicaBtnText}
+            />
           </View>
 
           <PrivacyConsentModal onConsentGiven={() => {}} />
