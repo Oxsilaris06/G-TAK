@@ -615,6 +615,10 @@ const App: React.FC = () => {
             }}
             style={{ ...styles.strategicaBtn, marginTop: 50, width: '100%', backgroundColor: 'rgba(0,0,0,0.5)' }} 
             textStyle={styles.strategicaBtnText}
+            speed={3}
+            color="#ffffff"
+            shineColor="#0008ff"
+            yoyo
           />
           
           <View style={{ marginTop: 20 }}>
@@ -623,6 +627,10 @@ const App: React.FC = () => {
               onPress={() => setView('oi')}
               style={styles.strategicaBtn}
               textStyle={styles.strategicaBtnText}
+              speed={3}
+              color="#ffffff"
+              shineColor="#0008ff"
+              yoyo
             />
           </View>
 
