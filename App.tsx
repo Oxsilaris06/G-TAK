@@ -189,7 +189,6 @@ const App: React.FC = () => {
     return () => subscription.remove();
   }, [settings.gpsUpdateInterval]);
 
-  // Initialisation de l'application
   useEffect(() => {
       let mounted = true;
       const initApp = async () => {
@@ -237,18 +236,11 @@ const App: React.FC = () => {
           }
       });
 
-      // Abonnement UNIQUE aux événements de connectivité
       const unsubConn = connectivityService.subscribe((event) => {
           handleConnectivityEvent(event);
       });
       
-      return () => { 
-          mounted = false; 
-          unsubConn(); // Désabonnement propre
-          battSub.remove(); 
-          if(magSubscription.current) magSubscription.current.remove(); 
-          // Note: On ne nettoie pas connectivityService ici pour éviter de couper la connexion en changeant de vue si le composant est remonté
-      };
+      return () => { mounted = false; unsubConn(); battSub.remove(); if(magSubscription.current) magSubscription.current.remove(); };
   }, []);
 
   useEffect(() => {
@@ -302,12 +294,14 @@ const App: React.FC = () => {
   }, []);
 
   const handleConnectivityEvent = (event: ConnectivityEvent) => {
-      console.log("App Event Received:", event.type); // Debug log essentiel
       switch (event.type) {
           case 'PEER_OPEN': 
-              console.log("Peer Open ID:", event.id);
-              setUser(prev => ({ ...prev, id: event.id })); 
-              setIsServicesReady(true); 
+              setUser(prev => ({ ...prev, id: event.id })); setIsServicesReady(true); 
+              // Si nous sommes l'hôte, nous définissons notre propre ID comme hostID
+              if (userRef.current.role === OperatorRole.HOST) {
+                  setHostId(event.id);
+                  showToast(`Session créée: ${event.id}`, "success");
+              }
               break;
           case 'PEERS_UPDATED': 
               setPeers(prev => {
@@ -328,27 +322,11 @@ const App: React.FC = () => {
                   return cleanPeers;
               });
               break;
-          case 'HOST_CONNECTED': 
-              setHostId(event.hostId); 
-              showToast("Lien Hôte établi", "success"); 
-              break;
+          case 'HOST_CONNECTED': setHostId(event.hostId); showToast("Lien Hôte établi", "success"); break;
           case 'TOAST': showToast(event.msg, event.level as any); break;
           case 'DATA_RECEIVED': handleProtocolData(event.data, event.from); break;
-          case 'DISCONNECTED': 
-              if (event.reason === 'KICKED') { 
-                  Alert.alert("Session Terminée", "Exclu de la session."); 
-                  finishLogout(); 
-              } else if (event.reason === 'NO_HOST') { 
-                  showToast("Recherche Hôte...", "warning"); 
-              } 
-              break;
-          case 'NEW_HOST_PROMOTED': 
-              setHostId(event.hostId); 
-              if (event.hostId === userRef.current.id) { 
-                  setUser(p => ({...p, role: OperatorRole.HOST})); 
-                  Alert.alert("Promotion", "Vous êtes le nouveau Chef de Session."); 
-              } 
-              break;
+          case 'DISCONNECTED': if (event.reason === 'KICKED') { Alert.alert("Session Terminée", "Exclu de la session."); finishLogout(); } else if (event.reason === 'NO_HOST') { showToast("Recherche Hôte...", "warning"); } break;
+          case 'NEW_HOST_PROMOTED': setHostId(event.hostId); if (event.hostId === userRef.current.id) { setUser(p => ({...p, role: OperatorRole.HOST})); Alert.alert("Promotion", "Vous êtes le nouveau Chef de Session."); } break;
       }
   };
 
@@ -434,35 +412,57 @@ const App: React.FC = () => {
       const finalId = id || hostInput.toUpperCase();
       if (!finalId) return;
       
-      setHostId(finalId);
+      // On ne set PAS setHostId tout de suite pour l'UI, on attend la confirmation de connexion
+      // On prépare l'utilisateur avec un ID temporaire ou vide, PeerJS donnera le vrai
+      const role = OperatorRole.OPR;
       
-      // Préparation de l'utilisateur AVANT l'init
-      const userData = { ...user, role: OperatorRole.OPR, paxColor: settings.userArrowColor };
-      setUser(userData);
+      // On met à jour l'état local pour le rôle
+      setUser(prev => ({ ...prev, role: role, paxColor: settings.userArrowColor }));
       
-      console.log("Joining session as OPR with Host ID:", finalId);
-      await connectivityService.init(userData, OperatorRole.OPR, finalId);
-      
-      setView('map'); setLastOpsView('map');
+      // On initialise la connexion. 
+      // L'ID utilisateur final sera mis à jour via l'événement PEER_OPEN
+      try {
+          await connectivityService.init({ ...user, role, paxColor: settings.userArrowColor }, role, finalId);
+          // On change de vue seulement après l'init réussi (au moins le démarrage)
+          // Mais idéalement on devrait attendre PEER_OPEN ou HOST_CONNECTED pour être sûr
+          // Pour l'instant on fait comme avant mais avec le await qui garantit que l'init a commencé
+          setHostId(finalId); // Pour l'affichage UI "en attente"
+          setView('map'); 
+          setLastOpsView('map');
+      } catch (error) {
+          console.error("Erreur connexion:", error);
+          showToast("Erreur de connexion", "alert");
+      }
   };
 
   const createSession = async () => {
-      // Préparation de l'utilisateur AVANT l'init
-      const userData = { ...user, role: OperatorRole.HOST, paxColor: settings.userArrowColor };
-      setUser(userData);
+      const role = OperatorRole.HOST;
+      setUser(prev => ({ ...prev, role: role, paxColor: settings.userArrowColor }));
       
-      console.log("Creating session as HOST");
-      await connectivityService.init(userData, OperatorRole.HOST);
-      
-      // En tant qu'hôte, notre propre ID devient le HostID dès que PeerJS est prêt
-      // Cela sera géré par l'événement PEER_OPEN dans handleConnectivityEvent
-      setView('map'); setLastOpsView('map');
+      try {
+          // On initialise en tant qu'hôte (pas de hostId cible)
+          await connectivityService.init({ ...user, role, paxColor: settings.userArrowColor }, role);
+          // Le hostId sera défini dans handleConnectivityEvent lors du PEER_OPEN
+          setView('map'); 
+          setLastOpsView('map');
+      } catch (error) {
+          console.error("Erreur création session:", error);
+          showToast("Erreur création session", "alert");
+      }
   };
 
-  const handleLogout = () => {
-      if (user.role === OperatorRole.HOST) connectivityService.broadcast({ type: 'CLIENT_LEAVING', id: user.id });
-      else connectivityService.broadcast({ type: 'CLIENT_LEAVING', id: user.id, callsign: user.callsign });
-      finishLogout();
+  const handleLogout = async () => {
+      // On envoie le message de départ ET on attend un court instant avant de couper
+      if (user.role === OperatorRole.HOST) {
+          connectivityService.broadcast({ type: 'CLIENT_LEAVING', id: user.id });
+      } else {
+          connectivityService.broadcast({ type: 'CLIENT_LEAVING', id: user.id, callsign: user.callsign });
+      }
+      
+      // Petit délai pour laisser le temps au message de partir sur le réseau
+      setTimeout(() => {
+          finishLogout();
+      }, 500); 
   };
 
   const handleOperatorActionNavigate = (targetId: string) => { 
