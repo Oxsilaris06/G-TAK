@@ -30,6 +30,9 @@
     "expo-document-picker": "~12.0.2",
     "expo-image-picker": "~15.0.7",
     "expo-print": "~13.0.1",
+    "expo-gl": "~14.0.2",
+    "@react-three/fiber": "^8.16.0",
+    "three": "^0.160.0",
     "@react-native-async-storage/async-storage": "1.23.1",
     "@react-native-community/netinfo": "11.3.1",
     "react-native-svg": "15.2.0",
@@ -50,6 +53,7 @@
   "devDependencies": {
     "@babel/core": "^7.20.0",
     "@types/react": "~18.2.45",
+    "@types/three": "^0.160.0",
     "typescript": "~5.3.3"
   },
   "private": true
