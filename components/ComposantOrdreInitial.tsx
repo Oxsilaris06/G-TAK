@@ -41,7 +41,6 @@ const MEMBER_CONFIG = {
     equipements2: ["Sans", "Échelle", "Stop stick", "Lacry", "Cale", "IL", "Pass", "Radio Haute"],
     tenues: ["UBAS", "4S", "Bleu", "Civile", "Ghillie", "Treillis", "Lourde"],
     gpbs: ["GPBL", "GPBPD", "Porte-Plaque", "Sans"],
-    // Véhicules par défaut demandés
     vehicules_types: ["Sharan", "Kodiaq", "5008", "Scénic", "BT"]
   },
   members: [
@@ -70,7 +69,7 @@ const COLORS = {
 interface IAdversaire {
     nom: string;
     domicile: string;
-    me_list: string[]; // Moyens Employés
+    me_list: string[];
     date_naissance: string;
     lieu_naissance: string;
     stature: string;
@@ -78,59 +77,44 @@ interface IAdversaire {
     signes: string;
     profession: string;
     antecedents: string;
-    etat_esprit: string[]; // Chips
+    etat_esprit: string[];
     attitude: string;
-    volume: string[]; // Chips
+    volume: string[];
     substances: string;
     vehicules_list: string[];
     armes: string;
 }
 
 interface IOIState {
-  // Etape 1 : Situation
   date_op: string;
   situation_generale: string;
   situation_particuliere: string;
-
-  // Etape 2 : Adversaires
   adversaire_1: IAdversaire;
   adversaire_2: IAdversaire;
-
-  // Etape 3 : Environnement
   amis: string;
   terrain_info: string;
   population: string;
   cadre_juridique: string;
-
-  // Etape 4 : Mission PSIG
   missions_psig: string;
-
-  // Etape 5 : Exécution
   date_execution: string;
   heure_execution: string;
   action_body_text: string;
-  chronologie: { type: string; label: string; hour: string }[]; // T0, T1...
+  chronologie: { type: string; label: string; hour: string }[];
   hypothese_h1: string;
   hypothese_h2: string;
   hypothese_h3: string;
-
-  // Etape 6 : Articulation
   place_chef_gen: string;
-  // India
   india_mission: string;
   india_objectif: string;
   india_itineraire: string;
   india_points: string;
   india_cat: string;
-  // AO
   ao_zone: string;
   ao_mission: string;
   ao_secteur: string;
   ao_points: string;
   ao_cat: string;
   ao_chef: string;
-
-  // Etape 9 : CAT
   cat_generales: string;
   no_go: string;
   cat_liaison: string;
@@ -179,21 +163,12 @@ const DEFAULT_ADVERSAIRE: IAdversaire = {
 };
 
 const INITIAL_STATE: IOIState = {
-  // 1
   date_op: "",
   situation_generale: "", situation_particuliere: "",
-  
-  // 2
   adversaire_1: { ...DEFAULT_ADVERSAIRE },
   adversaire_2: { ...DEFAULT_ADVERSAIRE },
-
-  // 3
   amis: "", terrain_info: "", population: "", cadre_juridique: "",
-
-  // 4
   missions_psig: "INTERPELLER L'OBJECTIF.\n\nASSISTER LORS DE LA PERQUISITION.\n\nCONDUITE AU LIEU DE GAV.",
-  
-  // 5
   date_execution: "", heure_execution: "06:00",
   action_body_text: "En vue d'appréhender le(s) mis en cause et empêcher la déperdition des preuves,\nJe veux, le (date) à partir de (heure), pour une action (type d'action) investir le domicile\nprésumé de (Nom Adversaire 1) et (Nom Adversaire 2) après avoir bouclé celui-ci.",
   chronologie: [
@@ -204,25 +179,73 @@ const INITIAL_STATE: IOIState = {
     { type: 'T4', label: 'TOP ACTION', hour: '' },
   ],
   hypothese_h1: "Target présente LE1", hypothese_h2: "Target présente LE2", hypothese_h3: "Target absente LE 1 et 2",
-
-  // 6
   place_chef_gen: "",
   india_mission: "RECONNAÎTRE LE DOMICILE EN VUE D'APPRÉHENDER L'OBJECTIF", 
   india_objectif: "", india_itineraire: "", india_points: "", 
   india_cat: "- Si décelé, dynamiser jusqu'au domicile.\n- Si présence tierce personne lors de la progression, contrôler.\n- Si fuite, CR direction fuite + interpellation.\n- Si rébellion, usage du strict niveau de force nécessaire.\n- Si retranchement, CR + réarticulation pour fixer l'adversaire.",
-  
   ao_zone: "", 
   ao_mission: "BOUCLER - SURVEILLER - INTERDIRE TOUTE FUITE", 
   ao_secteur: "", ao_points: "", ao_chef: "",
   ao_cat: "- Compte rendu de mise en place.\n- Renseigner régulièrement.\n- Si décelé, CR.\n- Si fuite, CR direction fuite + interpellation si rapport de force favorable.\n- Si rébellion, usage du strict minimum de force nécessaire.\n- Si retranchement, CR + réarticulation pour fixer l'adversaire.",
-
-  // 9
   cat_generales: "- Si rébellion, user du strict niveau de force nécessaire\n- Si retranché, alerter en mesure de se ré-articuler\n- Si tente de fuir, alerter en mesure de jalonner/interpeller\n- UDA : Article L435-1 du CSI + légitime défense",
   no_go: "", 
   cat_liaison: "TOM: \nDIR: \nGestuelle et visuelle entre les éléments INDIA"
 };
 
-// --- COMPONENT PRINCIPAL ---
+// --- SOUS-COMPOSANTS (Pour éviter l'erreur de Hooks) ---
+
+const DynamicListInput = ({ label, list, onChange, placeholder = "Ajouter..." }: { label: string, list: string[], onChange: (l: string[]) => void, placeholder?: string }) => {
+    const [txt, setTxt] = useState("");
+    return (
+        <View style={styles.inputGroup}>
+            <Text style={styles.label}>{label}</Text>
+            <View style={{flexDirection:'row', flexWrap:'wrap', gap: 5, marginBottom: 5}}>
+                {list.map((item, i) => (
+                    <TouchableOpacity key={i} onPress={() => onChange(list.filter((_, idx) => idx !== i))} style={styles.chip}>
+                        <Text style={{color: COLORS.text}}>{item} X</Text>
+                    </TouchableOpacity>
+                ))}
+            </View>
+            <View style={{flexDirection:'row', gap:5}}>
+            <TextInput 
+                style={[styles.input, {flex:1}]} 
+                value={txt} onChangeText={setTxt} 
+                placeholder={placeholder} placeholderTextColor={COLORS.textMuted}
+            />
+            <TouchableOpacity 
+                style={{backgroundColor:COLORS.primary, justifyContent:'center', padding:10, borderRadius:4}}
+                onPress={() => { if(txt) { onChange([...list, txt]); setTxt(""); } }}
+            >
+                <Text style={{color:'white'}}>+</Text>
+            </TouchableOpacity>
+            </View>
+        </View>
+    );
+};
+
+const ChipSelector = ({ label, selected, options, onChange }: { label: string, selected: string[], options: string[], onChange: (l: string[]) => void }) => {
+    return (
+        <View style={styles.inputGroup}>
+            <Text style={styles.label}>{label}</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+            {options.map(opt => {
+                const isSel = selected.includes(opt);
+                return (
+                <TouchableOpacity
+                    key={opt}
+                    style={[styles.chip, isSel && styles.chipSelected]}
+                    onPress={() => isSel ? onChange(selected.filter(s => s !== opt)) : onChange([...selected, opt])}
+                >
+                    <Text style={{ color: isSel ? '#fff' : COLORS.secondary }}>{opt}</Text>
+                </TouchableOpacity>
+                );
+            })}
+            </View>
+        </View>
+    );
+};
+
+// --- COMPOSANT PRINCIPAL ---
 
 export default function OIView({ onClose }: OIViewProps) {
   const [step, setStep] = useState(0);
@@ -264,7 +287,6 @@ export default function OIView({ onClose }: OIViewProps) {
         if (data.poolMembers) setPoolMembers(data.poolMembers);
         if (data.photos) setPhotos(data.photos);
       } else {
-        // Init default pool if empty
         const initialPool = MEMBER_CONFIG.members.map((m, i) => ({
           ...m,
           id: `m_${Date.now()}_${i}`,
@@ -273,7 +295,6 @@ export default function OIView({ onClose }: OIViewProps) {
         }));
         setPoolMembers(initialPool);
         
-        // Init default vehicles
         const defaultVehs = MEMBER_CONFIG.options.vehicules_types.map((type, i) => ({
             id: `v_def_${i}`,
             name: `${type}`,
@@ -287,7 +308,7 @@ export default function OIView({ onClose }: OIViewProps) {
     }
   };
 
-  // --- EXPORT JSON ---
+  // --- EXPORT/IMPORT ---
   const exportSessionToJson = async () => {
     try {
       const data = { formData, vehicles, poolMembers, photos };
@@ -323,12 +344,57 @@ export default function OIView({ onClose }: OIViewProps) {
     }
   };
 
+  // Import spécifique pour la config PATRAC (Membres)
+  const importMemberConfig = async () => {
+      try {
+          const result = await DocumentPicker.getDocumentAsync({ type: 'application/json', copyToCacheDirectory: true });
+          if (result.canceled) return;
+          const fileUri = result.assets[0].uri;
+          const jsonString = await FileSystem.readAsStringAsync(fileUri);
+          const data = JSON.parse(jsonString);
+
+          // On s'attend à un tableau de membres ou un objet avec une clé members
+          let newMembers: IMember[] = [];
+          if (Array.isArray(data)) {
+              newMembers = data;
+          } else if (data.members && Array.isArray(data.members)) {
+              newMembers = data.members;
+          } else {
+              Alert.alert("Erreur", "Format de fichier non reconnu. Attendu: Tableau de membres.");
+              return;
+          }
+
+          // Ajout des IDs uniques si manquants et fusion avec le pool existant
+          const processedMembers = newMembers.map((m, i) => ({
+              ...m,
+              id: m.id || `m_imp_${Date.now()}_${i}`,
+              // Valeurs par défaut si manquantes
+              principales: m.principales || "Sans",
+              secondaires: m.secondaires || "PSA",
+              tenue: m.tenue || "UBAS",
+              fonction: m.fonction || "Inter",
+              cellule: m.cellule || "India 1",
+              gpb: m.gpb || "GPBL",
+              afis: m.afis || "Sans",
+              grenades: m.grenades || "Sans",
+              equipement: m.equipement || "Sans",
+              equipement2: m.equipement2 || "Sans"
+          }));
+
+          setPoolMembers(prev => [...prev, ...processedMembers]);
+          Alert.alert("Succès", `${processedMembers.length} opérateurs importés dans le Pool.`);
+
+      } catch (e) {
+          console.error(e);
+          Alert.alert("Erreur", "Impossible de lire le fichier de configuration.");
+      }
+  };
+
   // --- HELPERS FORM ---
   const updateField = (field: keyof IOIState, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
-  // Helper pour mettre à jour un adversaire spécifique
   const updateAdversaire = (advKey: 'adversaire_1' | 'adversaire_2', field: keyof IAdversaire, value: any) => {
       setFormData(prev => ({
           ...prev,
@@ -445,18 +511,33 @@ export default function OIView({ onClose }: OIViewProps) {
     }));
   };
 
+  const deletePhoto = (photoId: string) => {
+      Alert.alert("Supprimer", "Supprimer cette photo ?", [
+          { text: "Annuler" },
+          { text: "Supprimer", style: 'destructive', onPress: () => setPhotos(prev => prev.filter(p => p.id !== photoId)) }
+      ]);
+  };
+
   // --- HTML GENERATOR FOR PDF ---
   const generateHTML = () => {
     const { date_op } = formData;
     
     // HELPERS GRAPHIQUES
-    const getPhotoHtml = (category: string, label: string, width = "100%", maxHeight = "300px") => {
-        const photo = photos.find(p => p.category === category);
-        if (!photo) return '';
-        return `
-            <div style="border: 2px solid #000; padding: 5px; margin-bottom: 10px; background: #fff;">
-                <div style="text-align:center; font-weight:bold; margin-bottom:5px; border-bottom:1px solid #000; background:#eee;">${label}</div>
-                <div style="position: relative; display: block; width: ${width}; margin: 0 auto;">
+    // Modifié pour supporter plusieurs photos (filtrage par catégorie)
+    const getPhotosHtml = (category: string, label: string, width = "100%", maxHeight = "300px", pageBreakBefore = false) => {
+        const catPhotos = photos.filter(p => p.category === category);
+        if (catPhotos.length === 0) return '';
+        
+        let html = '';
+        if (pageBreakBefore) html += `<div class="page-break"></div>`;
+        
+        html += `<h2 style="margin-top:20px;">${label}</h2>`;
+        html += `<div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 10px;">`;
+        
+        catPhotos.forEach(photo => {
+            html += `
+            <div style="border: 2px solid #000; padding: 5px; margin-bottom: 10px; background: #fff; width: ${width}; page-break-inside: avoid;">
+                <div style="position: relative; display: block; width: 100%; margin: 0 auto;">
                     <img src="${photo.uri}" style="width: 100%; max-height: ${maxHeight}; object-fit:contain; display: block;" />
                     ${photo.annotations.map(a => `
                         <div style="position: absolute; left: ${a.x}%; top: ${a.y}%; width: 20px; height: 20px; background: red; color: white; border-radius: 50%; text-align: center; line-height: 20px; font-size: 12px; font-weight:bold; transform: translate(-50%, -50%); border: 2px solid white;">
@@ -465,7 +546,30 @@ export default function OIView({ onClose }: OIViewProps) {
                     `).join('')}
                 </div>
             </div>
-        `;
+            `;
+        });
+        
+        html += `</div>`;
+        return html;
+    };
+
+    // Helper spécifique pour les photos à côté des tableaux adversaires
+    const getSingleSidePhotoHtml = (category: string) => {
+        const catPhotos = photos.filter(p => p.category === category);
+        if (catPhotos.length === 0) return '';
+        // On prend juste la première ou on les empile verticalement
+        return catPhotos.map(photo => `
+            <div style="border: 2px solid #000; padding: 2px; margin-bottom: 5px; background: #fff;">
+                <div style="position: relative;">
+                    <img src="${photo.uri}" style="width: 100%; max-height: 200px; object-fit:contain; display: block;" />
+                    ${photo.annotations.map(a => `
+                        <div style="position: absolute; left: ${a.x}%; top: ${a.y}%; width: 15px; height: 15px; background: red; color: white; border-radius: 50%; text-align: center; line-height: 15px; font-size: 10px; font-weight:bold; transform: translate(-50%, -50%); border: 1px solid white;">
+                            ${a.text}
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        `).join('');
     };
 
     const drawTableAdv = (adv: IAdversaire, title: string) => {
@@ -490,7 +594,7 @@ export default function OIView({ onClose }: OIViewProps) {
 
     const drawPatrac = () => {
         return vehicles.map(v => `
-            <div style="margin-bottom: 15px;">
+            <div style="margin-bottom: 15px; page-break-inside: avoid;">
                 <div style="background:#ccc; border:1px solid #000; padding:4px; font-weight:bold;">VÉHICULE: ${v.name} (${v.type})</div>
                 <table style="width:100%; border-collapse:collapse; font-size:9px; text-align:center;">
                     <thead style="background:#eee;">
@@ -592,7 +696,7 @@ export default function OIView({ onClose }: OIViewProps) {
                 ${drawTableAdv(formData.adversaire_1, 'CIBLE 1')}
             </div>
             <div class="col" style="flex: 0 0 300px;">
-                ${getPhotoHtml('photo_adv_1', 'PHOTO CIBLE 1', '100%')}
+                ${getSingleSidePhotoHtml('photo_adv_1')}
             </div>
         </div>
         ${formData.adversaire_2.nom ? `
@@ -601,11 +705,12 @@ export default function OIView({ onClose }: OIViewProps) {
                 ${drawTableAdv(formData.adversaire_2, 'CIBLE 2')}
             </div>
             <div class="col" style="flex: 0 0 300px;">
-                ${getPhotoHtml('photo_adv_2', 'PHOTO CIBLE 2', '100%')}
+                ${getSingleSidePhotoHtml('photo_adv_2')}
             </div>
         </div>` : ''}
         
-        ${getPhotoHtml('photo_renforts', 'RENFORTS / ENVIRONNEMENT', '50%')}
+        <!-- RENFORTS: PAGE DÉDIÉE -->
+        ${getPhotosHtml('photo_renforts', 'RENFORTS / ENVIRONNEMENT', '48%', '400px', true)}
 
         <div class="page-break"></div>
 
@@ -654,7 +759,6 @@ export default function OIView({ onClose }: OIViewProps) {
                     <strong>OBJECTIF:</strong> ${formData.india_objectif}<br/>
                     <strong>ITINÉRAIRE:</strong> ${formData.india_itineraire}<br/>
                 </div>
-                ${getPhotoHtml('photo_india_iti', 'ITINÉRAIRE INDIA')}
                 <div class="box" style="font-size:9px;">
                     <strong>CAT SPÉCIFIQUE:</strong><br/>
                     ${formData.india_cat.replace(/\n/g, '<br>')}
@@ -668,7 +772,6 @@ export default function OIView({ onClose }: OIViewProps) {
                     <strong>SECTEUR:</strong> ${formData.ao_secteur}<br/>
                     <strong>CHEF AO:</strong> ${formData.ao_chef}
                 </div>
-                ${getPhotoHtml('photo_ao_vue', 'VUE AO')}
                 <div class="box" style="font-size:9px;">
                     <strong>CAT SPÉCIFIQUE:</strong><br/>
                     ${formData.ao_cat.replace(/\n/g, '<br>')}
@@ -676,15 +779,29 @@ export default function OIView({ onClose }: OIViewProps) {
             </div>
         </div>
 
+        <!-- PAGES DÉDIÉES PHOTOS (ORDRE DEMANDÉ) -->
+        
+        <!-- LOGISTIQUE -->
+        ${getPhotosHtml('photo_logistique', 'LOGISTIQUE', '48%', '400px', true)}
+        
+        <!-- VUE AO -->
+        ${getPhotosHtml('photo_ao_vue', 'VUE EMPLACEMENT AO', '48%', '400px', true)}
+        
+        <!-- ITINÉRAIRE INDIA -->
+        ${getPhotosHtml('photo_india_iti', 'ITINÉRAIRE INDIA', '48%', '400px', true)}
+        
+        <!-- EFFRACTION -->
+        ${getPhotosHtml('photo_effrac', 'DÉTAILS EFFRACTION', '48%', '400px', true)}
+
         <div class="page-break"></div>
 
-        <!-- PAGE 6: PATRACDVR -->
+        <!-- PAGE X: PATRACDVR -->
         <h2>7. PATRACDVR</h2>
         ${drawPatrac()}
 
         <div class="page-break"></div>
 
-        <!-- PAGE 7: CAT & LOGISTIQUE -->
+        <!-- PAGE Y: CAT & LOGISTIQUE -->
         <h2>9. DIVERS & SÉCURITÉ</h2>
         <div class="row">
             <div class="col">
@@ -699,7 +816,6 @@ export default function OIView({ onClose }: OIViewProps) {
                 <div class="box">
                     ${formData.cat_liaison.replace(/\n/g, '<br>')}
                 </div>
-                ${getPhotoHtml('photo_logistique', 'LOGISTIQUE / EFFRACTION')}
             </div>
         </div>
 
@@ -738,63 +854,14 @@ export default function OIView({ onClose }: OIViewProps) {
     </View>
   );
 
-  // Pour les listes dynamiques (ME, Véhicules adv)
-  const renderDynamicList = (label: string, list: string[], onChange: (l: string[]) => void, placeholder = "Ajouter...") => {
-      const [txt, setTxt] = useState("");
-      return (
-          <View style={styles.inputGroup}>
-              <Text style={styles.label}>{label}</Text>
-              <View style={{flexDirection:'row', flexWrap:'wrap', gap: 5, marginBottom: 5}}>
-                  {list.map((item, i) => (
-                      <TouchableOpacity key={i} onPress={() => onChange(list.filter((_, idx) => idx !== i))} style={styles.chip}>
-                          <Text style={{color: COLORS.text}}>{item} X</Text>
-                      </TouchableOpacity>
-                  ))}
-              </View>
-              <View style={{flexDirection:'row', gap:5}}>
-                <TextInput 
-                    style={[styles.input, {flex:1}]} 
-                    value={txt} onChangeText={setTxt} 
-                    placeholder={placeholder} placeholderTextColor={COLORS.textMuted}
-                />
-                <TouchableOpacity 
-                    style={{backgroundColor:COLORS.primary, justifyContent:'center', padding:10, borderRadius:4}}
-                    onPress={() => { if(txt) { onChange([...list, txt]); setTxt(""); } }}
-                >
-                    <Text style={{color:'white'}}>+</Text>
-                </TouchableOpacity>
-              </View>
-          </View>
-      );
-  };
-
-  const renderChips = (label: string, selected: string[], options: string[], onChange: (l: string[]) => void) => (
-    <View style={styles.inputGroup}>
-      <Text style={styles.label}>{label}</Text>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-        {options.map(opt => {
-          const isSel = selected.includes(opt);
-          return (
-            <TouchableOpacity
-              key={opt}
-              style={[styles.chip, isSel && styles.chipSelected]}
-              onPress={() => isSel ? onChange(selected.filter(s => s !== opt)) : onChange([...selected, opt])}
-            >
-              <Text style={{ color: isSel ? '#fff' : COLORS.secondary }}>{opt}</Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-    </View>
-  );
-
   const renderAdversaireForm = (advKey: 'adversaire_1' | 'adversaire_2') => {
       const adv = formData[advKey];
       return (
           <View>
               {renderInput("Nom / Prénom", adv.nom, t => updateAdversaire(advKey, 'nom', t))}
               {renderInput("Domicile", adv.domicile, t => updateAdversaire(advKey, 'domicile', t), true)}
-              {renderDynamicList("Moyens Employés (ME)", adv.me_list, l => updateAdversaire(advKey, 'me_list', l))}
+              <DynamicListInput label="Moyens Employés (ME)" list={adv.me_list} onChange={l => updateAdversaire(advKey, 'me_list', l)} />
+              
               <View style={styles.row}>
                   <View style={{flex:1}}>{renderInput("Né le (Date)", adv.date_naissance, t => updateAdversaire(advKey, 'date_naissance', t), false, "JJ/MM/AAAA")}</View>
                   <View style={{width:10}}/>
@@ -815,11 +882,11 @@ export default function OIView({ onClose }: OIViewProps) {
               {renderInput("Signes Particuliers", adv.signes, t => updateAdversaire(advKey, 'signes', t))}
               {renderInput("Profession", adv.profession, t => updateAdversaire(advKey, 'profession', t))}
               {renderInput("Antécédents", adv.antecedents, t => updateAdversaire(advKey, 'antecedents', t), true)}
-              {renderChips("État d'esprit", adv.etat_esprit, ["Serein", "Hostile", "Conciliant", "Sur ses gardes"], l => updateAdversaire(advKey, 'etat_esprit', l))}
+              <ChipSelector label="État d'esprit" selected={adv.etat_esprit} options={["Serein", "Hostile", "Conciliant", "Sur ses gardes"]} onChange={l => updateAdversaire(advKey, 'etat_esprit', l)} />
               {renderInput("Attitude connue", adv.attitude, t => updateAdversaire(advKey, 'attitude', t), true)}
-              {renderChips("Volume Renfort", adv.volume, ["Seul", "Famille", "BO", "Conjointe", "2-3", "4+"], l => updateAdversaire(advKey, 'volume', l))}
+              <ChipSelector label="Volume Renfort" selected={adv.volume} options={["Seul", "Famille", "BO", "Conjointe", "2-3", "4+"]} onChange={l => updateAdversaire(advKey, 'volume', l)} />
               {renderInput("Substances", adv.substances, t => updateAdversaire(advKey, 'substances', t))}
-              {renderDynamicList("Véhicules Adversaire", adv.vehicules_list, l => updateAdversaire(advKey, 'vehicules_list', l))}
+              <DynamicListInput label="Véhicules Adversaire" list={adv.vehicules_list} onChange={l => updateAdversaire(advKey, 'vehicules_list', l)} />
               {renderInput("Armes connues", adv.armes, t => updateAdversaire(advKey, 'armes', t))}
           </View>
       );
@@ -984,7 +1051,10 @@ export default function OIView({ onClose }: OIViewProps) {
                     ))}
                     <View style={{flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginTop:20}}>
                         <Text style={styles.label}>POOL (NON ASSIGNÉS)</Text>
-                        <TouchableOpacity onPress={createNewMember}><Text style={{color: COLORS.primary}}>+ AJOUTER PAX</Text></TouchableOpacity>
+                        <View style={{flexDirection:'row', gap:10}}>
+                             <TouchableOpacity onPress={importMemberConfig}><Text style={{color: COLORS.warning}}>IMPORTER CONFIG JSON</Text></TouchableOpacity>
+                             <TouchableOpacity onPress={createNewMember}><Text style={{color: COLORS.primary}}>+ AJOUTER PAX</Text></TouchableOpacity>
+                        </View>
                     </View>
                     <View style={{flexDirection:'row', flexWrap:'wrap', gap:5}}>
                         {poolMembers.map(m => (
@@ -1000,29 +1070,37 @@ export default function OIView({ onClose }: OIViewProps) {
         case 7: // PHOTOS
             return (
                 <ScrollView>
-                    <Text style={styles.helper}>Touchez une case pour ajouter une photo, puis touchez la photo pour annoter.</Text>
+                    <Text style={styles.helper}>Touchez une case pour ajouter une photo. Vous pouvez en ajouter plusieurs par catégorie.</Text>
                     {[
                         {id: 'photo_adv_1', label: 'Adversaire Principal'},
                         {id: 'photo_adv_2', label: 'Adversaire Secondaire'},
                         {id: 'photo_renforts', label: 'Renforts'},
+                        {id: 'photo_logistique', label: 'Logistique'},
+                        {id: 'photo_ao_vue', label: 'Vue Emplacement AO'},
                         {id: 'photo_india_iti', label: 'Itinéraire India'},
-                        {id: 'photo_ao_vue', label: 'Vue / Emplacement AO'},
-                        {id: 'photo_logistique', label: 'Logistique / Effrac'}
+                        {id: 'photo_effrac', label: 'Effraction / Détails'}
                     ].map(item => {
-                        const p = photos.find(ph => ph.category === item.id);
+                        const catPhotos = photos.filter(ph => ph.category === item.id);
                         return (
-                            <TouchableOpacity key={item.id} style={styles.photoThumbLarge} 
-                                onPress={() => p ? (setCurrentPhotoToAnnotate(p.id), setIsAnnotationVisible(true)) : pickImage(item.id)}>
-                                {p ? (
-                                    <>
-                                        <Image source={{ uri: p.uri }} style={{width:'100%', height:'100%'}} resizeMode="cover" />
+                            <View key={item.id} style={{marginBottom:15}}>
+                                <TouchableOpacity style={styles.photoThumbLarge} onPress={() => pickImage(item.id)}>
+                                    <Text style={{color:'#666', textAlign:'center', fontWeight:'bold'}}>+ AJOUTER: {item.label}</Text>
+                                </TouchableOpacity>
+                                
+                                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginTop:5}}>
+                                {catPhotos.map((p, idx) => (
+                                    <TouchableOpacity key={p.id} onPress={() => { setCurrentPhotoToAnnotate(p.id); setIsAnnotationVisible(true); }}
+                                        style={{marginRight: 10, position:'relative'}}>
+                                        <Image source={{ uri: p.uri }} style={{width:100, height:100, borderRadius:4}} resizeMode="cover" />
                                         {p.annotations.length > 0 && <View style={styles.annotBadge} />}
-                                    </>
-                                ) : (
-                                    <Text style={{color:'#666', textAlign:'center'}}>+ {item.label}</Text>
-                                )}
-                                <Text style={styles.photoCat}>{item.label}</Text>
-                            </TouchableOpacity>
+                                        <TouchableOpacity style={{position:'absolute', top:0, right:0, backgroundColor:'red', width:20, height:20, borderRadius:10, alignItems:'center', justifyContent:'center'}}
+                                            onPress={() => deletePhoto(p.id)}>
+                                            <Text style={{color:'white', fontWeight:'bold', fontSize:10}}>X</Text>
+                                        </TouchableOpacity>
+                                    </TouchableOpacity>
+                                ))}
+                                </ScrollView>
+                            </View>
                         );
                     })}
                 </ScrollView>
@@ -1173,8 +1251,7 @@ const styles = StyleSheet.create({
   helper: { color: COLORS.textMuted, fontStyle: 'italic', marginBottom: 10, fontSize: 11 },
 
   // PHOTOS
-  photoThumbLarge: { width: '100%', height: 120, backgroundColor: '#222', borderRadius: 4, overflow: 'hidden', marginBottom: 10, justifyContent: 'center' },
-  photoCat: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: 'rgba(0,0,0,0.6)', color: '#fff', fontSize: 12, padding: 4, textAlign: 'center' },
+  photoThumbLarge: { width: '100%', height: 40, backgroundColor: COLORS.surfaceLight, borderRadius: 4, overflow: 'hidden', justifyContent: 'center', borderColor: COLORS.border, borderWidth:1 },
   annotBadge: { position: 'absolute', top: 5, right: 5, width: 8, height: 8, borderRadius: 4, backgroundColor: COLORS.danger },
 
   // MODAL
