@@ -63,6 +63,9 @@ const App: React.FC = () => {
   const [lastView, setLastView] = useState<ViewType>('menu'); 
   const [lastOpsView, setLastOpsView] = useState<ViewType>('map');
   const [mapState, setMapState] = useState<{lat: number, lng: number, zoom: number} | undefined>(undefined);
+  
+  // NOUVEAU : État pour gérer l'affichage des paramètres sans démonter la vue principale
+  const [showSettings, setShowSettings] = useState(false);
 
   const [peers, setPeers] = useState<Record<string, UserData>>({});
   const [pings, setPings] = useState<PingData[]>([]);
@@ -559,7 +562,7 @@ const App: React.FC = () => {
               <View style={{flexDirection: 'row', gap: 15}}>
                   <TouchableOpacity onPress={() => setShowLogs(true)}><MaterialIcons name="history-edu" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
                   <TouchableOpacity onPress={() => setNightOpsMode(!nightOpsMode)}><MaterialIcons name="nightlight-round" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
-                  <TouchableOpacity onPress={() => { setLastView(view as ViewType); setView('settings'); }}><MaterialIcons name="settings" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
+                  <TouchableOpacity onPress={() => setShowSettings(true)}><MaterialIcons name="settings" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
                   <TouchableOpacity onPress={() => { 
                       if(view === 'map') { setView('ops'); setLastOpsView('ops'); }
                       else { setView('map'); setLastOpsView('map'); }
@@ -572,25 +575,13 @@ const App: React.FC = () => {
   };
 
   const renderContent = () => {
-    if (view === 'settings') {
-      return (
-        <SettingsView 
-          onClose={() => setView(lastView as ViewType)} 
-          onUpdate={s => { 
-              setSettings(s); 
-              setUser(u => ({...u, paxColor: s.userArrowColor})); 
-              connectivityService.updateUser({paxColor: s.userArrowColor}); 
-              if(s.gpsUpdateInterval !== settings.gpsUpdateInterval) startGpsTracking(s.gpsUpdateInterval);
-              if(s.orientationUpdateInterval !== settings.orientationUpdateInterval) _toggleMagnetometer();
-          }} 
-        />
-      );
-    } else if (view === 'oi') {
+    // Note: settings view n'est plus gérée ici pour éviter le démontage
+    if (view === 'oi') {
       return <ComposantOrdreInitial onClose={() => setView('login')} />;
     } else if (view === 'login') {
       return (
         <View style={styles.centerContainer}>
-          {/* ARRIÈRE PLAN 3D AVEC RÉGLAGES */}
+          {/* ARRIÈRE PLAN 3D AVEC RÉGLAGES - Conditionné pour n'être affiché que sur login */}
           <LightPillar 
             topColor="#2100a3"
             bottomColor="#021369"
@@ -639,7 +630,7 @@ const App: React.FC = () => {
           <View style={styles.menuContainer}>
             <View style={{flexDirection: 'row', justifyContent:'space-between', marginBottom: 20}}>
                 <Text style={styles.sectionTitle}>MENU PRINCIPAL</Text>
-                <TouchableOpacity onPress={() => { setLastView('menu'); setView('settings'); }}><MaterialIcons name="settings" size={24} color="white" /></TouchableOpacity>
+                <TouchableOpacity onPress={() => setShowSettings(true)}><MaterialIcons name="settings" size={24} color="white" /></TouchableOpacity>
             </View>
             {hostId ? (
                 <>
@@ -763,6 +754,20 @@ const App: React.FC = () => {
       <StatusBar style="light" backgroundColor="#050505" />
       {renderContent()}
 
+      {/* Modal pour les paramètres - Ne démonte pas le reste de l'app */}
+      <Modal visible={showSettings} animationType="slide" onRequestClose={() => setShowSettings(false)}>
+         <SettingsView 
+            onClose={() => setShowSettings(false)} 
+            onUpdate={s => { 
+                setSettings(s); 
+                setUser(u => ({...u, paxColor: s.userArrowColor})); 
+                connectivityService.updateUser({paxColor: s.userArrowColor}); 
+                if(s.gpsUpdateInterval !== settings.gpsUpdateInterval) startGpsTracking(s.gpsUpdateInterval);
+                if(s.orientationUpdateInterval !== settings.orientationUpdateInterval) _toggleMagnetometer();
+            }} 
+         />
+      </Modal>
+
       <OperatorActionModal visible={!!selectedOperatorId} targetOperator={peers[selectedOperatorId || ''] || null} currentUserRole={user.role} onClose={() => setSelectedOperatorId(null)} onKick={handleOperatorActionKick} onNavigate={handleOperatorActionNavigate} />
       <MainCouranteView visible={showLogs} logs={logs} role={user.role} onClose={() => setShowLogs(false)} onAddLog={handleAddLog} onUpdateLog={handleUpdateLog} onDeleteLog={handleDeleteLog} />
       <Modal visible={showQuickMsgModal} animationType="fade" transparent><KeyboardAvoidingView behavior="padding" style={styles.modalOverlay}><View style={[styles.modalContent, {backgroundColor: '#18181b', borderWidth: 1, borderColor: '#333', maxHeight: '80%'}]}><Text style={[styles.modalTitle, {color: '#06b6d4', marginBottom: 15}]}>MESSAGE RAPIDE</Text><View style={{flexDirection: 'row', marginBottom: 15, width: '100%'}}><TextInput style={[styles.pingInput, {flex: 1, marginBottom: 0, textAlign: 'left'}]} placeholder="Message libre..." placeholderTextColor="#52525b" value={freeMsgInput} onChangeText={setFreeMsgInput} /><TouchableOpacity onPress={() => handleSendQuickMessage(freeMsgInput)} style={[styles.modalBtn, {backgroundColor: '#06b6d4', marginLeft: 10, flex: 0, width: 50}]}><MaterialIcons name="send" size={20} color="white" /></TouchableOpacity></View><FlatList data={quickMessagesList} keyExtractor={(item, index) => index.toString()} renderItem={({item}) => (<TouchableOpacity onPress={() => handleSendQuickMessage(item.includes("Effacer") ? "" : item)} style={styles.quickMsgItem}><Text style={styles.quickMsgText}>{item}</Text></TouchableOpacity>)} ItemSeparatorComponent={() => <View style={{height: 1, backgroundColor: '#27272a'}} />} /><TouchableOpacity onPress={() => setShowQuickMsgModal(false)} style={[styles.closeBtn, {backgroundColor: '#27272a', marginTop: 15}]}><Text style={{color: '#a1a1aa'}}>ANNULER</Text></TouchableOpacity></View></KeyboardAvoidingView></Modal>
@@ -786,13 +791,14 @@ const styles = StyleSheet.create({
   input: { 
     width: '100%', 
     borderBottomWidth: 2, 
-    borderBottomColor: '#27272a', 
-    borderWidth: 1, // Bordure fine autour
-    borderColor: '#000000', // Noir pour l'encadré
+    borderBottomColor: '#3b82f6', // Bleu pour l'encadré
+    borderWidth: 2, // Bordure un peu plus large
+    borderColor: '#3b82f6', // Bleu pour l'encadré
     fontSize: 30, 
     color: 'white', 
     textAlign: 'center', 
-    padding: 10 
+    padding: 10,
+    backgroundColor: 'transparent' // Fond transparent
   },
   loginBtn: { marginTop: 50, width: '100%', backgroundColor: '#2563eb', padding: 20, borderRadius: 16, alignItems: 'center' },
   loginBtnText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
