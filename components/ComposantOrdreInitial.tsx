@@ -21,6 +21,7 @@ import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system';
 import * as DocumentPicker from 'expo-document-picker';
+import { MaterialIcons } from '@expo/vector-icons'; // Ajout pour cohérence visuelle
 
 // --- PROPS ---
 interface OIViewProps {
@@ -49,19 +50,20 @@ const MEMBER_CONFIG = {
   ]
 };
 
+// COULEURS HARMONISÉES AVEC APP.TSX
 const COLORS = {
   bg: '#050505',
-  surface: '#161619',
-  surfaceLight: '#2a2a2a',
-  primary: '#3b82f6',
+  surface: '#18181b', // Cohérent avec menuCard dans App.tsx
+  surfaceLight: '#27272a', // Cohérent avec les séparateurs et boutons secondaires
+  primary: '#3b82f6', // Bleu standardisé
   secondary: '#94a3b8',
-  text: '#e0e0e0',
-  textMuted: '#64748b',
+  text: '#e0e0e0', // Légèrement plus clair pour contraste
+  textMuted: '#71717a', // Cohérent avec App.tsx
   danger: '#ef4444',
   success: '#22c55e',
   warning: '#eab308',
-  border: 'rgba(255, 255, 255, 0.08)',
-  inputBg: 'rgba(0, 0, 0, 0.4)'
+  border: 'rgba(255, 255, 255, 0.05)', // Plus subtil comme dans App.tsx
+  inputBg: '#000000' // Fond noir pour inputs
 };
 
 // --- TYPES COMPLETS ---
@@ -216,10 +218,10 @@ const DynamicListInput = ({ label, list, onChange, placeholder = "Ajouter..." }:
                 placeholder={placeholder} placeholderTextColor={COLORS.textMuted}
             />
             <TouchableOpacity 
-                style={{backgroundColor:COLORS.primary, justifyContent:'center', padding:10, borderRadius:4}}
+                style={{backgroundColor:COLORS.surfaceLight, justifyContent:'center', padding:10, borderRadius:8, borderWidth: 1, borderColor: COLORS.border}}
                 onPress={() => { if(txt) { onChange([...list, txt]); setTxt(""); } }}
             >
-                <Text style={{color:'white'}}>+</Text>
+                <MaterialIcons name="add" size={20} color="white" />
             </TouchableOpacity>
             </View>
         </View>
@@ -239,7 +241,7 @@ const ChipSelector = ({ label, selected, options, onChange }: { label: string, s
                     style={[styles.chip, isSel && styles.chipSelected]}
                     onPress={() => isSel ? onChange(selected.filter(s => s !== opt)) : onChange([...selected, opt])}
                 >
-                    <Text style={{ color: isSel ? '#fff' : COLORS.secondary }}>{opt}</Text>
+                    <Text style={{ color: isSel ? '#fff' : COLORS.textMuted, fontWeight: isSel ? 'bold' : 'normal' }}>{opt}</Text>
                 </TouchableOpacity>
                 );
             })}
@@ -258,15 +260,12 @@ export default function OIView({ onClose }: OIViewProps) {
   const [photos, setPhotos] = useState<IPhoto[]>([]);
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
   
-  // Annotation Modal State
   const [isAnnotationVisible, setIsAnnotationVisible] = useState(false);
   const [currentPhotoToAnnotate, setCurrentPhotoToAnnotate] = useState<string | null>(null);
 
-  // Member Edit State
   const [isMemberEditModalVisible, setIsMemberEditModalVisible] = useState(false);
   const [tempMember, setTempMember] = useState<IMember | null>(null);
 
-  // Vehicle Rename State
   const [isVehicleRenameVisible, setIsVehicleRenameVisible] = useState(false);
   const [vehicleToRename, setVehicleToRename] = useState<IVehicle | null>(null);
   const [newVehicleName, setNewVehicleName] = useState("");
@@ -519,7 +518,7 @@ export default function OIView({ onClose }: OIViewProps) {
     let result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: false, 
-      quality: 0.65, // Reduced quality for smart compression (target < 4MB)
+      quality: 0.5, 
       base64: true 
     });
     if (!result.canceled && result.assets && result.assets.length > 0) {
@@ -566,8 +565,6 @@ export default function OIView({ onClose }: OIViewProps) {
         
         html += `<h2 style="margin-top:20px; height: 10%; box-sizing: border-box;">${label}</h2>`;
         
-        // Layout: 1 photo -> 90% width, 2+ photos -> 45% width each
-        // CSS allows images to fill the container completely
         html += `<div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 2%; height: 85%; align-content: flex-start;">`;
         
         const itemWidth = catPhotos.length === 1 ? '90%' : '45%';
@@ -981,7 +978,7 @@ export default function OIView({ onClose }: OIViewProps) {
                 <View style={styles.modalContent}>
                     <View style={styles.modalHeader}>
                         <Text style={styles.modalTitle}>ÉDITION OPÉRATEUR</Text>
-                        <TouchableOpacity onPress={() => setIsMemberEditModalVisible(false)}><Text style={{color:COLORS.danger}}>FERMER</Text></TouchableOpacity>
+                        <TouchableOpacity onPress={() => setIsMemberEditModalVisible(false)}><MaterialIcons name="close" size={24} color={COLORS.danger} /></TouchableOpacity>
                     </View>
                     <ScrollView style={{maxHeight: '80%'}}>
                         <View style={styles.inputGroup}>
@@ -998,8 +995,8 @@ export default function OIView({ onClose }: OIViewProps) {
                         {renderSelect("PROTECTION", "gpb", MEMBER_CONFIG.options.gpbs)}
                     </ScrollView>
                     <View style={{flexDirection:'row', gap:10, marginTop:10}}>
-                        <TouchableOpacity onPress={deleteMember} style={[styles.navBtn, {borderColor: COLORS.danger}]}><Text style={{color: COLORS.danger}}>SUPPRIMER</Text></TouchableOpacity>
-                        <TouchableOpacity onPress={saveMemberChanges} style={[styles.navBtn, {backgroundColor: COLORS.success}]}><Text style={{color: '#000'}}>SAUVEGARDER</Text></TouchableOpacity>
+                        <TouchableOpacity onPress={deleteMember} style={[styles.navBtn, {borderColor: COLORS.danger, borderWidth: 1, backgroundColor: 'transparent'}]}><Text style={{color: COLORS.danger}}>SUPPRIMER</Text></TouchableOpacity>
+                        <TouchableOpacity onPress={saveMemberChanges} style={[styles.navBtn, {backgroundColor: COLORS.success}]}><Text style={{color: '#000', fontWeight: 'bold'}}>SAUVEGARDER</Text></TouchableOpacity>
                     </View>
                 </View>
             </KeyboardAvoidingView>
@@ -1021,8 +1018,8 @@ export default function OIView({ onClose }: OIViewProps) {
                         autoFocus 
                     />
                     <View style={{flexDirection:'row', gap:10, marginTop:20}}>
-                        <TouchableOpacity onPress={() => setIsVehicleRenameVisible(false)} style={[styles.navBtn, {borderColor: COLORS.danger}]}><Text style={{color: COLORS.danger}}>ANNULER</Text></TouchableOpacity>
-                        <TouchableOpacity onPress={confirmRenameVehicle} style={[styles.navBtn, {backgroundColor: COLORS.success}]}><Text style={{color: '#000'}}>VALIDER</Text></TouchableOpacity>
+                        <TouchableOpacity onPress={() => setIsVehicleRenameVisible(false)} style={[styles.navBtn, {borderColor: COLORS.danger, borderWidth: 1}]}><Text style={{color: COLORS.danger}}>ANNULER</Text></TouchableOpacity>
+                        <TouchableOpacity onPress={confirmRenameVehicle} style={[styles.navBtn, {backgroundColor: COLORS.success}]}><Text style={{color: '#000', fontWeight: 'bold'}}>VALIDER</Text></TouchableOpacity>
                     </View>
                 </View>
             </KeyboardAvoidingView>
@@ -1079,11 +1076,11 @@ export default function OIView({ onClose }: OIViewProps) {
                     <Text style={styles.label}>CHRONOLOGIE</Text>
                     {formData.chronologie.map((item, i) => (
                         <View key={i} style={{flexDirection:'row', alignItems:'center', marginBottom:5}}>
-                            <Text style={{color:COLORS.primary, width:30}}>{item.type}</Text>
+                            <Text style={{color:COLORS.primary, width:30, fontWeight: 'bold'}}>{item.type}</Text>
                             <TextInput style={[styles.input, {flex:2, marginRight:5}]} value={item.label} onChangeText={t => {
                                 const nu = [...formData.chronologie]; nu[i].label = t; updateField('chronologie', nu);
                             }} />
-                            <TextInput style={[styles.input, {width:60}]} value={item.hour} placeholder="H" placeholderTextColor="#666" onChangeText={t => {
+                            <TextInput style={[styles.input, {width:60}]} value={item.hour} placeholder="H" placeholderTextColor={COLORS.textMuted} onChangeText={t => {
                                 const nu = [...formData.chronologie]; nu[i].hour = t; updateField('chronologie', nu);
                             }} />
                         </View>
@@ -1123,7 +1120,7 @@ export default function OIView({ onClose }: OIViewProps) {
                 <View>
                     <View style={{flexDirection:'row', justifyContent:'space-between', marginBottom:10}}>
                         <Text style={styles.helper}>Tapez pour sélectionner. Maintenir pour éditer.</Text>
-                        <TouchableOpacity onPress={addVehicle}><Text style={{color:COLORS.success}}>+ VEHICULE</Text></TouchableOpacity>
+                        <TouchableOpacity onPress={addVehicle} style={{flexDirection: 'row', alignItems: 'center'}}><MaterialIcons name="add" size={16} color={COLORS.success} /><Text style={{color:COLORS.success, fontWeight: 'bold'}}> VEHICULE</Text></TouchableOpacity>
                     </View>
                     {vehicles.map(v => (
                         <TouchableOpacity 
@@ -1133,12 +1130,16 @@ export default function OIView({ onClose }: OIViewProps) {
                             onLongPress={() => openRenameVehicle(v)}
                             delayLongPress={600}
                         >
-                            <View style={{flexDirection:'row', justifyContent:'space-between'}}>
-                                <Text style={styles.vehTitle}>{v.name} ({v.type})</Text>
-                                {/* CORRECTION: removeVehicle renvoie les membres dans le pool */}
-                                <Text style={{color:COLORS.danger}} onPress={() => removeVehicle(v)}>X</Text>
+                            <View style={{flexDirection:'row', justifyContent:'space-between', alignItems: 'center'}}>
+                                <View style={{flexDirection: 'row', alignItems: 'center'}}>
+                                    <MaterialIcons name="directions-car" size={20} color={COLORS.text} style={{marginRight: 8}}/>
+                                    <Text style={styles.vehTitle}>{v.name} ({v.type})</Text>
+                                </View>
+                                <TouchableOpacity onPress={() => removeVehicle(v)}>
+                                    <MaterialIcons name="delete" size={20} color={COLORS.danger} />
+                                </TouchableOpacity>
                             </View>
-                            <View style={{flexDirection:'row', flexWrap:'wrap', gap:5, marginTop:5}}>
+                            <View style={{flexDirection:'row', flexWrap:'wrap', gap:5, marginTop:10}}>
                                 {v.members.map(m => (
                                     <TouchableOpacity key={m.id} onPress={() => returnMemberToPool(m.id)} onLongPress={() => openMemberEditor(m)} style={styles.memberBadge}>
                                         <Text style={styles.memberText}>{m.trigramme}</Text>
@@ -1150,16 +1151,16 @@ export default function OIView({ onClose }: OIViewProps) {
                     <View style={{flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginTop:20}}>
                         <Text style={styles.label}>POOL (NON ASSIGNÉS)</Text>
                         <View style={{flexDirection:'row', gap:10}}>
-                             <TouchableOpacity onPress={importMemberConfig}><Text style={{color: COLORS.warning}}>IMPORTER CONFIG JSON</Text></TouchableOpacity>
-                             <TouchableOpacity onPress={createNewMember}><Text style={{color: COLORS.primary}}>+ AJOUTER PAX</Text></TouchableOpacity>
+                             <TouchableOpacity onPress={importMemberConfig} style={{flexDirection: 'row', alignItems: 'center'}}><MaterialIcons name="file-upload" size={16} color={COLORS.warning} /><Text style={{color: COLORS.warning, fontSize: 12, marginLeft: 4}}>IMPORT JSON</Text></TouchableOpacity>
+                             <TouchableOpacity onPress={createNewMember} style={{flexDirection: 'row', alignItems: 'center'}}><MaterialIcons name="person-add" size={16} color={COLORS.primary} /><Text style={{color: COLORS.primary, fontSize: 12, marginLeft: 4}}>AJOUTER</Text></TouchableOpacity>
                         </View>
                     </View>
-                    <View style={{flexDirection:'row', flexWrap:'wrap', gap:5}}>
+                    <View style={{flexDirection:'row', flexWrap:'wrap', gap:5, marginTop: 5}}>
                         {poolMembers.map(m => (
                             <TouchableOpacity key={m.id} style={[styles.memberPoolBadge, selectedMemberId === m.id && {backgroundColor:'#1e3a8a', borderColor: COLORS.primary}]}
                                 onPress={() => handleMemberTap(m)} onLongPress={() => openMemberEditor(m)}>
                                 <Text style={{color:'#fff', fontWeight:'bold'}}>{m.trigramme}</Text>
-                                <Text style={{color:'#aaa', fontSize:9}}>{m.fonction}</Text>
+                                <Text style={{color:COLORS.textMuted, fontSize:9}}>{m.fonction}</Text>
                             </TouchableOpacity>
                         ))}
                     </View>
@@ -1182,18 +1183,19 @@ export default function OIView({ onClose }: OIViewProps) {
                         return (
                             <View key={item.id} style={{marginBottom:15}}>
                                 <TouchableOpacity style={styles.photoThumbLarge} onPress={() => pickImage(item.id)}>
-                                    <Text style={{color:'#666', textAlign:'center', fontWeight:'bold'}}>+ AJOUTER: {item.label}</Text>
+                                    <MaterialIcons name="add-a-photo" size={24} color={COLORS.textMuted} />
+                                    <Text style={{color:COLORS.textMuted, marginTop: 5, fontSize: 12, fontWeight:'bold'}}>AJOUTER: {item.label}</Text>
                                 </TouchableOpacity>
                                 
-                                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginTop:5}}>
+                                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginTop:10}}>
                                 {catPhotos.map((p, idx) => (
                                     <TouchableOpacity key={p.id} onPress={() => { setCurrentPhotoToAnnotate(p.id); setIsAnnotationVisible(true); }}
                                         style={{marginRight: 10, position:'relative'}}>
-                                        <Image source={{ uri: p.uri }} style={{width:100, height:100, borderRadius:4}} resizeMode="cover" />
+                                        <Image source={{ uri: p.uri }} style={{width:100, height:100, borderRadius:8, borderWidth: 1, borderColor: COLORS.border}} resizeMode="cover" />
                                         {p.annotations.length > 0 && <View style={styles.annotBadge} />}
-                                        <TouchableOpacity style={{position:'absolute', top:0, right:0, backgroundColor:'red', width:20, height:20, borderRadius:10, alignItems:'center', justifyContent:'center'}}
+                                        <TouchableOpacity style={{position:'absolute', top:5, right:5, backgroundColor:'rgba(0,0,0,0.6)', width:24, height:24, borderRadius:12, alignItems:'center', justifyContent:'center'}}
                                             onPress={() => deletePhoto(p.id)}>
-                                            <Text style={{color:'white', fontWeight:'bold', fontSize:10}}>X</Text>
+                                            <MaterialIcons name="close" size={16} color="white" />
                                         </TouchableOpacity>
                                     </TouchableOpacity>
                                 ))}
@@ -1214,15 +1216,17 @@ export default function OIView({ onClose }: OIViewProps) {
         case 9: // FINALISATION
             return (
                 <View style={{alignItems:'center', gap: 20, marginTop: 50}}>
-                    <Text style={{color:COLORS.text, textAlign:'center'}}>L'Ordre Initial est prêt.</Text>
+                    <Text style={{color:COLORS.text, textAlign:'center', fontSize: 16, fontWeight: 'bold'}}>L'Ordre Initial est prêt.</Text>
                     
                     {renderInput("Trigramme Rédacteur (PDF)", formData.trigramme_redacteur, t => updateField('trigramme_redacteur', t), false, "Ex: MDL CHEF")}
 
                     <TouchableOpacity style={[styles.navBtn, {backgroundColor: COLORS.success, width:'100%', height: 60}]} onPress={handleGeneratePDF}>
+                        <MaterialIcons name="picture-as-pdf" size={24} color="black" style={{marginRight: 10}}/>
                         <Text style={[styles.navBtnText, {color:'#000', fontSize:18}]}>GÉNÉRER PDF</Text>
                     </TouchableOpacity>
 
                     <TouchableOpacity style={[styles.navBtn, {backgroundColor: COLORS.surfaceLight, width:'100%'}]} onPress={() => Linking.openURL("https://oxsilaris06.github.io/CET/retex")}>
+                        <MaterialIcons name="public" size={20} color={COLORS.text} style={{marginRight: 10}}/>
                         <Text style={styles.navBtnText}>LIEN RETEX (WEB)</Text>
                     </TouchableOpacity>
                     
@@ -1230,9 +1234,11 @@ export default function OIView({ onClose }: OIViewProps) {
                     
                     <View style={{flexDirection:'row', gap:10}}>
                          <TouchableOpacity style={[styles.navBtn, {backgroundColor: COLORS.surfaceLight}]} onPress={exportSessionToJson}>
+                            <MaterialIcons name="save" size={20} color={COLORS.text} style={{marginRight: 5}}/>
                             <Text style={styles.navBtnText}>SAUVEGARDER JSON</Text>
                         </TouchableOpacity>
                          <TouchableOpacity style={[styles.navBtn, {backgroundColor: COLORS.surfaceLight}]} onPress={importSessionFromJson}>
+                            <MaterialIcons name="upload-file" size={20} color={COLORS.text} style={{marginRight: 5}}/>
                             <Text style={styles.navBtnText}>CHARGER JSON</Text>
                         </TouchableOpacity>
                     </View>
@@ -1247,13 +1253,15 @@ export default function OIView({ onClose }: OIViewProps) {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={onClose} style={styles.backButton}><Text style={styles.backButtonText}>{"<"}</Text></TouchableOpacity>
-        <Text style={styles.headerTitle} numberOfLines={1}>Strategica - OI</Text>
-        <View style={{width: 40}} />
+        <TouchableOpacity onPress={onClose} style={styles.backButton}>
+            <MaterialIcons name="arrow-back" size={24} color={COLORS.text} />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Strategica - OI</Text>
+        <View style={{width: 40}} /> 
       </View>
 
-      <View style={{height:50}}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.progressScroll}>
+      <View style={{height:50, borderBottomWidth: 1, borderColor: COLORS.border}}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.progressScroll} contentContainerStyle={{alignItems: 'center'}}>
             {STEPS.map((s, i) => (
                 <TouchableOpacity key={i} onPress={() => setStep(i)} style={[styles.stepItem, step === i && styles.stepItemActive]}>
                     <Text style={[styles.stepText, step === i && styles.stepTextActive]}>{i+1}. {s}</Text>
@@ -1270,13 +1278,13 @@ export default function OIView({ onClose }: OIViewProps) {
 
       <View style={styles.footer}>
         <TouchableOpacity style={styles.navBtn} onPress={() => step > 0 && setStep(step - 1)}>
-            <Text style={styles.navBtnText}>PREC.</Text>
+            <Text style={styles.navBtnText}>PRÉCÉDENT</Text>
         </TouchableOpacity>
         <TouchableOpacity style={[styles.navBtn, {backgroundColor: COLORS.primary}]} onPress={() => { 
             if (step < 9) setStep(step + 1); 
             saveData(); 
         }}>
-            <Text style={[styles.navBtnText, {color:'#fff'}]}>{step === 9 ? "SAUVEGARDER" : "SUIV."}</Text>
+            <Text style={[styles.navBtnText, {color:'#fff'}]}>{step === 9 ? "SAUVEGARDER" : "SUIVANT"}</Text>
         </TouchableOpacity>
       </View>
 
@@ -1285,9 +1293,9 @@ export default function OIView({ onClose }: OIViewProps) {
 
       <Modal visible={isAnnotationVisible} animationType="slide" onRequestClose={() => setIsAnnotationVisible(false)}>
         <SafeAreaView style={{flex:1, backgroundColor:'#000'}}>
-            <View style={{padding:10, flexDirection:'row', justifyContent:'space-between'}}>
-                <Text style={{color:COLORS.text}}>Touchez pour placer un marqueur</Text>
-                <TouchableOpacity onPress={() => setIsAnnotationVisible(false)}><Text style={{color:COLORS.primary}}>FERMER</Text></TouchableOpacity>
+            <View style={{padding:15, flexDirection:'row', justifyContent:'space-between', alignItems: 'center', borderBottomWidth: 1, borderColor: COLORS.border}}>
+                <Text style={{color:COLORS.text, fontWeight: 'bold'}}>Touchez pour placer un marqueur</Text>
+                <TouchableOpacity onPress={() => setIsAnnotationVisible(false)}><MaterialIcons name="close" size={24} color={COLORS.text} /></TouchableOpacity>
             </View>
             <TouchableOpacity activeOpacity={1} style={{flex:1, justifyContent:'center'}} 
                 onPress={(e) => {
@@ -1317,48 +1325,132 @@ export default function OIView({ onClose }: OIViewProps) {
   );
 }
 
-// --- STYLES ---
+// --- STYLES REVISITÉS POUR UN LOOK "APP.TSX" ---
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.bg },
-  // CORRECTION PADDING TOP HEADER
-  header: { padding: 15, paddingTop: Platform.OS === 'android' ? 40 : 15, borderBottomWidth: 1, borderColor: COLORS.border, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  headerTitle: { color: COLORS.primary, fontSize: 18, fontWeight: 'bold', letterSpacing: 2, flex: 1, textAlign: 'center' },
-  backButton: { padding: 5, width: 40 },
+  header: { 
+      backgroundColor: '#09090b', 
+      borderBottomWidth: 1, 
+      borderBottomColor: COLORS.border, 
+      paddingTop: Platform.OS === 'android' ? 40 : 15, 
+      paddingBottom: 15,
+      paddingHorizontal: 20,
+      flexDirection: 'row', 
+      alignItems: 'center', 
+      justifyContent: 'space-between',
+      elevation: 4,
+      zIndex: 10
+  },
+  headerTitle: { color: 'white', fontSize: 18, fontWeight: '900', letterSpacing: 1 },
+  backButton: { padding: 5 },
   backButtonText: { color: COLORS.text, fontSize: 24, fontWeight: 'bold' },
-  progressScroll: { backgroundColor: COLORS.surface },
-  stepItem: { padding: 12, marginRight: 2 },
-  stepItemActive: { borderBottomWidth: 2, borderColor: COLORS.primary },
-  stepText: { color: COLORS.textMuted, fontSize: 12, fontWeight: 'bold' },
-  stepTextActive: { color: COLORS.text },
-  content: { padding: 15 },
-  inputGroup: { marginBottom: 15 },
-  label: { color: COLORS.text, fontSize: 11, marginBottom: 5, fontWeight: 'bold', textTransform: 'uppercase' },
-  input: { backgroundColor: COLORS.inputBg, borderWidth: 1, borderColor: COLORS.border, borderRadius: 4, padding: 10, color: COLORS.text, fontSize: 14 },
-  sectionTitle: { color: COLORS.primary, fontSize: 16, fontWeight: 'bold', marginTop: 20, marginBottom: 10, borderLeftWidth: 3, borderLeftColor: COLORS.primary, paddingLeft: 10 },
-  separator: { height: 1, backgroundColor: COLORS.border, marginVertical: 20 },
-  row: { flexDirection: 'row' },
-  chip: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surfaceLight },
-  chipSelected: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
-  footer: { flexDirection: 'row', padding: 15, borderTopWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface },
-  navBtn: { flex: 1, padding: 15, alignItems: 'center', borderRadius: 4, marginHorizontal: 5, borderWidth: 1, borderColor: COLORS.border, justifyContent: 'center' },
-  navBtnText: { color: COLORS.textMuted, fontWeight: 'bold' },
   
-  // PATRACDVR
-  vehCard: { backgroundColor: COLORS.surfaceLight, padding: 10, marginBottom: 10, borderRadius: 4, borderWidth: 1, borderLeftWidth: 4, borderColor: COLORS.border },
-  vehTitle: { color: '#fff', fontWeight: 'bold' },
-  memberBadge: { backgroundColor: COLORS.surface, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, borderWidth: 1, borderColor: COLORS.border },
-  memberPoolBadge: { backgroundColor: COLORS.surfaceLight, padding: 8, borderRadius: 4, minWidth: 60, alignItems: 'center', borderWidth: 1, borderColor: COLORS.border },
-  memberText: { color: COLORS.text, fontSize: 10 },
-  helper: { color: COLORS.textMuted, fontStyle: 'italic', marginBottom: 10, fontSize: 11 },
+  progressScroll: { backgroundColor: '#09090b' },
+  stepItem: { paddingVertical: 15, paddingHorizontal: 20, marginRight: 0 },
+  stepItemActive: { borderBottomWidth: 3, borderColor: COLORS.primary },
+  stepText: { color: COLORS.textMuted, fontSize: 12, fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: 1 },
+  stepTextActive: { color: 'white' },
+  
+  content: { padding: 24 },
+  
+  inputGroup: { marginBottom: 20 },
+  label: { color: '#a1a1aa', fontSize: 11, marginBottom: 8, fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: 0.5 },
+  input: { 
+      backgroundColor: '#000', 
+      borderWidth: 1, 
+      borderColor: COLORS.border, 
+      borderRadius: 8, 
+      padding: 12, 
+      color: 'white', 
+      fontSize: 16 
+  },
+  
+  sectionTitle: { color: COLORS.primary, fontSize: 16, fontWeight: '900', marginTop: 10, marginBottom: 20, letterSpacing: 1 },
+  separator: { height: 1, backgroundColor: COLORS.border, marginVertical: 30 },
+  
+  row: { flexDirection: 'row' },
+  
+  chip: { 
+      paddingHorizontal: 12, 
+      paddingVertical: 8, 
+      borderRadius: 20, 
+      borderWidth: 1, 
+      borderColor: COLORS.border, 
+      backgroundColor: '#18181b',
+      marginBottom: 5
+  },
+  chipSelected: { backgroundColor: 'rgba(59, 130, 246, 0.2)', borderColor: COLORS.primary },
+  
+  footer: { 
+      flexDirection: 'row', 
+      padding: 16, 
+      borderTopWidth: 1, 
+      borderColor: COLORS.border, 
+      backgroundColor: '#09090b',
+      gap: 12
+  },
+  navBtn: { 
+      flex: 1, 
+      padding: 16, 
+      alignItems: 'center', 
+      borderRadius: 12, 
+      backgroundColor: '#18181b', 
+      borderWidth: 1, 
+      borderColor: COLORS.border,
+      flexDirection: 'row',
+      justifyContent: 'center'
+  },
+  navBtnText: { color: 'white', fontWeight: 'bold', fontSize: 14 },
+  
+  // PATRACDVR Styles
+  vehCard: { 
+      backgroundColor: '#18181b', 
+      padding: 16, 
+      marginBottom: 12, 
+      borderRadius: 12, 
+      borderWidth: 1, 
+      borderColor: COLORS.border 
+  },
+  vehTitle: { color: 'white', fontWeight: 'bold', fontSize: 16 },
+  memberBadge: { 
+      backgroundColor: '#27272a', 
+      paddingHorizontal: 8, 
+      paddingVertical: 4, 
+      borderRadius: 6, 
+      borderWidth: 1, 
+      borderColor: COLORS.border 
+  },
+  memberPoolBadge: { 
+      backgroundColor: '#18181b', 
+      padding: 10, 
+      borderRadius: 8, 
+      minWidth: 70, 
+      alignItems: 'center', 
+      borderWidth: 1, 
+      borderColor: COLORS.border 
+  },
+  memberText: { color: COLORS.text, fontSize: 11, fontWeight: 'bold' },
+  helper: { color: '#71717a', fontStyle: 'italic', marginBottom: 15, fontSize: 12 },
 
   // PHOTOS
-  photoThumbLarge: { width: '100%', height: 40, backgroundColor: COLORS.surfaceLight, borderRadius: 4, overflow: 'hidden', justifyContent: 'center', borderColor: COLORS.border, borderWidth:1 },
+  photoThumbLarge: { 
+      width: '100%', 
+      height: 120, 
+      backgroundColor: '#18181b', 
+      borderRadius: 12, 
+      overflow: 'hidden', 
+      justifyContent: 'center', 
+      alignItems: 'center', 
+      borderColor: COLORS.border, 
+      borderWidth: 1,
+      borderStyle: 'dashed'
+  },
   annotBadge: { position: 'absolute', top: 5, right: 5, width: 8, height: 8, borderRadius: 4, backgroundColor: COLORS.danger },
 
   // MODAL
-  modalContainer: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', padding: 20 },
-  modalContent: { backgroundColor: '#18181b', borderRadius: 12, padding: 20, maxHeight: '90%', borderWidth:1, borderColor: '#333' },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20 },
-  modalTitle: { color: 'white', fontSize: 18, fontWeight: 'bold' }
+  modalContainer: { flex: 1, backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center', padding: 24 },
+  modalContent: { backgroundColor: '#18181b', borderRadius: 24, padding: 24, maxHeight: '90%', borderWidth:1, borderColor: '#333' },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
+  modalTitle: { color: 'white', fontSize: 20, fontWeight: '900' }
 });
