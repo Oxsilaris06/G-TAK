@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -13,7 +13,7 @@ import {
   KeyboardAvoidingView,
   Image,
   Dimensions,
-  Share
+  Linking
 } from 'react-native';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
@@ -41,7 +41,8 @@ const MEMBER_CONFIG = {
     equipements2: ["Sans", "Échelle", "Stop stick", "Lacry", "Cale", "IL", "Pass", "Radio Haute"],
     tenues: ["UBAS", "4S", "Bleu", "Civile", "Ghillie", "Treillis", "Lourde"],
     gpbs: ["GPBL", "GPBPD", "Porte-Plaque", "Sans"],
-    vehicules_types: ["Sharan", "Kodiaq", "5008", "Scénic", "BT", "Blindé", "Banalisé"]
+    // Véhicules par défaut demandés
+    vehicules_types: ["Sharan", "Kodiaq", "5008", "Scénic", "BT"]
   },
   members: [
     { trigramme: "PRC", fonction: "Inter", cellule: "AO1", tenue: "UBAS" },
@@ -53,7 +54,7 @@ const COLORS = {
   bg: '#050505',
   surface: '#161619',
   surfaceLight: '#2a2a2a',
-  primary: '#3b82f6', // Accent Blue
+  primary: '#3b82f6',
   secondary: '#94a3b8',
   text: '#e0e0e0',
   textMuted: '#64748b',
@@ -66,83 +67,70 @@ const COLORS = {
 
 // --- TYPES COMPLETS ---
 
+interface IAdversaire {
+    nom: string;
+    domicile: string;
+    me_list: string[]; // Moyens Employés
+    date_naissance: string;
+    lieu_naissance: string;
+    stature: string;
+    ethnie: string;
+    signes: string;
+    profession: string;
+    antecedents: string;
+    etat_esprit: string[]; // Chips
+    attitude: string;
+    volume: string[]; // Chips
+    substances: string;
+    vehicules_list: string[];
+    armes: string;
+}
+
 interface IOIState {
-  // 1. Situation
+  // Etape 1 : Situation
   date_op: string;
   situation_generale: string;
   situation_particuliere: string;
 
-  // 2. Adversaire 1
-  nom_adversaire: string;
-  domicile_adversaire: string;
-  date_naissance: string;
-  lieu_naissance: string;
-  stature_adversaire: string;
-  ethnie_adversaire: string;
-  signes_particuliers: string;
-  profession_adversaire: string;
-  antecedents_adversaire: string;
-  etat_esprit_list: string[]; // Chips
-  attitude_adversaire: string;
-  volume_list: string[]; // Chips
-  substances_adversaire: string;
-  vehicules_list: string[]; // Dynamic inputs -> géré comme string séparée par virgules dans l'UI
-  armes_connues: string;
-  me_list: string[]; // ME1, ME2...
+  // Etape 2 : Adversaires
+  adversaire_1: IAdversaire;
+  adversaire_2: IAdversaire;
 
-  // 2b. Adversaire 2
-  nom_adversaire_2: string;
-  domicile_adversaire_2: string;
-  date_naissance_2: string;
-  lieu_naissance_2: string;
-  stature_adversaire_2: string;
-  ethnie_adversaire_2: string;
-  signes_particuliers_2: string;
-  profession_adversaire_2: string;
-  antecedents_adversaire_2: string;
-  etat_esprit_list_2: string[];
-  attitude_adversaire_2: string;
-  volume_list_2: string[];
-  substances_adversaire_2: string;
-  vehicules_list_2: string[];
-  armes_connues_2: string;
-  me_list_2: string[];
-
-  // 3. Environnement
-  amies: string;
+  // Etape 3 : Environnement
+  amis: string;
   terrain_info: string;
   population: string;
   cadre_juridique: string;
 
-  // 4. Mission
+  // Etape 4 : Mission PSIG
   missions_psig: string;
 
-  // 5. Exécution
+  // Etape 5 : Exécution
   date_execution: string;
   heure_execution: string;
   action_body_text: string;
-  time_events: { type: string; hour: string; description: string }[];
+  chronologie: { type: string; label: string; hour: string }[]; // T0, T1...
   hypothese_h1: string;
   hypothese_h2: string;
   hypothese_h3: string;
 
-  // 6. Articulation
-  place_chef: string;
+  // Etape 6 : Articulation
+  place_chef_gen: string;
   // India
   india_mission: string;
   india_objectif: string;
   india_itineraire: string;
-  india_points_particuliers: string;
+  india_points: string;
   india_cat: string;
   // AO
-  ao_zone_installation: string;
+  ao_zone: string;
   ao_mission: string;
-  ao_secteur_surveillance: string;
-  ao_points_particuliers: string;
-  ao_place_chef: string;
+  ao_secteur: string;
+  ao_points: string;
   ao_cat: string;
+  ao_chef: string;
 
-  // 9. Divers
+  // Etape 9 : CAT
   cat_generales: string;
   no_go: string;
   cat_liaison: string;
@@ -171,8 +159,8 @@ interface IVehicle {
 }
 
 interface IPhotoAnnotation {
-  x: number; // %
-  y: number; // %
+  x: number;
+  y: number;
   text?: string;
   type: 'marker';
 }
@@ -184,42 +172,54 @@ interface IPhoto {
   annotations: IPhotoAnnotation[];
 }
 
+const DEFAULT_ADVERSAIRE: IAdversaire = {
+    nom: "", domicile: "", me_list: [], date_naissance: "", lieu_naissance: "",
+    stature: "", ethnie: "Caucasien", signes: "", profession: "", antecedents: "",
+    etat_esprit: [], attitude: "", volume: [], substances: "", vehicules_list: [], armes: ""
+};
+
 const INITIAL_STATE: IOIState = {
-  date_op: new Date().toISOString().split('T')[0],
+  // 1
+  date_op: "",
   situation_generale: "", situation_particuliere: "",
   
-  nom_adversaire: "", domicile_adversaire: "", date_naissance: "", lieu_naissance: "",
-  stature_adversaire: "", ethnie_adversaire: "Caucasien", signes_particuliers: "",
-  profession_adversaire: "", antecedents_adversaire: "",
-  etat_esprit_list: [], attitude_adversaire: "", volume_list: [],
-  substances_adversaire: "", vehicules_list: [], armes_connues: "", me_list: [],
+  // 2
+  adversaire_1: { ...DEFAULT_ADVERSAIRE },
+  adversaire_2: { ...DEFAULT_ADVERSAIRE },
 
-  nom_adversaire_2: "", domicile_adversaire_2: "", date_naissance_2: "", lieu_naissance_2: "",
-  stature_adversaire_2: "", ethnie_adversaire_2: "Caucasien", signes_particuliers_2: "",
-  profession_adversaire_2: "", antecedents_adversaire_2: "",
-  etat_esprit_list_2: [], attitude_adversaire_2: "", volume_list_2: [],
-  substances_adversaire_2: "", vehicules_list_2: [], armes_connues_2: "", me_list_2: [],
+  // 3
+  amis: "", terrain_info: "", population: "", cadre_juridique: "",
 
-  amies: "", terrain_info: "", population: "", cadre_juridique: "",
-  missions_psig: "INTERPELLER L'OBJECTIF.\nASSISTER LORS DE LA PERQUISITION.\nCONDUITE AU LIEU DE GAV.",
+  // 4
+  missions_psig: "INTERPELLER L'OBJECTIF.\n\nASSISTER LORS DE LA PERQUISITION.\n\nCONDUITE AU LIEU DE GAV.",
   
+  // 5
   date_execution: "", heure_execution: "06:00",
-  action_body_text: "En vue d'appréhender le(s) mis en cause et empêcher la déperdition des preuves,\nJe veux, le (date) à partir de (heure), pour une action (type d'action) investir le domicile...",
-  time_events: [
-    { type: 'T0', hour: '', description: 'Rasso PSIG' },
-    { type: 'T1', hour: '', description: 'Départ PR' },
-    { type: 'T2', hour: '', description: 'Départ LE' },
-    { type: 'T3', hour: '', description: 'MEP TERMINÉ' },
-    { type: 'T4', hour: '', description: 'TOP ACTION' },
+  action_body_text: "En vue d'appréhender le(s) mis en cause et empêcher la déperdition des preuves,\nJe veux, le (date) à partir de (heure), pour une action (type d'action) investir le domicile\nprésumé de (Nom Adversaire 1) et (Nom Adversaire 2) après avoir bouclé celui-ci.",
+  chronologie: [
+    { type: 'T0', label: 'Rasso PSIG', hour: '' },
+    { type: 'T1', label: 'Départ PR', hour: '' },
+    { type: 'T2', label: 'Départ LE', hour: '' },
+    { type: 'T3', label: 'MEP TERMINÉ', hour: '' },
+    { type: 'T4', label: 'TOP ACTION', hour: '' },
   ],
-  hypothese_h1: "Target présente LE1", hypothese_h2: "Target présente LE2", hypothese_h3: "Target absente",
+  hypothese_h1: "Target présente LE1", hypothese_h2: "Target présente LE2", hypothese_h3: "Target absente LE 1 et 2",
 
-  place_chef: "",
-  india_mission: "RECONNAÎTRE LE DOMICILE EN VUE D'APPRÉHENDER L'OBJECTIF", india_objectif: "", india_itineraire: "", india_points_particuliers: "", india_cat: "",
-  ao_zone_installation: "", ao_mission: "BOUCLER - SURVEILLER - INTERDIRE TOUTE FUITE", ao_secteur_surveillance: "", ao_points_particuliers: "", ao_place_chef: "", ao_cat: "",
+  // 6
+  place_chef_gen: "",
+  india_mission: "RECONNAÎTRE LE DOMICILE EN VUE D'APPRÉHENDER L'OBJECTIF", 
+  india_objectif: "", india_itineraire: "", india_points: "", 
+  india_cat: "- Si décelé, dynamiser jusqu'au domicile.\n- Si présence tierce personne lors de la progression, contrôler.\n- Si fuite, CR direction fuite + interpellation.\n- Si rébellion, usage du strict niveau de force nécessaire.\n- Si retranchement, CR + réarticulation pour fixer l'adversaire.",
+  
+  ao_zone: "", 
+  ao_mission: "BOUCLER - SURVEILLER - INTERDIRE TOUTE FUITE", 
+  ao_secteur: "", ao_points: "", ao_chef: "",
+  ao_cat: "- Compte rendu de mise en place.\n- Renseigner régulièrement.\n- Si décelé, CR.\n- Si fuite, CR direction fuite + interpellation si rapport de force favorable.\n- Si rébellion, usage du strict minimum de force nécessaire.\n- Si retranchement, CR + réarticulation pour fixer l'adversaire.",
 
-  cat_generales: "- Si rébellion, user du strict niveau de force nécessaire\n- Si retranché, alerter en mesure de se ré-articuler",
-  no_go: "", cat_liaison: "TOM: \nDIR: \nGestuelle et visuelle entre les éléments INDIA"
+  // 9
+  cat_generales: "- Si rébellion, user du strict niveau de force nécessaire\n- Si retranché, alerter en mesure de se ré-articuler\n- Si tente de fuir, alerter en mesure de jalonner/interpeller\n- UDA : Article L435-1 du CSI + légitime défense",
+  no_go: "", 
+  cat_liaison: "TOM: \nDIR: \nGestuelle et visuelle entre les éléments INDIA"
 };
 
 // --- COMPONENT PRINCIPAL ---
@@ -239,7 +239,6 @@ export default function OIView({ onClose }: OIViewProps) {
   // --- MEMBER EDIT STATE ---
   const [isMemberEditModalVisible, setIsMemberEditModalVisible] = useState(false);
   const [tempMember, setTempMember] = useState<IMember | null>(null);
-
 
   useEffect(() => {
     loadData();
@@ -265,6 +264,7 @@ export default function OIView({ onClose }: OIViewProps) {
         if (data.poolMembers) setPoolMembers(data.poolMembers);
         if (data.photos) setPhotos(data.photos);
       } else {
+        // Init default pool if empty
         const initialPool = MEMBER_CONFIG.members.map((m, i) => ({
           ...m,
           id: `m_${Date.now()}_${i}`,
@@ -272,64 +272,54 @@ export default function OIView({ onClose }: OIViewProps) {
           equipement: "Sans", equipement2: "Sans", gpb: "GPBL"
         }));
         setPoolMembers(initialPool);
+        
+        // Init default vehicles
+        const defaultVehs = MEMBER_CONFIG.options.vehicules_types.map((type, i) => ({
+            id: `v_def_${i}`,
+            name: `${type}`,
+            type: type,
+            members: []
+        }));
+        setVehicles(defaultVehs);
       }
     } catch (e) {
       console.error("Load error", e);
     }
   };
 
-  // --- IMPORT / EXPORT JSON ---
-
+  // --- EXPORT JSON ---
   const exportSessionToJson = async () => {
     try {
       const data = { formData, vehicles, poolMembers, photos };
       const jsonString = JSON.stringify(data, null, 2);
       const fileName = `OI_Session_${new Date().toISOString().split('T')[0]}.json`;
       const fileUri = FileSystem.documentDirectory + fileName;
-
       await FileSystem.writeAsStringAsync(fileUri, jsonString);
-
       if (await Sharing.isAvailableAsync()) {
         await Sharing.shareAsync(fileUri);
       } else {
         Alert.alert("Succès", `Fichier sauvegardé: ${fileUri}`);
       }
     } catch (e) {
-      console.error("Export error", e);
       Alert.alert("Erreur", "Impossible d'exporter la session.");
     }
   };
 
   const importSessionFromJson = async () => {
     try {
-      const result = await DocumentPicker.getDocumentAsync({
-        type: 'application/json',
-        copyToCacheDirectory: true
-      });
-
+      const result = await DocumentPicker.getDocumentAsync({ type: 'application/json', copyToCacheDirectory: true });
       if (result.canceled) return;
-
       const fileUri = result.assets[0].uri;
       const jsonString = await FileSystem.readAsStringAsync(fileUri);
       const data = JSON.parse(jsonString);
-
       if (data.formData) setFormData(data.formData);
       if (data.vehicles) setVehicles(data.vehicles);
       if (data.poolMembers) setPoolMembers(data.poolMembers);
-      
-      if (data.photos && data.photos.length > 0) {
-        Alert.alert("Attention", "Les photos importées peuvent ne pas s'afficher si elles proviennent d'un autre appareil.");
-        setPhotos(data.photos);
-      } else {
-        setPhotos([]);
-      }
-
+      if (data.photos) setPhotos(data.photos);
       await saveData();
       Alert.alert("Succès", "Session importée avec succès.");
-
     } catch (e) {
-      console.error("Import error", e);
-      Alert.alert("Erreur", "Fichier invalide ou corrompu.");
+      Alert.alert("Erreur", "Fichier invalide.");
     }
   };
 
@@ -338,26 +328,23 @@ export default function OIView({ onClose }: OIViewProps) {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
-  const addChip = (field: keyof IOIState, value: string) => {
-    const list = (formData[field] as string[]) || [];
-    if (!list.includes(value)) updateField(field, [...list, value]);
-  };
-
-  const removeChip = (field: keyof IOIState, value: string) => {
-    const list = (formData[field] as string[]) || [];
-    updateField(field, list.filter(v => v !== value));
+  // Helper pour mettre à jour un adversaire spécifique
+  const updateAdversaire = (advKey: 'adversaire_1' | 'adversaire_2', field: keyof IAdversaire, value: any) => {
+      setFormData(prev => ({
+          ...prev,
+          [advKey]: {
+              ...prev[advKey],
+              [field]: value
+          }
+      }));
   };
 
   // --- PATRACDVR LOGIC ---
   const handleMemberTap = (member: IMember) => {
-    if (selectedMemberId === member.id) {
-      setSelectedMemberId(null);
-    } else {
-      setSelectedMemberId(member.id);
-    }
+    if (selectedMemberId === member.id) setSelectedMemberId(null);
+    else setSelectedMemberId(member.id);
   };
 
-  // GESTION EDITION MEMBRE
   const openMemberEditor = (member: IMember) => {
       setTempMember({...member});
       setIsMemberEditModalVisible(true);
@@ -365,46 +352,27 @@ export default function OIView({ onClose }: OIViewProps) {
 
   const saveMemberChanges = () => {
       if (!tempMember) return;
-      
-      // Update in Pool
       let foundInPool = false;
       const newPool = poolMembers.map(m => {
-          if (m.id === tempMember.id) {
-              foundInPool = true;
-              return tempMember;
-          }
+          if (m.id === tempMember.id) { foundInPool = true; return tempMember; }
           return m;
       });
-
-      if (foundInPool) {
-          setPoolMembers(newPool);
-      } else {
-          // Update in Vehicles
+      if (foundInPool) setPoolMembers(newPool);
+      else {
           const newVehicles = vehicles.map(v => ({
-              ...v,
-              members: v.members.map(m => m.id === tempMember.id ? tempMember : m)
+              ...v, members: v.members.map(m => m.id === tempMember.id ? tempMember : m)
           }));
           setVehicles(newVehicles);
       }
-
       setIsMemberEditModalVisible(false);
       setTempMember(null);
   };
 
   const createNewMember = () => {
     const newM: IMember = {
-        id: `m_${Date.now()}`,
-        trigramme: "NOUVEAU",
-        fonction: "Inter",
-        cellule: "India 1",
-        tenue: "UBAS",
-        principales: "HK 416",
-        secondaires: "PSA",
-        afis: "Sans",
-        grenades: "Sans",
-        equipement: "Sans",
-        equipement2: "Sans",
-        gpb: "GPBL"
+        id: `m_${Date.now()}`, trigramme: "NOUVEAU", fonction: "Inter", cellule: "India 1",
+        tenue: "UBAS", principales: "HK 416", secondaires: "PSA", afis: "Sans", grenades: "Sans",
+        equipement: "Sans", equipement2: "Sans", gpb: "GPBL"
     };
     setPoolMembers(prev => [...prev, newM]);
     openMemberEditor(newM);
@@ -414,38 +382,27 @@ export default function OIView({ onClose }: OIViewProps) {
       if (!tempMember) return;
       Alert.alert("Confirmer", "Supprimer cet opérateur ?", [
           { text: "Annuler", style: "cancel" },
-          { 
-              text: "Supprimer", style: 'destructive', onPress: () => {
+          { text: "Supprimer", style: 'destructive', onPress: () => {
                 setPoolMembers(prev => prev.filter(m => m.id !== tempMember.id));
-                setVehicles(prev => prev.map(v => ({
-                    ...v,
-                    members: v.members.filter(m => m.id !== tempMember.id)
-                })));
+                setVehicles(prev => prev.map(v => ({ ...v, members: v.members.filter(m => m.id !== tempMember.id) })));
                 setIsMemberEditModalVisible(false);
-              }
-          }
+          }}
       ]);
   };
 
   const assignSelectedMemberToVehicle = (vehicleId: string) => {
     if (!selectedMemberId) return;
-    
     let member = poolMembers.find(m => m.id === selectedMemberId);
     let source = 'pool';
-    
     if (!member) {
       vehicles.forEach(v => {
         const found = v.members.find(m => m.id === selectedMemberId);
         if (found) { member = found; source = v.id; }
       });
     }
-
     if (member) {
-      if (source === 'pool') {
-        setPoolMembers(prev => prev.filter(m => m.id !== selectedMemberId));
-      } else {
-        setVehicles(prev => prev.map(v => v.id === source ? { ...v, members: v.members.filter(m => m.id !== selectedMemberId) } : v));
-      }
+      if (source === 'pool') setPoolMembers(prev => prev.filter(m => m.id !== selectedMemberId));
+      else setVehicles(prev => prev.map(v => v.id === source ? { ...v, members: v.members.filter(m => m.id !== selectedMemberId) } : v));
       setVehicles(prev => prev.map(v => v.id === vehicleId ? { ...v, members: [...v.members, member!] } : v));
       setSelectedMemberId(null);
     }
@@ -453,25 +410,16 @@ export default function OIView({ onClose }: OIViewProps) {
 
   const returnMemberToPool = (memberId: string) => {
     let member: IMember | undefined;
-    vehicles.forEach(v => {
-      const found = v.members.find(m => m.id === memberId);
-      if (found) member = found;
-    });
-
+    vehicles.forEach(v => { const found = v.members.find(m => m.id === memberId); if (found) member = found; });
     if (member) {
       setVehicles(prev => prev.map(v => ({ ...v, members: v.members.filter(m => m.id !== memberId) })));
-      // Reset status on return to pool? Optional. Keeping state for now.
       setPoolMembers(prev => [...prev, member!]);
     }
   };
 
-  const addVehicle = (type: string) => {
-    const newVeh: IVehicle = {
-      id: `v_${Date.now()}`,
-      name: `${type} ${vehicles.length + 1}`,
-      type,
-      members: []
-    };
+  const addVehicle = () => {
+    const type = "Nouveau";
+    const newVeh: IVehicle = { id: `v_${Date.now()}`, name: `Vehicule ${vehicles.length + 1}`, type, members: [] };
     setVehicles([...vehicles, newVeh]);
   };
 
@@ -479,18 +427,10 @@ export default function OIView({ onClose }: OIViewProps) {
   const pickImage = async (category: string) => {
     let result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: false,
-      quality: 0.7,
-      base64: true
+      allowsEditing: false, quality: 0.7, base64: true
     });
-
     if (!result.canceled) {
-      const newPhoto: IPhoto = {
-        id: Date.now().toString(),
-        uri: result.assets[0].uri,
-        category,
-        annotations: []
-      };
+      const newPhoto: IPhoto = { id: Date.now().toString(), uri: result.assets[0].uri, category, annotations: [] };
       setPhotos([...photos, newPhoto]);
     }
   };
@@ -499,10 +439,7 @@ export default function OIView({ onClose }: OIViewProps) {
     if (!currentPhotoToAnnotate) return;
     setPhotos(prev => prev.map(p => {
       if (p.id === currentPhotoToAnnotate) {
-        return {
-          ...p,
-          annotations: [...p.annotations, { x, y, type: 'marker', text: (p.annotations.length + 1).toString() }]
-        };
+        return { ...p, annotations: [...p.annotations, { x, y, type: 'marker', text: (p.annotations.length + 1).toString() }] };
       }
       return p;
     }));
@@ -510,29 +447,51 @@ export default function OIView({ onClose }: OIViewProps) {
 
   // --- HTML GENERATOR FOR PDF ---
   const generateHTML = () => {
-    const { date_op, nom_adversaire } = formData;
+    const { date_op, adversaire_1 } = formData;
     const wrap = (tag: string, content: string, style = "") => `<${tag} style="${style}">${content}</${tag}>`;
-    const title = (t: string) => wrap('h2', t, `color: ${COLORS.primary}; border-bottom: 2px solid ${COLORS.primary}; margin-top: 20px; font-family: 'Oswald';`);
-    const sub = (t: string) => wrap('h3', t, `color: ${COLORS.primary}; margin-top: 15px; font-family: 'Oswald'; font-size: 14px;`);
-    const row = (l: string, v: string) => `<tr><td style="padding: 5px; border: 1px solid #444; width: 30%; font-weight:bold;">${l}</td><td style="padding: 5px; border: 1px solid #444;">${v || '-'}</td></tr>`;
+    const title = (t: string) => wrap('h2', t, `color: ${COLORS.primary}; border-bottom: 2px solid ${COLORS.primary}; margin-top: 10px; font-family: 'Oswald'; font-size: 14px;`);
+    const sub = (t: string) => wrap('h3', t, `color: ${COLORS.primary}; margin-top: 5px; font-family: 'Oswald'; font-size: 12px;`);
+    const row = (l: string, v: string) => `<tr><td style="padding: 2px; border: 1px solid #ccc; width: 30%; font-weight:bold;">${l}</td><td style="padding: 2px; border: 1px solid #ccc;">${v || '-'}</td></tr>`;
     
-    // Fonction helper pour récupérer et formatter une image spécifique
     const getPhotoHtml = (category: string, label: string) => {
         const photo = photos.find(p => p.category === category);
         if (!photo) return '';
-        
         return `
-            <div style="border: 1px solid ${COLORS.primary}; padding: 5px; background: #eee; margin-top: 5px;">
-                <div style="text-align:center; font-weight:bold; color:${COLORS.primary}; margin-bottom:5px;">${label}</div>
+            <div style="border: 1px solid ${COLORS.primary}; padding: 2px; background: #eee; margin-top: 5px; width: 250px;">
+                <div style="text-align:center; font-weight:bold; color:${COLORS.primary}; font-size:10px;">${label}</div>
                 <div style="position: relative; display: inline-block; width: 100%;">
                     <img src="${photo.uri}" style="width: 100%; height: auto; display: block;" />
                     ${photo.annotations.map(a => `
-                        <div style="position: absolute; left: ${a.x}%; top: ${a.y}%; width: 20px; height: 20px; background: rgba(255,0,0,0.7); color: white; border-radius: 50%; text-align: center; line-height: 20px; font-size: 10px; transform: translate(-50%, -50%); border: 1px solid white;">
+                        <div style="position: absolute; left: ${a.x}%; top: ${a.y}%; width: 15px; height: 15px; background: rgba(255,0,0,0.7); color: white; border-radius: 50%; text-align: center; line-height: 15px; font-size: 8px; transform: translate(-50%, -50%); border: 1px solid white;">
                             ${a.text}
                         </div>
                     `).join('')}
                 </div>
             </div>
+        `;
+    };
+
+    const renderAdversaireTable = (adv: IAdversaire, titleStr: string, photoCat: string) => {
+        const photo = getPhotoHtml(photoCat, `Photo ${titleStr}`);
+        return `
+        <div style="margin-top:5px;">
+             ${sub(titleStr)}
+             <div class="row-container">
+                <div style="flex:1;">
+                    <table>
+                        ${row('Nom', adv.nom)}
+                        ${row('Domicile', adv.domicile)}
+                        ${row('Né(e) le', adv.date_naissance + ' à ' + adv.lieu_naissance)}
+                        ${row('Physique', `${adv.stature} - ${adv.ethnie}`)}
+                        ${row('Signes', adv.signes)}
+                        ${row('Véhicules', adv.vehicules_list.join(', '))}
+                        ${row('Armes', adv.armes)}
+                        ${row('Antécédents', adv.antecedents)}
+                    </table>
+                </div>
+                ${photo ? `<div style="flex:0 0 auto; margin-left:10px;">${photo}</div>` : ''}
+             </div>
+        </div>
         `;
     };
 
@@ -545,13 +504,9 @@ export default function OIView({ onClose }: OIViewProps) {
             grouped[m.cellule].push(`${m.trigramme}${m.fonction !== 'Sans' ? ` (${m.fonction})` : ''}`);
         });
         return Object.keys(grouped).sort().map(k => 
-            `<div style="margin-bottom:5px;"><strong style="color:${COLORS.danger}">${k}</strong> : ${grouped[k].join(' - ')}</div>`
+            `<div style="margin-bottom:2px;"><strong style="color:${COLORS.danger}">${k}</strong> : ${grouped[k].join(' - ')}</div>`
         ).join('');
     };
-
-    // Préparation pour affichage en mode paysage (side by side pour Adversaire)
-    const advPhotoHtml = getPhotoHtml('adversary_photo_preview_container', 'Photo Cible');
-    const hasAdvPhoto = advPhotoHtml !== '';
 
     return `
       <!DOCTYPE html>
@@ -560,116 +515,117 @@ export default function OIView({ onClose }: OIViewProps) {
         <meta charset="utf-8">
         <style>
           @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Oswald:wght@500&display=swap');
-          /* CONFIGURATION PAYSAGE */
           @page { size: A4 landscape; margin: 1cm; }
-          body { font-family: 'JetBrains Mono', sans-serif; background: #fff; color: #000; padding: 0; font-size: 11px; }
-          table { width: 100%; border-collapse: collapse; margin-bottom: 5px; }
-          .banner { text-align: center; margin-bottom: 10px; border: 2px solid #000; padding: 5px; background: #f0f0f0; }
+          body { font-family: 'JetBrains Mono', sans-serif; background: #fff; color: #000; padding: 0; font-size: 10px; }
+          table { width: 100%; border-collapse: collapse; margin-bottom: 2px; }
+          .banner { text-align: center; margin-bottom: 5px; border: 2px solid #000; padding: 5px; background: #f0f0f0; }
           .row-container { display: flex; flex-direction: row; gap: 15px; align-items: flex-start; }
           .col-half { flex: 1; }
-          .col-auto { flex: 0 0 auto; width: 40%; } /* Pour la photo */
           .page-break { page-break-before: always; }
-          h2 { margin-bottom: 5px; font-size: 14px; }
-          h3 { margin-bottom: 3px; font-size: 12px; }
-          p { margin: 2px 0; }
+          h2 { margin-bottom: 5px; } h3 { margin-bottom: 2px; } p { margin: 2px 0; }
         </style>
       </head>
       <body>
         <div class="banner">
-            <h1 style="font-family:'Oswald'; margin:0; font-size: 20px;">ORDRE INITIAL</h1>
-            <div>${formData.nom_adversaire} // ${date_op}</div>
+            <h1 style="font-family:'Oswald'; margin:0; font-size: 18px;">ORDRE INITIAL</h1>
+            <div>${adversaire_1.nom} // ${date_op}</div>
         </div>
 
         <div class="row-container">
-            <!-- COLONNE GAUCHE SITUATION / MISSION -->
             <div class="col-half">
                 ${title('1. SITUATION')}
-                ${sub('1.1 Générale')}${wrap('p', formData.situation_generale)}
-                ${sub('1.2 Particulière')}${wrap('p', formData.situation_particuliere)}
+                ${sub('1.1 Générale')}${wrap('div', formData.situation_generale)}
+                ${sub('1.2 Particulière')}${wrap('div', formData.situation_particuliere)}
+                
+                ${title('3. ENVIRONNEMENT')}
+                 <table>
+                    ${row('Amis', formData.amis)}
+                    ${row('Terrain / Météo', formData.terrain_info)}
+                    ${row('Population', formData.population)}
+                    ${row('Cadre Juridique', formData.cadre_juridique)}
+                 </table>
             </div>
-             <!-- COLONNE DROITE MISSION -->
-             <div class="col-half">
-                ${title('3. MISSION')}
-                <div style="font-size: 14px; font-weight: bold; border: 2px solid ${COLORS.danger}; padding: 10px; text-align: center; background: #fff0f0;">
-                    ${formData.missions_psig.replace(/\n/g, '<br>')}
+            <div class="col-half">
+                ${title('4. MISSION PSIG')}
+                <div style="font-weight: bold; border: 2px solid ${COLORS.danger}; padding: 5px; text-align: center; background: #fff0f0; white-space: pre-wrap;">
+                    ${formData.missions_psig}
                 </div>
+                ${title('5. EXÉCUTION')}
+                ${wrap('div', `<strong>Pour le:</strong> ${formData.date_execution} à ${formData.heure_execution}`)}
+                ${wrap('div', formData.action_body_text.replace(/\n/g, '<br>'))}
+                ${sub('Chronologie')}
+                <table>
+                    <tr style="background:#eee;"><th>T</th><th>Action</th><th>Heure</th></tr>
+                    ${formData.chronologie.map(e => `<tr><td style="border:1px solid #ccc; font-weight:bold;">${e.type}</td><td style="border:1px solid #ccc;">${e.label}</td><td style="border:1px solid #ccc;">${e.hour}</td></tr>`).join('')}
+                </table>
+                 ${sub('Hypothèses')}
+                 <div><strong>H1:</strong> ${formData.hypothese_h1}</div>
+                 <div><strong>H2:</strong> ${formData.hypothese_h2}</div>
+                 <div><strong>H3:</strong> ${formData.hypothese_h3}</div>
             </div>
         </div>
 
         ${title('2. ADVERSAIRE(S)')}
-        <div class="row-container">
-            <div style="flex: 1;">
-                <table>
-                    ${row('Nom', formData.nom_adversaire)}
-                    ${row('Domicile', formData.domicile_adversaire)}
-                    ${row('Description', `${formData.stature_adversaire} / ${formData.ethnie_adversaire}`)}
-                    ${row('Véhicules', Array.isArray(formData.vehicules_list) ? formData.vehicules_list.join(', ') : formData.vehicules_list)}
-                    ${row('Armes', formData.armes_connues)}
-                </table>
-                ${formData.nom_adversaire_2 ? `
-                    ${sub('Cible Secondaire')}
-                    <table>
-                        ${row('Nom', formData.nom_adversaire_2)}
-                        ${row('Domicile', formData.domicile_adversaire_2)}
-                    </table>
-                ` : ''}
-            </div>
-            ${hasAdvPhoto ? `<div class="col-auto">${advPhotoHtml}</div>` : ''}
-        </div>
-
-        ${title('4. EXÉCUTION')}
-        ${wrap('p', formData.action_body_text.replace(/\n/g, '<br>'))}
-        
-        ${sub('Chronologie')}
-        <table>
-            <tr style="background:#eee;"><th>Type</th><th>Heure</th><th>Action</th></tr>
-            ${formData.time_events.map(e => `<tr><td style="border:1px solid #ccc; padding:2px;">${e.type}</td><td style="border:1px solid #ccc;">${e.hour}</td><td style="border:1px solid #ccc;">${e.description}</td></tr>`).join('')}
-        </table>
+        ${renderAdversaireTable(formData.adversaire_1, 'Adversaire Principal', 'photo_adv_1')}
+        ${formData.adversaire_2.nom ? renderAdversaireTable(formData.adversaire_2, 'Adversaire Secondaire', 'photo_adv_2') : ''}
+        ${getPhotoHtml('photo_renforts', 'Renforts')}
 
         <div class="page-break"></div>
 
-        ${title('5. ARTICULATION')}
-        ${sub('Place du Chef')} ${wrap('div', formData.place_chef)}
-        
+        ${title('6. ARTICULATION')}
+        ${wrap('div', `<strong>Place du Chef:</strong> ${formData.place_chef_gen}`)}
+
         <div class="row-container">
-            <div class="col-half">
-                ${sub('INDIA (Inter)')}
+            <div class="col-half" style="border-right: 1px solid #ccc; padding-right: 5px;">
+                ${sub('INDIA (INTER)')}
                 ${renderComposition('India')}
                 ${wrap('div', `<strong>Mission:</strong> ${formData.india_mission}`)}
-                ${wrap('div', `<strong>CAT:</strong> ${formData.india_cat.replace(/\n/g, '<br>')}`)}
-                
-                ${getPhotoHtml('photo_container_itineraire_exterieur_preview_container', 'Itinéraire Ext')}
+                ${wrap('div', `<strong>Objectif:</strong> ${formData.india_objectif}`)}
+                ${wrap('div', `<strong>Itinéraire:</strong> ${formData.india_itineraire}`)}
+                ${wrap('div', `<strong>Points Part.:</strong> ${formData.india_points}`)}
+                <div style="background:#eee; padding:5px; margin-top:5px; border:1px solid #999; font-size:9px;">
+                    <strong>CAT:</strong><br/>${formData.india_cat.replace(/\n/g, '<br>')}
+                </div>
+                ${getPhotoHtml('photo_india_iti', 'Itinéraire India')}
             </div>
-            
             <div class="col-half">
-                ${sub('AO (Appui/Obs)')}
+                ${sub('AO (APPUI/OBS)')}
                 ${renderComposition('AO')}
+                ${wrap('div', `<strong>Zone Install.:</strong> ${formData.ao_zone}`)}
                 ${wrap('div', `<strong>Mission:</strong> ${formData.ao_mission}`)}
-                
-                ${getPhotoHtml('photo_container_emplacement_ao_preview_container', 'Vue AO')}
+                ${wrap('div', `<strong>Secteur:</strong> ${formData.ao_secteur}`)}
+                ${wrap('div', `<strong>Points Part.:</strong> ${formData.ao_points}`)}
+                ${wrap('div', `<strong>Chef AO:</strong> ${formData.ao_chef}`)}
+                 <div style="background:#eee; padding:5px; margin-top:5px; border:1px solid #999; font-size:9px;">
+                    <strong>CAT:</strong><br/>${formData.ao_cat.replace(/\n/g, '<br>')}
+                </div>
+                ${getPhotoHtml('photo_ao_vue', 'Vue AO')}
             </div>
         </div>
 
-        ${title('6. PATRACDVR')}
+        ${title('7. PATRACDVR')}
         ${vehicles.map(v => `
-            <div style="margin-bottom: 5px; border: 1px solid #ccc; padding: 4px; background: #fafafa;">
+            <div style="margin-bottom: 2px; border: 1px solid #ccc; padding: 2px; background: #fafafa;">
                 <strong>${v.name} (${v.type})</strong>: 
                 ${v.members.map(m => `${m.trigramme} (${m.principales}/${m.tenue})`).join(', ')}
             </div>
         `).join('')}
 
-        ${title('7. DIVERS & SÉCURITÉ')}
+        ${title('9. CONDUITES À TENIR & DIVERS')}
         <div class="row-container">
             <div class="col-half">
-                ${sub('Conduites à tenir')}
+                ${sub('Générales')}
                 ${wrap('div', formData.cat_generales.replace(/\n/g, '<br>'))}
+                 ${getPhotoHtml('photo_logistique', 'Logistique')}
             </div>
             <div class="col-half">
-                ${formData.no_go ? `<div style="color:red; font-weight:bold; border: 1px solid red; padding: 5px;">NO GO: ${formData.no_go}</div>` : ''}
+                ${formData.no_go ? `<div style="color:red; font-weight:bold; border: 2px solid red; padding: 5px; margin-bottom:5px;">NO GO: ${formData.no_go}</div>` : ''}
+                ${sub('Liaison')}
+                ${wrap('div', formData.cat_liaison.replace(/\n/g, '<br>'))}
             </div>
         </div>
 
-        <div style="margin-top: 20px; text-align: right; font-size: 9px; color: #666;">
+        <div style="margin-top: 20px; text-align: right; font-size: 8px; color: #666;">
             Généré par G-TAK // ${new Date().toLocaleString()}
         </div>
       </body>
@@ -680,61 +636,72 @@ export default function OIView({ onClose }: OIViewProps) {
   const handleGeneratePDF = async () => {
     try {
       const html = generateHTML();
-      // On force le mode landscape dans les options d'impression également
-      const { uri } = await Print.printToFileAsync({ 
-          html,
-          width: 842, // A4 landscape width in points (approx)
-          height: 595 // A4 landscape height
-      });
+      const { uri } = await Print.printToFileAsync({ html, width: 842, height: 595 });
       await Sharing.shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' });
     } catch (e) {
-      Alert.alert("Erreur PDF", "Impossible de générer le document.");
+      Alert.alert("Erreur", "Impossible de générer le PDF.");
     }
   };
 
-  // --- RENDERING WIZARD ---
+  // --- RENDERING HELPERS ---
 
-  const renderInput = (label: string, field: keyof IOIState, multiline = false) => {
-    // CORRECTION : Gestion sécurisée des tableaux pour TextInput
-    const rawValue = formData[field];
-    const displayValue = Array.isArray(rawValue) ? rawValue.join(', ') : (rawValue as string);
+  const renderInput = (label: string, value: string, onChange: (t: string) => void, multiline = false, placeholder?: string) => (
+    <View style={styles.inputGroup}>
+        <Text style={styles.label}>{label}</Text>
+        <TextInput
+            style={[styles.input, multiline && { minHeight: 80, maxHeight: 150, textAlignVertical: 'top' }]}
+            value={value}
+            onChangeText={onChange}
+            multiline={multiline}
+            placeholder={placeholder}
+            placeholderTextColor={COLORS.textMuted}
+        />
+    </View>
+  );
 
-    return (
-        <View style={styles.inputGroup}>
-            <Text style={styles.label}>{label}</Text>
-            <TextInput
-                style={[
-                    styles.input, 
-                    multiline && { minHeight: 80, maxHeight: 200, textAlignVertical: 'top' } // Auto-grow style
-                ]}
-                value={displayValue || ''}
-                onChangeText={(t) => {
-                    if (Array.isArray(rawValue)) {
-                        updateField(field, t.split(',').map(s => s.trim()));
-                    } else {
-                        updateField(field, t);
-                    }
-                }}
-                multiline={multiline}
-                placeholderTextColor={COLORS.textMuted}
-            />
-        </View>
-    );
+  // Pour les listes dynamiques (ME, Véhicules adv)
+  const renderDynamicList = (label: string, list: string[], onChange: (l: string[]) => void, placeholder = "Ajouter...") => {
+      const [txt, setTxt] = useState("");
+      return (
+          <View style={styles.inputGroup}>
+              <Text style={styles.label}>{label}</Text>
+              <View style={{flexDirection:'row', flexWrap:'wrap', gap: 5, marginBottom: 5}}>
+                  {list.map((item, i) => (
+                      <TouchableOpacity key={i} onPress={() => onChange(list.filter((_, idx) => idx !== i))} style={styles.chip}>
+                          <Text style={{color: COLORS.text}}>{item} X</Text>
+                      </TouchableOpacity>
+                  ))}
+              </View>
+              <View style={{flexDirection:'row', gap:5}}>
+                <TextInput 
+                    style={[styles.input, {flex:1}]} 
+                    value={txt} onChangeText={setTxt} 
+                    placeholder={placeholder} placeholderTextColor={COLORS.textMuted}
+                />
+                <TouchableOpacity 
+                    style={{backgroundColor:COLORS.primary, justifyContent:'center', padding:10, borderRadius:4}}
+                    onPress={() => { if(txt) { onChange([...list, txt]); setTxt(""); } }}
+                >
+                    <Text style={{color:'white'}}>+</Text>
+                </TouchableOpacity>
+              </View>
+          </View>
+      );
   };
 
-  const renderChips = (field: keyof IOIState, options: string[]) => (
+  const renderChips = (label: string, selected: string[], options: string[], onChange: (l: string[]) => void) => (
     <View style={styles.inputGroup}>
-      <Text style={styles.label}>{field.toString().replace(/_/g, ' ').toUpperCase()}</Text>
+      <Text style={styles.label}>{label}</Text>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
         {options.map(opt => {
-          const selected = (formData[field] as string[]).includes(opt);
+          const isSel = selected.includes(opt);
           return (
             <TouchableOpacity
               key={opt}
-              style={[styles.chip, selected && styles.chipSelected]}
-              onPress={() => selected ? removeChip(field, opt) : addChip(field, opt)}
+              style={[styles.chip, isSel && styles.chipSelected]}
+              onPress={() => isSel ? onChange(selected.filter(s => s !== opt)) : onChange([...selected, opt])}
             >
-              <Text style={{ color: selected ? '#fff' : COLORS.secondary }}>{opt}</Text>
+              <Text style={{ color: isSel ? '#fff' : COLORS.secondary }}>{opt}</Text>
             </TouchableOpacity>
           );
         })}
@@ -742,304 +709,295 @@ export default function OIView({ onClose }: OIViewProps) {
     </View>
   );
 
-  const renderMemberEditModal = () => {
-      if (!isMemberEditModalVisible || !tempMember) return null;
-
-      const renderSelect = (label: string, field: keyof IMember, options: string[]) => (
-          <View style={{marginBottom: 15}}>
-              <Text style={styles.label}>{label}</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 8}}>
-                  {options.map(opt => (
-                      <TouchableOpacity 
-                        key={opt} 
-                        style={[styles.chip, tempMember[field] === opt && styles.chipSelected]}
-                        onPress={() => setTempMember({...tempMember, [field]: opt})}
-                      >
-                          <Text style={{color: tempMember[field] === opt ? 'white' : COLORS.textMuted}}>{opt}</Text>
-                      </TouchableOpacity>
-                  ))}
-              </ScrollView>
-          </View>
-      );
-
+  const renderAdversaireForm = (advKey: 'adversaire_1' | 'adversaire_2') => {
+      const adv = formData[advKey];
       return (
-          <Modal visible={isMemberEditModalVisible} animationType="slide" transparent>
-              <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalContainer}>
-                  <View style={styles.modalContent}>
-                      <View style={styles.modalHeader}>
-                          <Text style={styles.modalTitle}>ÉDITION OPÉRATEUR</Text>
-                          <TouchableOpacity onPress={() => setIsMemberEditModalVisible(false)}><Text style={{color:COLORS.danger, fontWeight:'bold'}}>FERMER</Text></TouchableOpacity>
-                      </View>
-                      
-                      <ScrollView style={{maxHeight: '80%'}}>
-                          <View style={styles.inputGroup}>
-                              <Text style={styles.label}>TRIGRAMME</Text>
-                              <TextInput 
-                                style={styles.input} 
-                                value={tempMember.trigramme} 
-                                onChangeText={t => setTempMember({...tempMember, trigramme: t.toUpperCase()})}
-                                autoCapitalize="characters"
-                                maxLength={5}
-                              />
-                          </View>
-
-                          {renderSelect("FONCTION", "fonction", MEMBER_CONFIG.options.fonctions)}
-                          {renderSelect("CELLULE", "cellule", MEMBER_CONFIG.options.cellules)}
-                          {renderSelect("TENUE", "tenue", MEMBER_CONFIG.options.tenues)}
-                          {renderSelect("ARMEMENT PRINCIPAL", "principales", MEMBER_CONFIG.options.principales)}
-                          {renderSelect("ARMEMENT SECONDAIRE", "secondaires", MEMBER_CONFIG.options.secondaires)}
-                          {renderSelect("GRENADES", "grenades", MEMBER_CONFIG.options.grenades)}
-                          {renderSelect("EQUIPEMENT SPÉCIAL", "equipement", MEMBER_CONFIG.options.equipements)}
-                          {renderSelect("EQUIPEMENT DIVERS", "equipement2", MEMBER_CONFIG.options.equipements2)}
-                          {renderSelect("PROTECTION (GPB)", "gpb", MEMBER_CONFIG.options.gpbs)}
-                      </ScrollView>
-
-                      <View style={{flexDirection:'row', gap:10, marginTop:10}}>
-                          <TouchableOpacity onPress={deleteMember} style={[styles.navBtn, {backgroundColor: COLORS.surfaceLight, borderColor: COLORS.danger}]}>
-                              <Text style={{color: COLORS.danger, fontWeight: 'bold'}}>SUPPRIMER</Text>
+          <View>
+              {renderInput("Nom / Prénom", adv.nom, t => updateAdversaire(advKey, 'nom', t))}
+              {renderInput("Domicile", adv.domicile, t => updateAdversaire(advKey, 'domicile', t), true)}
+              {renderDynamicList("Moyens Employés (ME)", adv.me_list, l => updateAdversaire(advKey, 'me_list', l))}
+              <View style={styles.row}>
+                  <View style={{flex:1}}>{renderInput("Né le (Date)", adv.date_naissance, t => updateAdversaire(advKey, 'date_naissance', t), false, "JJ/MM/AAAA")}</View>
+                  <View style={{width:10}}/>
+                  <View style={{flex:1}}>{renderInput("Lieu Naissance", adv.lieu_naissance, t => updateAdversaire(advKey, 'lieu_naissance', t), false, "Lieu de naissance")}</View>
+              </View>
+              <View style={styles.row}>
+                  <View style={{flex:1}}>{renderInput("Stature", adv.stature, t => updateAdversaire(advKey, 'stature', t), false, "Stature")}</View>
+                  <View style={{width:10}}/>
+                  <View style={{flex:1}}>
+                      <Text style={styles.label}>ETHNIE</Text>
+                      {["Caucasien", "Nord africain", "Afro-antillais", "Asiatique"].map(opt => (
+                          <TouchableOpacity key={opt} onPress={() => updateAdversaire(advKey, 'ethnie', opt)} style={{marginBottom:5}}>
+                              <Text style={{color: adv.ethnie === opt ? COLORS.primary : COLORS.textMuted}}>{adv.ethnie === opt ? "[x]" : "[ ]"} {opt}</Text>
                           </TouchableOpacity>
-                          <TouchableOpacity onPress={saveMemberChanges} style={[styles.navBtn, {backgroundColor: COLORS.success, borderColor: COLORS.success}]}>
-                              <Text style={{color: '#000', fontWeight: 'bold'}}>SAUVEGARDER</Text>
-                          </TouchableOpacity>
-                      </View>
+                      ))}
                   </View>
-              </KeyboardAvoidingView>
-          </Modal>
+              </View>
+              {renderInput("Signes Particuliers", adv.signes, t => updateAdversaire(advKey, 'signes', t))}
+              {renderInput("Profession", adv.profession, t => updateAdversaire(advKey, 'profession', t))}
+              {renderInput("Antécédents", adv.antecedents, t => updateAdversaire(advKey, 'antecedents', t), true)}
+              {renderChips("État d'esprit", adv.etat_esprit, ["Serein", "Hostile", "Conciliant", "Sur ses gardes"], l => updateAdversaire(advKey, 'etat_esprit', l))}
+              {renderInput("Attitude connue", adv.attitude, t => updateAdversaire(advKey, 'attitude', t), true)}
+              {renderChips("Volume Renfort", adv.volume, ["Seul", "Famille", "BO", "Conjointe", "2-3", "4+"], l => updateAdversaire(advKey, 'volume', l))}
+              {renderInput("Substances", adv.substances, t => updateAdversaire(advKey, 'substances', t))}
+              {renderDynamicList("Véhicules Adversaire", adv.vehicules_list, l => updateAdversaire(advKey, 'vehicules_list', l))}
+              {renderInput("Armes connues", adv.armes, t => updateAdversaire(advKey, 'armes', t))}
+          </View>
       );
   };
 
-  const renderStepContent = () => {
-    switch (step) {
-      case 0: // SITUATION
-        return (
-          <View>
-            {renderInput("Date Opération", "date_op")}
-            {renderInput("Situation Générale", "situation_generale", true)}
-            {renderInput("Situation Particulière", "situation_particuliere", true)}
-          </View>
-        );
-      case 1: // ADVERSAIRE 1
-        return (
-          <View>
-            <Text style={styles.sectionTitle}>CIBLE PRINCIPALE</Text>
-            {renderInput("Nom", "nom_adversaire")}
-            {renderInput("Domicile", "domicile_adversaire", true)}
-            <View style={styles.row}>
-                <View style={{flex:1}}>{renderInput("Stature", "stature_adversaire")}</View>
-                <View style={{width:10}}/>
-                <View style={{flex:1}}>{renderInput("Ethnie", "ethnie_adversaire")}</View>
-            </View>
-            {renderChips("etat_esprit_list", ["Calme", "Hostile", "Armé", "Déterminé", "Inconnu"])}
-            {renderInput("Armes Connues", "armes_connues")}
-            {renderInput("Véhicules (Liste séparée par virgules)", "vehicules_list")}
-            <TouchableOpacity style={styles.photoBtn} onPress={() => pickImage('adversary_photo_preview_container')}>
-                <Text style={styles.btnText}>+ PHOTO CIBLE</Text>
-            </TouchableOpacity>
-          </View>
-        );
-      case 2: // ADVERSAIRE 2 (Optionnel)
-        return (
-          <View>
-            <Text style={styles.sectionTitle}>CIBLE SECONDAIRE (Optionnel)</Text>
-            {renderInput("Nom", "nom_adversaire_2")}
-            {renderInput("Domicile", "domicile_adversaire_2", true)}
-            <TouchableOpacity style={styles.photoBtn} onPress={() => pickImage('adversary_photo_preview_container_2')}>
-                <Text style={styles.btnText}>+ PHOTO CIBLE 2</Text>
-            </TouchableOpacity>
-          </View>
-        );
-      case 3: // ENVIRONNEMENT
-        return (
-          <View>
-            {renderInput("Amis / Soutien", "amies")}
-            {renderInput("Terrain / Météo", "terrain_info")}
-            {renderInput("Population", "population")}
-            {renderInput("Cadre Juridique", "cadre_juridique")}
-          </View>
-        );
-      case 4: // MISSION & EXECUTION
-        return (
-          <View>
-            {renderInput("Missions PSIG", "missions_psig", true)}
-            <View style={styles.separator} />
-            {renderInput("Phrase d'Exécution", "action_body_text", true)}
-            <Text style={styles.label}>CHRONOLOGIE</Text>
-            {formData.time_events.map((evt, idx) => (
-                <View key={idx} style={{flexDirection:'row', gap:5, marginBottom:5}}>
-                    <Text style={{color:COLORS.primary, width:30, paddingTop:10}}>{evt.type}</Text>
-                    <TextInput 
-                        style={[styles.input, {width:60}]} 
-                        value={evt.hour} 
-                        onChangeText={t => {
-                            const newEvents = [...formData.time_events];
-                            newEvents[idx].hour = t;
-                            updateField('time_events', newEvents);
-                        }}
-                        placeholder="H"
-                        placeholderTextColor="#555"
-                    />
-                    <TextInput 
-                        style={[styles.input, {flex:1}]} 
-                        value={evt.description} 
-                        onChangeText={t => {
-                            const newEvents = [...formData.time_events];
-                            newEvents[idx].description = t;
-                            updateField('time_events', newEvents);
-                        }} 
-                        placeholder="Action"
-                        placeholderTextColor="#555"
-                    />
-                </View>
-            ))}
-          </View>
-        );
-      case 5: // ARTICULATION
-        return (
-          <View>
-            {renderInput("Place du Chef", "place_chef")}
-            <Text style={styles.sectionTitle}>INDIA (INTER)</Text>
-            {renderInput("Mission India", "india_mission", true)}
-            {renderInput("Itinéraire", "india_itineraire", true)}
-            {renderInput("CAT Spécifique", "india_cat", true)}
-            <TouchableOpacity style={styles.photoBtn} onPress={() => pickImage('photo_container_itineraire_exterieur_preview_container')}>
-                <Text style={styles.btnText}>+ PHOTO ITINÉRAIRE</Text>
-            </TouchableOpacity>
-            
-            <View style={styles.separator} />
-            
-            <Text style={styles.sectionTitle}>AO (APPUI)</Text>
-            {renderInput("Mission AO", "ao_mission", true)}
-            {renderInput("Zone Installation", "ao_zone_installation", true)}
-            <TouchableOpacity style={styles.photoBtn} onPress={() => pickImage('photo_container_emplacement_ao_preview_container')}>
-                <Text style={styles.btnText}>+ PHOTO VUE AO</Text>
-            </TouchableOpacity>
-          </View>
-        );
-      case 6: // PATRACDVR
-        return (
-          <View>
-            <View style={{flexDirection:'row', justifyContent:'space-between', marginBottom:10}}>
-                <Text style={styles.helper}>Tapez pour sélectionner. Maintenir pour éditer.</Text>
-                <TouchableOpacity onPress={() => addVehicle('Kodiaq')}><Text style={{color:COLORS.success}}>+ VEHICULE</Text></TouchableOpacity>
-            </View>
-
-            {/* VEHICULES */}
-            {vehicles.map(v => (
-                <TouchableOpacity 
-                    key={v.id} 
-                    style={[styles.vehCard, {borderColor: COLORS.border}]}
-                    onPress={() => assignSelectedMemberToVehicle(v.id)}
-                >
-                    <View style={{flexDirection:'row', justifyContent:'space-between'}}>
-                        <Text style={styles.vehTitle}>{v.name} ({v.type})</Text>
-                        <Text style={{color:COLORS.danger}} onPress={() => setVehicles(vehicles.filter(x => x.id !== v.id))}>X</Text>
+  const renderMemberEditModal = () => {
+    if (!isMemberEditModalVisible || !tempMember) return null;
+    const renderSelect = (label: string, field: keyof IMember, options: string[]) => (
+        <View style={{marginBottom: 15}}>
+            <Text style={styles.label}>{label}</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 8}}>
+                {options.map(opt => (
+                    <TouchableOpacity key={opt} style={[styles.chip, tempMember[field] === opt && styles.chipSelected]}
+                      onPress={() => setTempMember({...tempMember, [field]: opt})}>
+                        <Text style={{color: tempMember[field] === opt ? 'white' : COLORS.textMuted}}>{opt}</Text>
+                    </TouchableOpacity>
+                ))}
+            </ScrollView>
+        </View>
+    );
+    return (
+        <Modal visible={isMemberEditModalVisible} animationType="slide" transparent>
+            <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalContainer}>
+                <View style={styles.modalContent}>
+                    <View style={styles.modalHeader}>
+                        <Text style={styles.modalTitle}>ÉDITION OPÉRATEUR</Text>
+                        <TouchableOpacity onPress={() => setIsMemberEditModalVisible(false)}><Text style={{color:COLORS.danger}}>FERMER</Text></TouchableOpacity>
                     </View>
-                    <View style={{flexDirection:'row', flexWrap:'wrap', gap:5, marginTop:5}}>
-                        {v.members.map(m => (
-                            <TouchableOpacity 
-                                key={m.id} 
-                                onPress={() => returnMemberToPool(m.id)} 
-                                onLongPress={() => openMemberEditor(m)}
-                                delayLongPress={500}
-                                style={styles.memberBadge}
-                            >
-                                <Text style={styles.memberText}>{m.trigramme}</Text>
+                    <ScrollView style={{maxHeight: '80%'}}>
+                        <View style={styles.inputGroup}>
+                            <Text style={styles.label}>TRIGRAMME</Text>
+                            <TextInput style={styles.input} value={tempMember.trigramme} onChangeText={t => setTempMember({...tempMember, trigramme: t.toUpperCase()})} maxLength={5}/>
+                        </View>
+                        {renderSelect("FONCTION", "fonction", MEMBER_CONFIG.options.fonctions)}
+                        {renderSelect("CELLULE", "cellule", MEMBER_CONFIG.options.cellules)}
+                        {renderSelect("TENUE", "tenue", MEMBER_CONFIG.options.tenues)}
+                        {renderSelect("ARMEMENT PRINCIPAL", "principales", MEMBER_CONFIG.options.principales)}
+                        {renderSelect("ARMEMENT SECONDAIRE", "secondaires", MEMBER_CONFIG.options.secondaires)}
+                        {renderSelect("GRENADES", "grenades", MEMBER_CONFIG.options.grenades)}
+                        {renderSelect("EQUIPEMENT", "equipement", MEMBER_CONFIG.options.equipements)}
+                        {renderSelect("PROTECTION", "gpb", MEMBER_CONFIG.options.gpbs)}
+                    </ScrollView>
+                    <View style={{flexDirection:'row', gap:10, marginTop:10}}>
+                        <TouchableOpacity onPress={deleteMember} style={[styles.navBtn, {borderColor: COLORS.danger}]}><Text style={{color: COLORS.danger}}>SUPPRIMER</Text></TouchableOpacity>
+                        <TouchableOpacity onPress={saveMemberChanges} style={[styles.navBtn, {backgroundColor: COLORS.success}]}><Text style={{color: '#000'}}>SAUVEGARDER</Text></TouchableOpacity>
+                    </View>
+                </View>
+            </KeyboardAvoidingView>
+        </Modal>
+    );
+  };
+
+  // --- STEPS RENDER ---
+  const renderStepContent = () => {
+    switch(step) {
+        case 0: // SITUATION
+            return (
+                <View>
+                    {renderInput("Date Opération", formData.date_op, t => updateField('date_op', t), false, "YYYY-MM-DD")}
+                    {renderInput("1.1 Générale", formData.situation_generale, t => updateField('situation_generale', t), true)}
+                    {renderInput("1.2 Particulière", formData.situation_particuliere, t => updateField('situation_particuliere', t), true)}
+                </View>
+            );
+        case 1: // ADVERSAIRES
+            return (
+                <View>
+                    <Text style={styles.sectionTitle}>ADVERSAIRE PRINCIPAL</Text>
+                    {renderAdversaireForm('adversaire_1')}
+                    <View style={styles.separator} />
+                    <Text style={styles.sectionTitle}>ADVERSAIRE SECONDAIRE</Text>
+                    {renderAdversaireForm('adversaire_2')}
+                </View>
+            );
+        case 2: // ENVIRONNEMENT
+            return (
+                <View>
+                    {renderInput("Amis / Soutien", formData.amis, t => updateField('amis', t))}
+                    {renderInput("Terrain / Météo", formData.terrain_info, t => updateField('terrain_info', t))}
+                    {renderInput("Population", formData.population, t => updateField('population', t))}
+                    {renderInput("Cadre Juridique", formData.cadre_juridique, t => updateField('cadre_juridique', t))}
+                </View>
+            );
+        case 3: // MISSION PSIG
+            return (
+                <View>
+                    {renderInput("Missions", formData.missions_psig, t => updateField('missions_psig', t), true)}
+                </View>
+            );
+        case 4: // EXECUTION
+            return (
+                <View>
+                    <View style={styles.row}>
+                        <View style={{flex:1}}>{renderInput("Date", formData.date_execution, t => updateField('date_execution', t))}</View>
+                        <View style={{width:10}}/>
+                        <View style={{flex:1}}>{renderInput("Heure (H)", formData.heure_execution, t => updateField('heure_execution', t))}</View>
+                    </View>
+                    {renderInput("Corps de la mission", formData.action_body_text, t => updateField('action_body_text', t), true)}
+                    
+                    <Text style={styles.label}>CHRONOLOGIE</Text>
+                    {formData.chronologie.map((item, i) => (
+                        <View key={i} style={{flexDirection:'row', alignItems:'center', marginBottom:5}}>
+                            <Text style={{color:COLORS.primary, width:30}}>{item.type}</Text>
+                            <TextInput style={[styles.input, {flex:2, marginRight:5}]} value={item.label} onChangeText={t => {
+                                const nu = [...formData.chronologie]; nu[i].label = t; updateField('chronologie', nu);
+                            }} />
+                            <TextInput style={[styles.input, {width:60}]} value={item.hour} placeholder="H" placeholderTextColor="#666" onChangeText={t => {
+                                const nu = [...formData.chronologie]; nu[i].hour = t; updateField('chronologie', nu);
+                            }} />
+                        </View>
+                    ))}
+
+                    <Text style={[styles.label, {marginTop:15}]}>HYPOTHÈSES</Text>
+                    {renderInput("H1", formData.hypothese_h1, t => updateField('hypothese_h1', t))}
+                    {renderInput("H2", formData.hypothese_h2, t => updateField('hypothese_h2', t))}
+                    {renderInput("H3", formData.hypothese_h3, t => updateField('hypothese_h3', t))}
+                </View>
+            );
+        case 5: // ARTICULATION
+            return (
+                <View>
+                    {renderInput("Place du Chef (Générale)", formData.place_chef_gen, t => updateField('place_chef_gen', t))}
+                    
+                    <Text style={styles.sectionTitle}>ÉQUIPE INDIA (INTER)</Text>
+                    {renderInput("Mission", formData.india_mission, t => updateField('india_mission', t), true)}
+                    {renderInput("Objectif", formData.india_objectif, t => updateField('india_objectif', t))}
+                    {renderInput("Itinéraire", formData.india_itineraire, t => updateField('india_itineraire', t), true)}
+                    {renderInput("Points Particuliers", formData.india_points, t => updateField('india_points', t), true)}
+                    {renderInput("CAT INDIA", formData.india_cat, t => updateField('india_cat', t), true)}
+                    
+                    <View style={styles.separator} />
+
+                    <Text style={styles.sectionTitle}>ÉQUIPE AO (APPUI)</Text>
+                    {renderInput("Zone d'installation", formData.ao_zone, t => updateField('ao_zone', t), true)}
+                    {renderInput("Mission", formData.ao_mission, t => updateField('ao_mission', t), true)}
+                    {renderInput("Secteur Surveillance", formData.ao_secteur, t => updateField('ao_secteur', t), true)}
+                    {renderInput("Points Particuliers", formData.ao_points, t => updateField('ao_points', t), true)}
+                    {renderInput("Place du Chef (AO)", formData.ao_chef, t => updateField('ao_chef', t))}
+                    {renderInput("CAT AO", formData.ao_cat, t => updateField('ao_cat', t), true)}
+                </View>
+            );
+        case 6: // PATRACDVR
+            return (
+                <View>
+                    <View style={{flexDirection:'row', justifyContent:'space-between', marginBottom:10}}>
+                        <Text style={styles.helper}>Tapez pour sélectionner. Maintenir pour éditer.</Text>
+                        <TouchableOpacity onPress={addVehicle}><Text style={{color:COLORS.success}}>+ VEHICULE</Text></TouchableOpacity>
+                    </View>
+                    {vehicles.map(v => (
+                        <TouchableOpacity key={v.id} style={styles.vehCard} onPress={() => assignSelectedMemberToVehicle(v.id)}>
+                            <View style={{flexDirection:'row', justifyContent:'space-between'}}>
+                                <Text style={styles.vehTitle}>{v.name} ({v.type})</Text>
+                                <Text style={{color:COLORS.danger}} onPress={() => setVehicles(vehicles.filter(x => x.id !== v.id))}>X</Text>
+                            </View>
+                            <View style={{flexDirection:'row', flexWrap:'wrap', gap:5, marginTop:5}}>
+                                {v.members.map(m => (
+                                    <TouchableOpacity key={m.id} onPress={() => returnMemberToPool(m.id)} onLongPress={() => openMemberEditor(m)} style={styles.memberBadge}>
+                                        <Text style={styles.memberText}>{m.trigramme}</Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </View>
+                        </TouchableOpacity>
+                    ))}
+                    <View style={{flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginTop:20}}>
+                        <Text style={styles.label}>POOL (NON ASSIGNÉS)</Text>
+                        <TouchableOpacity onPress={createNewMember}><Text style={{color: COLORS.primary}}>+ AJOUTER PAX</Text></TouchableOpacity>
+                    </View>
+                    <View style={{flexDirection:'row', flexWrap:'wrap', gap:5}}>
+                        {poolMembers.map(m => (
+                            <TouchableOpacity key={m.id} style={[styles.memberPoolBadge, selectedMemberId === m.id && {backgroundColor:'#1e3a8a', borderColor: COLORS.primary}]}
+                                onPress={() => handleMemberTap(m)} onLongPress={() => openMemberEditor(m)}>
+                                <Text style={{color:'#fff', fontWeight:'bold'}}>{m.trigramme}</Text>
+                                <Text style={{color:'#aaa', fontSize:9}}>{m.fonction}</Text>
                             </TouchableOpacity>
                         ))}
                     </View>
-                </TouchableOpacity>
-            ))}
+                </View>
+            );
+        case 7: // PHOTOS
+            return (
+                <ScrollView>
+                    <Text style={styles.helper}>Touchez une case pour ajouter une photo, puis touchez la photo pour annoter.</Text>
+                    {[
+                        {id: 'photo_adv_1', label: 'Adversaire Principal'},
+                        {id: 'photo_adv_2', label: 'Adversaire Secondaire'},
+                        {id: 'photo_renforts', label: 'Renforts'},
+                        {id: 'photo_india_iti', label: 'Itinéraire India'},
+                        {id: 'photo_ao_vue', label: 'Vue / Emplacement AO'},
+                        {id: 'photo_logistique', label: 'Logistique / Effrac'}
+                    ].map(item => {
+                        const p = photos.find(ph => ph.category === item.id);
+                        return (
+                            <TouchableOpacity key={item.id} style={styles.photoThumbLarge} 
+                                onPress={() => p ? (setCurrentPhotoToAnnotate(p.id), setIsAnnotationVisible(true)) : pickImage(item.id)}>
+                                {p ? (
+                                    <>
+                                        <Image source={{ uri: p.uri }} style={{width:'100%', height:'100%'}} resizeMode="cover" />
+                                        {p.annotations.length > 0 && <View style={styles.annotBadge} />}
+                                    </>
+                                ) : (
+                                    <Text style={{color:'#666', textAlign:'center'}}>+ {item.label}</Text>
+                                )}
+                                <Text style={styles.photoCat}>{item.label}</Text>
+                            </TouchableOpacity>
+                        );
+                    })}
+                </ScrollView>
+            );
+        case 8: // CAT
+            return (
+                <View>
+                    {renderInput("Générales", formData.cat_generales, t => updateField('cat_generales', t), true)}
+                    {renderInput("NO GO", formData.no_go, t => updateField('no_go', t), true, "Saisir les conditions de désengagement...")}
+                    {renderInput("Liaison", formData.cat_liaison, t => updateField('cat_liaison', t), true)}
+                </View>
+            );
+        case 9: // FINALISATION
+            return (
+                <View style={{alignItems:'center', gap: 20, marginTop: 50}}>
+                    <Text style={{color:COLORS.text, textAlign:'center'}}>L'Ordre Initial est prêt.</Text>
+                    
+                    <TouchableOpacity style={[styles.navBtn, {backgroundColor: COLORS.success, width:'100%', height: 60}]} onPress={handleGeneratePDF}>
+                        <Text style={[styles.navBtnText, {color:'#000', fontSize:18}]}>GÉNÉRER PDF</Text>
+                    </TouchableOpacity>
 
-            <View style={{flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginTop: 20}}>
-                <Text style={styles.label}>POOL (NON ASSIGNÉS)</Text>
-                <TouchableOpacity onPress={createNewMember} style={{padding:5}}>
-                    <Text style={{color: COLORS.primary, fontWeight: 'bold'}}>+ AJOUTER PAX</Text>
-                </TouchableOpacity>
-            </View>
-            
-            <View style={{flexDirection:'row', flexWrap:'wrap', gap:5}}>
-                {poolMembers.map(m => (
-                    <TouchableOpacity 
-                        key={m.id} 
-                        style={[
-                            styles.memberPoolBadge, 
-                            selectedMemberId === m.id && { borderColor: COLORS.primary, backgroundColor: '#1e3a8a' }
-                        ]}
-                        onPress={() => handleMemberTap(m)}
-                        onLongPress={() => openMemberEditor(m)}
-                        delayLongPress={500}
-                    >
-                        <Text style={{color:'#fff', fontWeight:'bold'}}>{m.trigramme}</Text>
-                        <Text style={{color:'#aaa', fontSize:9}}>{m.fonction}</Text>
+                    <TouchableOpacity style={[styles.navBtn, {backgroundColor: COLORS.surfaceLight, width:'100%'}]} onPress={() => Linking.openURL("https://oxsilaris06.github.io/CET/retex")}>
+                        <Text style={styles.navBtnText}>LIEN RETEX (WEB)</Text>
                     </TouchableOpacity>
-                ))}
-            </View>
-          </View>
-        );
-      case 7: // PHOTOS & ANNOTATIONS
-        return (
-            <ScrollView>
-                <Text style={styles.helper}>Tapez sur une photo pour l'annoter.</Text>
-                <View style={{flexDirection:'row', flexWrap:'wrap'}}>
-                    {photos.map(p => (
-                        <TouchableOpacity 
-                            key={p.id} 
-                            style={styles.photoThumb} 
-                            onPress={() => {
-                                setCurrentPhotoToAnnotate(p.id);
-                                setIsAnnotationVisible(true);
-                            }}
-                        >
-                            <Image source={{ uri: p.uri }} style={{width:'100%', height:100, borderRadius:4}} />
-                            <Text style={styles.photoCat}>{p.category.split('_')[0]}</Text>
-                            {p.annotations.length > 0 && <View style={styles.annotBadge} />}
+                    
+                    <View style={styles.separator} />
+                    
+                    <View style={{flexDirection:'row', gap:10}}>
+                         <TouchableOpacity style={[styles.navBtn, {backgroundColor: COLORS.surfaceLight}]} onPress={exportSessionToJson}>
+                            <Text style={styles.navBtnText}>SAUVEGARDER JSON</Text>
                         </TouchableOpacity>
-                    ))}
+                         <TouchableOpacity style={[styles.navBtn, {backgroundColor: COLORS.surfaceLight}]} onPress={importSessionFromJson}>
+                            <Text style={styles.navBtnText}>CHARGER JSON</Text>
+                        </TouchableOpacity>
+                    </View>
                 </View>
-            </ScrollView>
-        );
-      case 8: // DIVERS
-        return (
-            <View>
-                {renderInput("CAT Générales", "cat_generales", true)}
-                {renderInput("NO GO", "no_go", true)}
-                {renderInput("Liaison", "cat_liaison", true)}
-                
-                <View style={styles.separator} />
-                <Text style={styles.label}>GESTION DE SESSION</Text>
-                <View style={{flexDirection:'row', gap:10}}>
-                    <TouchableOpacity style={[styles.navBtn, {backgroundColor: COLORS.surfaceLight}]} onPress={exportSessionToJson}>
-                        <Text style={styles.navBtnText}>EXPORTER JSON</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={[styles.navBtn, {backgroundColor: COLORS.surfaceLight}]} onPress={importSessionFromJson}>
-                        <Text style={styles.navBtnText}>IMPORTER JSON</Text>
-                    </TouchableOpacity>
-                </View>
-            </View>
-        );
-      default: return null;
+            );
+        default: return null;
     }
   };
 
-  // --- RENDER MAIN ---
+  const STEPS = ["SITUATION", "ADVERSAIRES", "ENVIRON.", "MISSION", "EXECUTION", "ARTICULATION", "PATRAC", "PHOTOS", "CAT", "FIN"];
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        {/* BOUTON RETOUR */}
-        <TouchableOpacity onPress={onClose} style={styles.backButton}>
-            <Text style={styles.backButtonText}>{"<"}</Text>
-        </TouchableOpacity>
-        
-        {/* TITRE CENTRE ET FLEXIBLE */}
-        <Text style={styles.headerTitle} numberOfLines={1} adjustsFontSizeToFit>G-TAK OI GENERATOR</Text>
-        
+        <TouchableOpacity onPress={onClose} style={styles.backButton}><Text style={styles.backButtonText}>{"<"}</Text></TouchableOpacity>
+        <Text style={styles.headerTitle} numberOfLines={1}>G-TAK OI WIZARD</Text>
         <View style={{width: 40}} />
       </View>
 
-      {/* Progress Bar */}
       <View style={{height:50}}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.progressScroll}>
-            {["SITUATION", "CIBLE 1", "CIBLE 2", "ENVIRON.", "MISSION", "ARTICUL.", "PATRAC", "PHOTOS", "DIVERS"].map((s, i) => (
+            {STEPS.map((s, i) => (
                 <TouchableOpacity key={i} onPress={() => setStep(i)} style={[styles.stepItem, step === i && styles.stepItemActive]}>
                     <Text style={[styles.stepText, step === i && styles.stepTextActive]}>{i+1}. {s}</Text>
                 </TouchableOpacity>
@@ -1057,56 +1015,37 @@ export default function OIView({ onClose }: OIViewProps) {
         <TouchableOpacity style={styles.navBtn} onPress={() => step > 0 && setStep(step - 1)}>
             <Text style={styles.navBtnText}>PREC.</Text>
         </TouchableOpacity>
-        
-        {step < 8 ? (
-            <TouchableOpacity style={[styles.navBtn, {backgroundColor: COLORS.primary}]} onPress={() => { setStep(step + 1); saveData(); }}>
-                <Text style={[styles.navBtnText, {color:'#fff'}]}>SUIV.</Text>
-            </TouchableOpacity>
-        ) : (
-            <TouchableOpacity style={[styles.navBtn, {backgroundColor: COLORS.success}]} onPress={handleGeneratePDF}>
-                <Text style={[styles.navBtnText, {color:'#000'}]}>GÉNÉRER PDF</Text>
-            </TouchableOpacity>
-        )}
+        <TouchableOpacity style={[styles.navBtn, {backgroundColor: COLORS.primary}]} onPress={() => { 
+            if (step < 9) setStep(step + 1); 
+            saveData(); 
+        }}>
+            <Text style={[styles.navBtnText, {color:'#fff'}]}>{step === 9 ? "SAUVEGARDER" : "SUIV."}</Text>
+        </TouchableOpacity>
       </View>
 
       {renderMemberEditModal()}
 
-      {/* ANNOTATION MODAL */}
       <Modal visible={isAnnotationVisible} animationType="slide" onRequestClose={() => setIsAnnotationVisible(false)}>
         <SafeAreaView style={{flex:1, backgroundColor:'#000'}}>
             <View style={{padding:10, flexDirection:'row', justifyContent:'space-between'}}>
                 <Text style={{color:COLORS.text}}>Touchez pour placer un marqueur</Text>
-                <TouchableOpacity onPress={() => setIsAnnotationVisible(false)}><Text style={{color:COLORS.primary, fontWeight:'bold'}}>FERMER</Text></TouchableOpacity>
+                <TouchableOpacity onPress={() => setIsAnnotationVisible(false)}><Text style={{color:COLORS.primary}}>FERMER</Text></TouchableOpacity>
             </View>
-            <TouchableOpacity 
-                activeOpacity={1} 
-                style={{flex:1, justifyContent:'center'}} 
+            <TouchableOpacity activeOpacity={1} style={{flex:1, justifyContent:'center'}} 
                 onPress={(e) => {
                     const { locationX, locationY } = e.nativeEvent;
                     const width = Dimensions.get('window').width;
                     const height = 400; 
                     addAnnotation((locationX / width) * 100, (locationY / height) * 100);
-                }}
-            >
+                }}>
                 {currentPhotoToAnnotate && (
                     <View>
-                        <Image 
-                            source={{ uri: photos.find(p => p.id === currentPhotoToAnnotate)?.uri }} 
-                            style={{width: '100%', height: 400, resizeMode: 'contain'}} 
-                        />
+                        <Image source={{ uri: photos.find(p => p.id === currentPhotoToAnnotate)?.uri }} style={{width: '100%', height: 400, resizeMode: 'contain'}} />
                         {photos.find(p => p.id === currentPhotoToAnnotate)?.annotations.map((a, i) => (
-                            <View 
-                                key={i} 
-                                style={{
-                                    position:'absolute', 
-                                    left:`${a.x}%`, top:`${a.y}%`, 
-                                    width:24, height:24, borderRadius:12, 
-                                    backgroundColor:'rgba(255,0,0,0.8)', 
-                                    justifyContent:'center', alignItems:'center',
-                                    borderWidth:2, borderColor:'#fff',
-                                    transform: [{translateX: -12}, {translateY: -12}]
-                                }}
-                            >
+                            <View key={i} style={{
+                                position:'absolute', left:`${a.x}%`, top:`${a.y}%`, width:24, height:24, borderRadius:12, backgroundColor:'rgba(255,0,0,0.8)', 
+                                justifyContent:'center', alignItems:'center', borderWidth:2, borderColor:'#fff', transform: [{translateX: -12}, {translateY: -12}]
+                            }}>
                                 <Text style={{color:'#fff', fontWeight:'bold', fontSize:10}}>{a.text}</Text>
                             </View>
                         ))}
@@ -1143,13 +1082,11 @@ const styles = StyleSheet.create({
   chip: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surfaceLight },
   chipSelected: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
   footer: { flexDirection: 'row', padding: 15, borderTopWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface },
-  navBtn: { flex: 1, padding: 15, alignItems: 'center', borderRadius: 4, marginHorizontal: 5, borderWidth: 1, borderColor: COLORS.border },
+  navBtn: { flex: 1, padding: 15, alignItems: 'center', borderRadius: 4, marginHorizontal: 5, borderWidth: 1, borderColor: COLORS.border, justifyContent: 'center' },
   navBtnText: { color: COLORS.textMuted, fontWeight: 'bold' },
-  photoBtn: { backgroundColor: COLORS.surfaceLight, padding: 12, alignItems: 'center', borderRadius: 4, marginTop: 10, borderWidth: 1, borderColor: COLORS.textMuted, borderStyle: 'dashed' },
-  btnText: { color: COLORS.text, fontSize: 12 },
   
   // PATRACDVR
-  vehCard: { backgroundColor: COLORS.surfaceLight, padding: 10, marginBottom: 10, borderRadius: 4, borderWidth: 1, borderLeftWidth: 4 },
+  vehCard: { backgroundColor: COLORS.surfaceLight, padding: 10, marginBottom: 10, borderRadius: 4, borderWidth: 1, borderLeftWidth: 4, borderColor: COLORS.border },
   vehTitle: { color: '#fff', fontWeight: 'bold' },
   memberBadge: { backgroundColor: COLORS.surface, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, borderWidth: 1, borderColor: COLORS.border },
   memberPoolBadge: { backgroundColor: COLORS.surfaceLight, padding: 8, borderRadius: 4, minWidth: 60, alignItems: 'center', borderWidth: 1, borderColor: COLORS.border },
@@ -1157,11 +1094,11 @@ const styles = StyleSheet.create({
   helper: { color: COLORS.textMuted, fontStyle: 'italic', marginBottom: 10, fontSize: 11 },
 
   // PHOTOS
-  photoThumb: { width: '48%', margin: '1%', height: 100, backgroundColor: '#222', borderRadius: 4, overflow: 'hidden' },
-  photoCat: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: 'rgba(0,0,0,0.6)', color: '#fff', fontSize: 10, padding: 2, textAlign: 'center' },
+  photoThumbLarge: { width: '100%', height: 120, backgroundColor: '#222', borderRadius: 4, overflow: 'hidden', marginBottom: 10, justifyContent: 'center' },
+  photoCat: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: 'rgba(0,0,0,0.6)', color: '#fff', fontSize: 12, padding: 4, textAlign: 'center' },
   annotBadge: { position: 'absolute', top: 5, right: 5, width: 8, height: 8, borderRadius: 4, backgroundColor: COLORS.danger },
 
-  // MODAL EDIT MEMBER
+  // MODAL
   modalContainer: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', padding: 20 },
   modalContent: { backgroundColor: '#18181b', borderRadius: 12, padding: 20, maxHeight: '90%', borderWidth:1, borderColor: '#333' },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20 },
