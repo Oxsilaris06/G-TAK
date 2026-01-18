@@ -442,8 +442,8 @@ export default function OIView({ onClose }: OIViewProps) {
 
   const createNewMember = () => {
     const newM: IMember = {
-        id: `m_${Date.now()}`, trigramme: "X", fonction: "Inter", cellule: "India 1",
-        tenue: "UBAS", principales: "Sans", secondaires: "PSA", afis: "Sans", grenades: "Sans",
+        id: `m_${Date.now()}`, trigramme: "NOUVEAU", fonction: "Inter", cellule: "India 1",
+        tenue: "UBAS", principales: "HK 416", secondaires: "PSA", afis: "Sans", grenades: "Sans",
         equipement: "Sans", equipement2: "Sans", gpb: "GPBL"
     };
     setPoolMembers(prev => [...prev, newM]);
@@ -490,7 +490,6 @@ export default function OIView({ onClose }: OIViewProps) {
   };
 
   const addVehicle = () => {
-    // MODIFICATION: Type vide par défaut pour ne pas afficher (Nouveau)
     const type = ""; 
     const newVeh: IVehicle = { id: `v_${Date.now()}`, name: `Vehicule ${vehicles.length + 1}`, type, members: [] };
     setVehicles([...vehicles, newVeh]);
@@ -702,7 +701,7 @@ export default function OIView({ onClose }: OIViewProps) {
     const drawPatrac = () => {
         return vehicles.map(v => `
             <div style="margin-bottom: 15px; page-break-inside: avoid;">
-                <div style="background:#ccc; border:1px solid #000; padding:4px; font-weight:bold;">VÉHICULE: ${v.name} ${v.type ? `(${v.type})` : ''}</div>
+                <div style="background:#ccc; border:1px solid #000; padding:4px; font-weight:bold;">VÉHICULE: ${v.name}${v.type ? ` (${v.type})` : ''}</div>
                 <table style="width:100%; border-collapse:collapse; font-size:9px; text-align:center;">
                     <thead style="background:#eee;">
                         <tr>
@@ -1062,7 +1061,7 @@ export default function OIView({ onClose }: OIViewProps) {
         <Modal visible={isVehicleRenameVisible} animationType="fade" transparent>
             <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalContainer}>
                 <View style={[styles.modalContent, {maxHeight: 200}]}>
-                    <Text style={[styles.modalTitle, {marginBottom:20}]}>RENOMMER VÉHICULE</Text>
+                    <Text style={[styles.modalTitle, {marginBottom:20}]}>MODIFIER VÉHICULE</Text>
                     <TextInput 
                         style={styles.input} 
                         value={newVehicleName} 
@@ -1173,7 +1172,7 @@ export default function OIView({ onClose }: OIViewProps) {
                     <View style={{flexDirection:'row', justifyContent:'space-between', marginBottom:10}}>
                         <Text style={styles.helper}>Tapez pour sélectionner. Maintenir pour éditer.</Text>
                         <TouchableOpacity onPress={addVehicle} style={{flexDirection: 'row', alignItems: 'center'}}>
-                            <MaterialIcons name="add-circle" size={40} color={COLORS.success} />
+                            <MaterialIcons name="add-circle" size={32} color={COLORS.success} />
                         </TouchableOpacity>
                     </View>
                     {vehicles.map(v => (
@@ -1187,7 +1186,7 @@ export default function OIView({ onClose }: OIViewProps) {
                             <View style={{flexDirection:'row', justifyContent:'space-between', alignItems: 'center'}}>
                                 <View style={{flexDirection: 'row', alignItems: 'center'}}>
                                     <MaterialIcons name="directions-car" size={20} color={COLORS.text} style={{marginRight: 8}}/>
-                                    <Text style={styles.vehTitle}>{v.name} {v.type ? `(${v.type})` : ''}</Text>
+                                    <Text style={styles.vehTitle}>{v.name}{v.type ? ` (${v.type})` : ''}</Text>
                                 </View>
                                 <TouchableOpacity onPress={() => removeVehicle(v)}>
                                     <MaterialIcons name="delete" size={20} color={COLORS.danger} />
