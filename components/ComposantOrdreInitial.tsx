@@ -90,7 +90,7 @@ interface IAdversaire {
 interface IOIState {
   date_op: string;
   trigramme_redacteur: string;
-  unite_redacteur: string; // Ajouté pour le titre PDF (Unité)
+  unite_redacteur: string;
   situation_generale: string;
   situation_particuliere: string;
   adversaire_1: IAdversaire;
@@ -122,6 +122,7 @@ interface IOIState {
   cat_generales: string;
   no_go: string;
   cat_liaison: string;
+  logo_mode: 'background' | 'included'; // Nouveau champ pour le mode du logo
 }
 
 interface IMember {
@@ -170,7 +171,7 @@ const DEFAULT_ADVERSAIRE: IAdversaire = {
 const INITIAL_STATE: IOIState = {
   date_op: "",
   trigramme_redacteur: "",
-  unite_redacteur: "", // Initiale vide
+  unite_redacteur: "",
   situation_generale: "", situation_particuliere: "",
   adversaire_1: { ...DEFAULT_ADVERSAIRE },
   adversaire_2: { ...DEFAULT_ADVERSAIRE },
@@ -196,7 +197,8 @@ const INITIAL_STATE: IOIState = {
   ao_cat: "- Compte rendu de mise en place.\n- Renseigner régulièrement.\n- Si décelé, CR.\n- Si fuite, CR direction fuite + interpellation si rapport de force favorable.\n- Si rébellion, usage du strict minimum de force nécessaire.\n- Si retranchement, CR + réarticulation pour fixer l'adversaire.",
   cat_generales: "- Si rébellion, user du strict niveau de force nécessaire\n- Si retranché, alerter en mesure de se ré-articuler\n- Si tente de fuir, alerter en mesure de jalonner/interpeller\n- UDA : Article L435-1 du CSI + légitime défense",
   no_go: "", 
-  cat_liaison: "TOM: \nDIR: \nGestuelle et visuelle entre les éléments INDIA"
+  cat_liaison: "TOM: \nDIR: \nGestuelle et visuelle entre les éléments INDIA",
+  logo_mode: 'included'
 };
 
 // --- SOUS-COMPOSANTS ---
@@ -489,7 +491,8 @@ export default function OIView({ onClose }: OIViewProps) {
   };
 
   const addVehicle = () => {
-    const type = "Nouveau";
+    // MODIFICATION: Type vide par défaut pour ne pas afficher (Nouveau)
+    const type = ""; 
     const newVeh: IVehicle = { id: `v_${Date.now()}`, name: `Vehicule ${vehicles.length + 1}`, type, members: [] };
     setVehicles([...vehicles, newVeh]);
   };
@@ -555,8 +558,42 @@ export default function OIView({ onClose }: OIViewProps) {
 
   // --- HTML GENERATOR FOR PDF ---
   const generateHTML = () => {
-    const { date_op, trigramme_redacteur, unite_redacteur } = formData;
+    const { date_op, trigramme_redacteur, unite_redacteur, logo_mode } = formData;
     
+    // Récupération du Logo
+    const logoPhoto = photos.find(p => p.category === 'photo_logo_unite');
+    const logoSrc = logoPhoto?.base64 ? `data:image/jpeg;base64,${logoPhoto.base64}` : null;
+
+    // LOGIQUE DE MISE EN PAGE DU LOGO (PAGE 1)
+    let page1Style = `display: flex; flex-direction: column; height: 90vh;`;
+    let logoHtml = '';
+    let topContentStyle = '';
+
+    if (logoSrc) {
+        if (logo_mode === 'background') {
+            // MODE FOND D'ÉCRAN
+            page1Style += `justify-content: center; position: relative;`;
+            logoHtml = `
+                <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 80%; height: auto; opacity: 0.7; z-index: -1;">
+                    <img src="${logoSrc}" style="width: 100%; height: auto;" />
+                </div>
+            `;
+        } else {
+            // MODE INCLUE
+            // "La photo se mets en dessous de l'encadré ... Ce qui a pour effet de remonter ces deux éléments quasiment au plus haut (petit padding)"
+            page1Style += `justify-content: flex-start; padding-top: 20px;`;
+            // Logo 100% opacité
+            logoHtml = `
+                <div style="margin-top: 20px; text-align: center;">
+                    <img src="${logoSrc}" style="max-width: 80%; max-height: 50vh; width: auto; height: auto;" />
+                </div>
+            `;
+        }
+    } else {
+        // Pas de logo : centré par défaut
+        page1Style += `justify-content: center;`;
+    }
+
     // Génération conditionnelle du titre "Cible"
     let cibleTitleHtml = '';
     if (formData.adversaire_1.nom && formData.adversaire_2.nom) {
@@ -667,7 +704,7 @@ export default function OIView({ onClose }: OIViewProps) {
     const drawPatrac = () => {
         return vehicles.map(v => `
             <div style="margin-bottom: 15px; page-break-inside: avoid;">
-                <div style="background:#ccc; border:1px solid #000; padding:4px; font-weight:bold;">VÉHICULE: ${v.name} (${v.type})</div>
+                <div style="background:#ccc; border:1px solid #000; padding:4px; font-weight:bold;">VÉHICULE: ${v.name} ${v.type ? `(${v.type})` : ''}</div>
                 <table style="width:100%; border-collapse:collapse; font-size:9px; text-align:center;">
                     <thead style="background:#eee;">
                         <tr>
@@ -716,7 +753,7 @@ export default function OIView({ onClose }: OIViewProps) {
           @page { size: A4 landscape; margin: 1cm; }
           body { font-family: 'JetBrains Mono', sans-serif; background: #fff; color: #000; padding: 0; font-size: 11px; }
           .page-break { page-break-before: always; }
-          h1 { font-family: 'Oswald'; text-align: center; font-size: 36px; border: 4px solid #000; padding: 20px; margin-bottom: 50px; text-transform: uppercase; letter-spacing: 2px; }
+          h1 { font-family: 'Oswald'; text-align: center; font-size: 36px; border: 4px solid #000; padding: 20px; margin-bottom: 20px; text-transform: uppercase; letter-spacing: 2px; }
           h2 { font-family: 'Oswald'; font-size: 16px; border-bottom: 2px solid #000; margin-top: 20px; margin-bottom: 10px; padding-bottom: 2px; text-transform: uppercase; }
           h3 { font-size: 12px; font-weight: bold; margin-top: 10px; margin-bottom: 5px; text-decoration: underline; }
           p { margin: 2px 0; text-align: justify; }
@@ -731,9 +768,13 @@ export default function OIView({ onClose }: OIViewProps) {
       <body>
 
         <!-- PAGE 1: COUVERTURE -->
-        <div style="display: flex; flex-direction: column; justify-content: center; height: 90vh;">
-            <h1>OPÉRATION DE POLICE JUDICIAIRE<br/>DU<br/>${date_op}<br/>${unite_redacteur ? unite_redacteur : ''}</h1>
-            ${cibleTitleHtml}
+        <div style="${page1Style}">
+            ${logo_mode === 'background' ? logoHtml : ''}
+            <div>
+                <h1>OPÉRATION DE POLICE JUDICIAIRE<br/>DU<br/>${date_op}<br/>${unite_redacteur ? unite_redacteur : ''}</h1>
+                ${cibleTitleHtml}
+            </div>
+            ${logo_mode === 'included' ? logoHtml : ''}
         </div>
 
         <div class="page-break"></div>
@@ -1000,6 +1041,8 @@ export default function OIView({ onClose }: OIViewProps) {
                         {renderSelect("TENUE", "tenue", MEMBER_CONFIG.options.tenues)}
                         {renderSelect("ARMEMENT PRINCIPAL", "principales", MEMBER_CONFIG.options.principales)}
                         {renderSelect("ARMEMENT SECONDAIRE", "secondaires", MEMBER_CONFIG.options.secondaires)}
+                        {/* AJOUT CATÉGORIE AFI */}
+                        {renderSelect("A.F.I.", "afis", MEMBER_CONFIG.options.afis)}
                         {renderSelect("GRENADES", "grenades", MEMBER_CONFIG.options.grenades)}
                         {renderSelect("EQUIPEMENT", "equipement", MEMBER_CONFIG.options.equipements)}
                         {renderSelect("PROTECTION", "gpb", MEMBER_CONFIG.options.gpbs)}
@@ -1130,7 +1173,9 @@ export default function OIView({ onClose }: OIViewProps) {
                 <View>
                     <View style={{flexDirection:'row', justifyContent:'space-between', marginBottom:10}}>
                         <Text style={styles.helper}>Tapez pour sélectionner. Maintenir pour éditer.</Text>
-                        <TouchableOpacity onPress={addVehicle} style={{flexDirection: 'row', alignItems: 'center'}}><MaterialIcons name="add" size={16} color={COLORS.success} /><Text style={{color:COLORS.success, fontWeight: 'bold'}}> VEHICULE</Text></TouchableOpacity>
+                        <TouchableOpacity onPress={addVehicle} style={{flexDirection: 'row', alignItems: 'center'}}>
+                            <MaterialIcons name="add-circle" size={40} color={COLORS.success} />
+                        </TouchableOpacity>
                     </View>
                     {vehicles.map(v => (
                         <TouchableOpacity 
@@ -1143,7 +1188,7 @@ export default function OIView({ onClose }: OIViewProps) {
                             <View style={{flexDirection:'row', justifyContent:'space-between', alignItems: 'center'}}>
                                 <View style={{flexDirection: 'row', alignItems: 'center'}}>
                                     <MaterialIcons name="directions-car" size={20} color={COLORS.text} style={{marginRight: 8}}/>
-                                    <Text style={styles.vehTitle}>{v.name} ({v.type})</Text>
+                                    <Text style={styles.vehTitle}>{v.name} {v.type ? `(${v.type})` : ''}</Text>
                                 </View>
                                 <TouchableOpacity onPress={() => removeVehicle(v)}>
                                     <MaterialIcons name="delete" size={20} color={COLORS.danger} />
@@ -1181,6 +1226,7 @@ export default function OIView({ onClose }: OIViewProps) {
                 <ScrollView>
                     <Text style={styles.helper}>Touchez une case pour ajouter une photo. Vous pouvez en ajouter plusieurs par catégorie.</Text>
                     {[
+                        {id: 'photo_logo_unite', label: 'Logo unité - Fond transparent requis.'}, // Ajout Logo
                         {id: 'photo_adv_1', label: 'Adversaire Principal'},
                         {id: 'photo_adv_2', label: 'Adversaire Secondaire'},
                         {id: 'photo_renforts', label: 'Renforts'},
@@ -1194,14 +1240,37 @@ export default function OIView({ onClose }: OIViewProps) {
                             <View key={item.id} style={{marginBottom:15}}>
                                 <TouchableOpacity style={styles.photoThumbLarge} onPress={() => pickImage(item.id)}>
                                     <MaterialIcons name="add-a-photo" size={24} color={COLORS.textMuted} />
-                                    <Text style={{color:COLORS.textMuted, marginTop: 5, fontSize: 12, fontWeight:'bold'}}>AJOUTER: {item.label}</Text>
+                                    <Text style={{color:COLORS.textMuted, marginTop: 5, fontSize: 12, fontWeight:'bold'}}>
+                                        {item.id === 'photo_logo_unite' ? (
+                                            <>AJOUTER : Logo unité - <Text style={{fontStyle:'italic'}}>Fond transparent requis.</Text></>
+                                        ) : (
+                                            `AJOUTER: ${item.label}`
+                                        )}
+                                    </Text>
                                 </TouchableOpacity>
                                 
+                                {item.id === 'photo_logo_unite' && (
+                                    <View style={{flexDirection: 'row', justifyContent: 'center', marginVertical: 10, gap: 20}}>
+                                        <TouchableOpacity 
+                                            style={[styles.chip, formData.logo_mode === 'background' && styles.chipSelected]} 
+                                            onPress={() => updateField('logo_mode', 'background')}
+                                        >
+                                            <Text style={{color: formData.logo_mode === 'background' ? 'white' : COLORS.textMuted}}>Fond d'écran</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity 
+                                            style={[styles.chip, formData.logo_mode === 'included' && styles.chipSelected]} 
+                                            onPress={() => updateField('logo_mode', 'included')}
+                                        >
+                                            <Text style={{color: formData.logo_mode === 'included' ? 'white' : COLORS.textMuted}}>Inclue</Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                )}
+
                                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginTop:10}}>
                                 {catPhotos.map((p, idx) => (
                                     <TouchableOpacity key={p.id} onPress={() => { setCurrentPhotoToAnnotate(p.id); setIsAnnotationVisible(true); }}
                                         style={{marginRight: 10, position:'relative'}}>
-                                        <Image source={{ uri: p.uri }} style={{width:100, height:100, borderRadius:8, borderWidth: 1, borderColor: COLORS.border}} resizeMode="cover" />
+                                        <Image source={{ uri: p.uri }} style={{width:100, height:100, borderRadius:8, borderWidth: 1, borderColor: COLORS.border}} resizeMode="contain" />
                                         {p.annotations.length > 0 && <View style={styles.annotBadge} />}
                                         <TouchableOpacity style={{position:'absolute', top:5, right:5, backgroundColor:'rgba(0,0,0,0.6)', width:24, height:24, borderRadius:12, alignItems:'center', justifyContent:'center'}}
                                             onPress={() => deletePhoto(p.id)}>
@@ -1340,6 +1409,7 @@ export default function OIView({ onClose }: OIViewProps) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.bg },
+  // CORRECTION PADDING TOP HEADER
   header: { 
       backgroundColor: '#09090b', 
       borderBottomWidth: 1, 
