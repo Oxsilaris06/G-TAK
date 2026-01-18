@@ -1,4 +1,4 @@
-name: Build & Release Praxis (All Mods)
+name: Build & Release Praxis
 
 on:
   workflow_dispatch:
@@ -70,7 +70,7 @@ jobs:
 
       - name: Renommer et Publier
         run: |
-          mv android/app/build/outputs/apk/debug/app-debug.apk Praxis-V4.apk
+          mv android/app/build/outputs/apk/debug/app-debug.apk Praxis.apk
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
