@@ -569,7 +569,7 @@ export default function OIView({ onClose }: OIViewProps) {
 
     // CONFIGURATION CSS DE LA PAGE 1
     // A4 Paysage : 297mm x 210mm. Marges CSS : 1cm.
-    // Pour le fond d'écran, on utilise fixed avec marges négatives pour couvrir toute la page, marges incluses.
+    // Pour le fond d'écran, on utilise absolute avec marges négatives pour couvrir toute la page, marges incluses.
     
     let logoHtml = '';
     let page1ContainerStyle = '';
@@ -577,9 +577,10 @@ export default function OIView({ onClose }: OIViewProps) {
     if (logoSrc) {
         if (isBg) {
             // MODE FOND D'ÉCRAN
-            // Image en arrière plan absolu couvrant tout le A4
+            // Image en arrière plan absolu (et non fixed) pour rester uniquement sur la page 1
+            // Couvre tout le A4 (29.7cm x 21cm) en compensant les marges de 1cm
             logoHtml = `
-                <div style="position: fixed; top: -1.1cm; left: -1.1cm; width: 30cm; height: 21.5cm; z-index: -10; overflow: hidden;">
+                <div style="position: absolute; top: -1cm; left: -1cm; width: 29.7cm; height: 21cm; z-index: -10; overflow: hidden;">
                     <img src="${logoSrc}" style="width: 100%; height: 100%; object-fit: cover; opacity: 0.6;" />
                 </div>
             `;
@@ -754,6 +755,10 @@ export default function OIView({ onClose }: OIViewProps) {
         `).join('');
     };
 
+    // STYLES PDF AUGMENTÉS
+    const enlargedStyle = `font-size: 14px;`;
+    const enlargedTableStyle = `font-size: 12px;`;
+
     return `
       <!DOCTYPE html>
       <html>
@@ -851,24 +856,24 @@ export default function OIView({ onClose }: OIViewProps) {
         <div class="row">
             <div class="col">
                  <h2>4. MISSION PSIG</h2>
-                 <div class="box" style="text-align:center; font-weight:bold; font-size:14px; background:#f0f0f0;">
+                 <div class="box" style="text-align:center; font-weight:bold; ${enlargedStyle} background:#f0f0f0;">
                     ${formData.missions_psig.replace(/\n/g, '<br>')}
                  </div>
 
                  <h2>5. EXÉCUTION</h2>
-                 <div class="box">
+                 <div class="box" style="${enlargedStyle}">
                     <strong>POUR LE:</strong> ${formData.date_execution} à ${formData.heure_execution}<br/><br/>
                     ${formData.action_body_text.replace(/\n/g, '<br>')}
                  </div>
             </div>
             <div class="col">
                 <h3>CHRONOLOGIE</h3>
-                <table>
+                <table style="${enlargedTableStyle}">
                     <tr class="highlight"><th>H</th><th>PHASE</th></tr>
                     ${formData.chronologie.map(c => `<tr><td style="text-align:center;">${c.hour}</td><td>${c.type} - ${c.label}</td></tr>`).join('')}
                 </table>
                 <h3>HYPOTHÈSES</h3>
-                <ul>
+                <ul style="${enlargedStyle}">
                     <li><strong>H1:</strong> ${formData.hypothese_h1}</li>
                     <li><strong>H2:</strong> ${formData.hypothese_h2}</li>
                     <li><strong>H3:</strong> ${formData.hypothese_h3}</li>
@@ -880,19 +885,19 @@ export default function OIView({ onClose }: OIViewProps) {
 
         <!-- PAGE 5: ARTICULATION -->
         <h2>6. ARTICULATION</h2>
-        <div style="border:1px solid #000; padding:5px; margin-bottom:10px; background:#ddd; font-weight:bold; text-align:center;">
+        <div style="border:1px solid #000; padding:5px; margin-bottom:10px; background:#ddd; font-weight:bold; text-align:center; ${enlargedStyle}">
             PLACE DU CHEF: ${formData.place_chef_gen}
         </div>
 
         <div class="row">
             <div class="col" style="border-right: 2px dashed #000; padding-right: 10px;">
-                <div style="background:#000; color:#fff; padding:5px; font-weight:bold; text-align:center;">INDIA (INTER)</div>
-                <div class="box">
+                <div style="background:#000; color:#fff; padding:5px; font-weight:bold; text-align:center; ${enlargedStyle}">INDIA (INTER)</div>
+                <div class="box" style="${enlargedStyle}">
                     <strong>MISSION:</strong> ${formData.india_mission}<br/>
                     <strong>OBJECTIF:</strong> ${formData.india_objectif}<br/>
                     <strong>ITINÉRAIRE:</strong> ${formData.india_itineraire}<br/>
                 </div>
-                <div class="box" style="font-size:9px;">
+                <div class="box" style="font-size:12px;">
                     <strong>CAT SPÉCIFIQUE:</strong><br/>
                     ${formData.india_cat.replace(/\n/g, '<br>')}
                 </div>
@@ -900,14 +905,14 @@ export default function OIView({ onClose }: OIViewProps) {
                 ${formatCelluleMembers("India")}
             </div>
             <div class="col" style="padding-left: 10px;">
-                <div style="background:#000; color:#fff; padding:5px; font-weight:bold; text-align:center;">AO (APPUI)</div>
-                <div class="box">
+                <div style="background:#000; color:#fff; padding:5px; font-weight:bold; text-align:center; ${enlargedStyle}">AO (APPUI)</div>
+                <div class="box" style="${enlargedStyle}">
                     <strong>MISSION:</strong> ${formData.ao_mission}<br/>
                     <strong>ZONE:</strong> ${formData.ao_zone}<br/>
                     <strong>SECTEUR:</strong> ${formData.ao_secteur}<br/>
                     <strong>CHEF AO:</strong> ${formData.ao_chef}
                 </div>
-                <div class="box" style="font-size:9px;">
+                <div class="box" style="font-size:12px;">
                     <strong>CAT SPÉCIFIQUE:</strong><br/>
                     ${formData.ao_cat.replace(/\n/g, '<br>')}
                 </div>
@@ -935,14 +940,14 @@ export default function OIView({ onClose }: OIViewProps) {
         <div class="row">
             <div class="col">
                 <h3>CONDUITES À TENIR GÉNÉRALES</h3>
-                <div class="box">
+                <div class="box" style="${enlargedStyle}">
                     ${formData.cat_generales.replace(/\n/g, '<br>')}
                 </div>
-                ${formData.no_go ? `<div class="box" style="border:2px solid red; color:red; font-weight:bold;">NO GO: ${formData.no_go}</div>` : ''}
+                ${formData.no_go ? `<div class="box" style="border:2px solid red; color:red; font-weight:bold; ${enlargedStyle}">NO GO: ${formData.no_go}</div>` : ''}
             </div>
             <div class="col">
                 <h3>LIAISON</h3>
-                <div class="box">
+                <div class="box" style="${enlargedStyle}">
                     ${formData.cat_liaison.replace(/\n/g, '<br>')}
                 </div>
             </div>
@@ -1145,7 +1150,27 @@ export default function OIView({ onClose }: OIViewProps) {
                     </View>
                     {renderInput("Corps de la mission", formData.action_body_text, t => updateField('action_body_text', t), true)}
                     
-                    <Text style={styles.label}>CHRONOLOGIE</Text>
+                    <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 10, marginBottom: 5}}>
+                        <Text style={styles.label}>CHRONOLOGIE</Text>
+                        <View style={{flexDirection: 'row', gap: 10}}>
+                            <TouchableOpacity onPress={() => {
+                                const newChrono = [...formData.chronologie];
+                                if (newChrono.length > 0) newChrono.pop();
+                                updateField('chronologie', newChrono);
+                            }}>
+                                <MaterialIcons name="remove-circle" size={24} color={COLORS.danger} />
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={() => {
+                                const newChrono = [...formData.chronologie];
+                                const nextIndex = newChrono.length;
+                                newChrono.push({ type: `T${nextIndex}`, label: 'Phase...', hour: '' });
+                                updateField('chronologie', newChrono);
+                            }}>
+                                <MaterialIcons name="add-circle" size={24} color={COLORS.success} />
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+
                     {formData.chronologie.map((item, i) => (
                         <View key={i} style={{flexDirection:'row', alignItems:'center', marginBottom:5}}>
                             <Text style={{color:COLORS.primary, width:30, fontWeight: 'bold'}}>{item.type}</Text>
