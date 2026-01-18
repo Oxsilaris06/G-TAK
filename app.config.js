@@ -36,7 +36,11 @@ export default {
             compileSdkVersion: 34,
             targetSdkVersion: 34,
             buildToolsVersion: "34.0.0",
-            newArchEnabled: false
+            newArchEnabled: false,
+            // AUGMENTATION DE LA MÉMOIRE JVM POUR GRADLE (FIX HEAP SPACE)
+            gradleProperties: [
+              { key: 'org.gradle.jvmargs', value: '-Xmx4608m -XX:MaxMetaspaceSize=512m' }
+            ]
           }
         }
       ],
