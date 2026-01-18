@@ -57,7 +57,20 @@ const App: React.FC = () => {
   const [activeNotif, setActiveNotif] = useState<{ id: string, msg: string, type: 'alert' | 'info' | 'success' | 'warning' } | null>(null);
   
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
-  const [user, setUser] = useState<UserData>({ id: '', callsign: '', role: OperatorRole.OPR, status: OperatorStatus.CLEAR, joinedAt: Date.now(), bat: 100, head: 0, lat: 0, lng: 0, lastMsg: '' });
+  
+  // Initialisation de l'utilisateur avec un ID temporaire si nécessaire, mais on attendra l'event PEER_OPEN pour le confirmer
+  const [user, setUser] = useState<UserData>({ 
+      id: '', // Sera remplacé par l'ID PeerJS réel
+      callsign: '', 
+      role: OperatorRole.OPR, 
+      status: OperatorStatus.CLEAR, 
+      joinedAt: Date.now(), 
+      bat: 100, 
+      head: 0, 
+      lat: 0, 
+      lng: 0, 
+      lastMsg: '' 
+  });
 
   const [view, setView] = useState<ViewType | 'oi'>('login'); 
   const [lastView, setLastView] = useState<ViewType>('menu'); 
@@ -176,6 +189,7 @@ const App: React.FC = () => {
     return () => subscription.remove();
   }, [settings.gpsUpdateInterval]);
 
+  // Initialisation de l'application
   useEffect(() => {
       let mounted = true;
       const initApp = async () => {
@@ -223,11 +237,18 @@ const App: React.FC = () => {
           }
       });
 
+      // Abonnement UNIQUE aux événements de connectivité
       const unsubConn = connectivityService.subscribe((event) => {
           handleConnectivityEvent(event);
       });
       
-      return () => { mounted = false; unsubConn(); battSub.remove(); if(magSubscription.current) magSubscription.current.remove(); };
+      return () => { 
+          mounted = false; 
+          unsubConn(); // Désabonnement propre
+          battSub.remove(); 
+          if(magSubscription.current) magSubscription.current.remove(); 
+          // Note: On ne nettoie pas connectivityService ici pour éviter de couper la connexion en changeant de vue si le composant est remonté
+      };
   }, []);
 
   useEffect(() => {
@@ -281,9 +302,12 @@ const App: React.FC = () => {
   }, []);
 
   const handleConnectivityEvent = (event: ConnectivityEvent) => {
+      console.log("App Event Received:", event.type); // Debug log essentiel
       switch (event.type) {
           case 'PEER_OPEN': 
-              setUser(prev => ({ ...prev, id: event.id })); setIsServicesReady(true); 
+              console.log("Peer Open ID:", event.id);
+              setUser(prev => ({ ...prev, id: event.id })); 
+              setIsServicesReady(true); 
               break;
           case 'PEERS_UPDATED': 
               setPeers(prev => {
@@ -304,11 +328,27 @@ const App: React.FC = () => {
                   return cleanPeers;
               });
               break;
-          case 'HOST_CONNECTED': setHostId(event.hostId); showToast("Lien Hôte établi", "success"); break;
+          case 'HOST_CONNECTED': 
+              setHostId(event.hostId); 
+              showToast("Lien Hôte établi", "success"); 
+              break;
           case 'TOAST': showToast(event.msg, event.level as any); break;
           case 'DATA_RECEIVED': handleProtocolData(event.data, event.from); break;
-          case 'DISCONNECTED': if (event.reason === 'KICKED') { Alert.alert("Session Terminée", "Exclu de la session."); finishLogout(); } else if (event.reason === 'NO_HOST') { showToast("Recherche Hôte...", "warning"); } break;
-          case 'NEW_HOST_PROMOTED': setHostId(event.hostId); if (event.hostId === userRef.current.id) { setUser(p => ({...p, role: OperatorRole.HOST})); Alert.alert("Promotion", "Vous êtes le nouveau Chef de Session."); } break;
+          case 'DISCONNECTED': 
+              if (event.reason === 'KICKED') { 
+                  Alert.alert("Session Terminée", "Exclu de la session."); 
+                  finishLogout(); 
+              } else if (event.reason === 'NO_HOST') { 
+                  showToast("Recherche Hôte...", "warning"); 
+              } 
+              break;
+          case 'NEW_HOST_PROMOTED': 
+              setHostId(event.hostId); 
+              if (event.hostId === userRef.current.id) { 
+                  setUser(p => ({...p, role: OperatorRole.HOST})); 
+                  Alert.alert("Promotion", "Vous êtes le nouveau Chef de Session."); 
+              } 
+              break;
       }
   };
 
@@ -393,15 +433,29 @@ const App: React.FC = () => {
   const joinSession = async (id?: string) => {
       const finalId = id || hostInput.toUpperCase();
       if (!finalId) return;
+      
       setHostId(finalId);
-      setUser(prev => ({ ...prev, role: OperatorRole.OPR, paxColor: settings.userArrowColor }));
-      connectivityService.init({ ...user, role: OperatorRole.OPR, paxColor: settings.userArrowColor }, OperatorRole.OPR, finalId);
+      
+      // Préparation de l'utilisateur AVANT l'init
+      const userData = { ...user, role: OperatorRole.OPR, paxColor: settings.userArrowColor };
+      setUser(userData);
+      
+      console.log("Joining session as OPR with Host ID:", finalId);
+      await connectivityService.init(userData, OperatorRole.OPR, finalId);
+      
       setView('map'); setLastOpsView('map');
   };
 
   const createSession = async () => {
-      setUser(prev => ({ ...prev, role: OperatorRole.HOST, paxColor: settings.userArrowColor }));
-      connectivityService.init({ ...user, role: OperatorRole.HOST, paxColor: settings.userArrowColor }, OperatorRole.HOST);
+      // Préparation de l'utilisateur AVANT l'init
+      const userData = { ...user, role: OperatorRole.HOST, paxColor: settings.userArrowColor };
+      setUser(userData);
+      
+      console.log("Creating session as HOST");
+      await connectivityService.init(userData, OperatorRole.HOST);
+      
+      // En tant qu'hôte, notre propre ID devient le HostID dès que PeerJS est prêt
+      // Cela sera géré par l'événement PEER_OPEN dans handleConnectivityEvent
       setView('map'); setLastOpsView('map');
   };
 
