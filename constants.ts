@@ -5,28 +5,43 @@ export const CONFIG = {
   SESSION_STORAGE_KEY: 'tacsuite_v1_session',
   TRIGRAM_STORAGE_KEY: 'tacsuite_v1_trigram',
   
-  // Configuration PeerJS Optimisée
+  // Configuration PeerJS Optimisée pour Mobile (4G/5G/NATs stricts)
   PEER_CONFIG: {
-    // Force le HTTPS pour le serveur de signalisation (CRITIQUE ANDROID)
     secure: true, 
     host: '0.peerjs.com', 
-    port: 443,
+    port: 443, 
     path: '/',
     
-    debug: 2, // Niveau 2 pour voir les erreurs de connexion, 3 pour tout
+    // Debug level 1 pour la prod (erreurs critiques uniquement)
+    debug: 1, 
+    
     config: {
+      // Optimisation: Ne pas bloquer l'initialisation sur mobile
+      iceCandidatePoolSize: 1, // Garder à 1 ou 2 max sur mobile sans TURN pour éviter le lag au démarrage
+      
       iceServers: [
-        // Google STUN (Standard)
+        // 1. Google - Le Standard (Port 19302 UDP)
+        // Très rapide, fonctionne sur la majorité des routeurs domestiques
         { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' },
-        { urls: 'stun:stun2.l.google.com:19302' },
-        // Fallback port 443 (Souvent ouvert sur les pare-feux stricts)
-        { urls: 'stun:stun.l.google.com:443' }
+
+        // 2. Google - Variante (Port 53 UDP)
+        // Le port 53 est réservé au DNS. Souvent laissé ouvert sur les
+        // pare-feux stricts (hôtels, aéroports, 4G entreprise) qui bloquent les ports hauts.
+        { urls: 'stun:stun.l.google.com:53' },
+
+        // 3. Twilio Public - Redondance (Port 3478 UDP)
+        // Utilise le port standard STUN alternatif. Utile si les IPs Google sont throttlées.
+        { urls: 'stun:global.stun.twilio.com:3478?transport=udp' },
+        
+        // 4. Stun Protocol - Repli Port 80 (TCP/UDP)
+        // Tentative de passer pour du trafic web si tout le reste échoue.
+        { urls: 'stun:stun.stunprotocol.org:3478' } 
       ],
-      iceCandidatePoolSize: 10,
     },
-    // Désactive le ping PeerJS pour éviter les timeouts agressifs sur mobile
-    pingInterval: 5000, 
+    
+    // Ping plus espacé pour économiser la batterie et la data en 4G
+    // 25s est suffisant pour maintenir le NAT mapping UDP actif (Timeout moyen ~30s-60s)
+    pingInterval: 15000, 
   }
 };
 
