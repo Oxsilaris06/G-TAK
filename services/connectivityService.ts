@@ -10,7 +10,7 @@ export type ConnectivityEvent =
   | { type: 'HOST_CONNECTED'; hostId: string }
   | { type: 'DISCONNECTED'; reason: 'KICKED' | 'NO_HOST' | 'NETWORK_ERROR' | 'MANUAL' }
   | { type: 'RECONNECTING'; attempt: number }
-  | { type: 'TOAST'; msg: string; level: 'info' | 'error' | 'success' }
+  | { type: 'TOAST'; msg: string; level: 'info' | 'error' | 'success' | 'warning' }
   | { type: 'DATA_RECEIVED'; data: any; from: string }
   | { type: 'MIGRATION_START' }
   | { type: 'NEW_HOST_PROMOTED'; hostId: string };
@@ -20,7 +20,7 @@ type Listener = (event: ConnectivityEvent) => void;
 const RECONNECT_INTERVAL = 3000;
 const SYNC_INTERVAL = 2000;
 const HANDSHAKE_RETRY = 1000;
-// Délai max avant de considérer que la création du Peer a échoué et de réessayer
+// Délai max avant de considérer que la création du Peer a échoué (UDP bloqué ?) et de réessayer
 const PEER_CREATION_TIMEOUT = 5000; 
 
 class ConnectivityService {
@@ -85,14 +85,20 @@ class ConnectivityService {
       console.log("[NET] Reconstruction forcée du lien réseau...");
       this.notify({ type: 'TOAST', msg: 'Changement réseau : Reconnexion...', level: 'warning' });
 
+      // Nettoyage préventif des connexions mortes pour éviter les erreurs d'envoi UI
+      Object.values(this.connections).forEach(c => { try { c.close(); } catch(e){} });
+      this.connections = {};
+
       // On détruit proprement l'instance actuelle pour fermer les ports
       if (this.peer) {
-          this.peer.destroy();
+          try {
+            this.peer.destroy();
+          } catch (e) { console.warn("Erreur destroy peer:", e); }
           this.peer = null;
       }
       this.isConnecting = false;
 
-      // Petit délai pour laisser le système OS libérer les sockets
+      // Petit délai pour laisser le système OS libérer les sockets (vital sur Android)
       setTimeout(() => {
           // On recrée avec le même ID si possible pour que les autres nous retrouvent
           const targetId = (this.role === OperatorRole.HOST && this.user?.id) ? this.user.id : undefined;
@@ -102,6 +108,7 @@ class ConnectivityService {
 
   public handleAppStateChange(status: AppStateStatus) {
       if (status === 'active') {
+          // Vérification de santé au retour de background
           if (!this.peer || this.peer.disconnected || this.peer.destroyed) {
               console.log("[NET] Retour premier plan : Vérification connexion...");
               this.scheduleReconnect(true);
@@ -117,8 +124,7 @@ class ConnectivityService {
     this.role = role;
     this.hostId = targetHostId || null;
 
-    // Si on est Host, on génère l'ID nous-même ou on laisse PeerJS le faire (mais ici on veut contrôler)
-    // Pour simplifier, on laisse PeerJS générer un ID court si on est Host
+    // Si on est Host, on génère l'ID nous-même ou on laisse PeerJS le faire
     const myId = role === OperatorRole.HOST ? this.generateShortId() : undefined; 
     
     console.log(`[NET] Init. Role: ${role}, TargetHost: ${targetHostId}`);
@@ -144,7 +150,7 @@ class ConnectivityService {
             if (!peer.open) {
                 console.warn("[NET] Timeout création Peer (>5s). Reset forcé.");
                 this.isConnecting = false;
-                peer.destroy();
+                try { peer.destroy(); } catch(e) {}
                 this.createPeer(id); // Retry récursif
             }
         }, PEER_CREATION_TIMEOUT);
@@ -190,7 +196,7 @@ class ConnectivityService {
                    this.scheduleReconnect();
                 }
             } else {
-                // Erreurs réseau génériques
+                // Erreurs réseau génériques (socket closed, etc)
                 this.scheduleReconnect();
             }
         });
@@ -219,10 +225,10 @@ class ConnectivityService {
       this.retryTimeout = setTimeout(() => {
           console.log('[NET] Séquence de reconnexion...');
           if (this.peer) {
-              this.peer.destroy();
+              try { this.peer.destroy(); } catch(e) {}
               this.peer = null;
           }
-          // On essaye de reprendre notre ID si on était Host
+          // On essaye de reprendre notre ID si on était Host pour que les clients nous retrouvent
           const targetId = (this.role === OperatorRole.HOST && this.user?.id) ? this.user.id : undefined;
           this.createPeer(targetId);
       }, delay);
@@ -233,8 +239,9 @@ class ConnectivityService {
       
       console.log(`[NET] Connexion vers Hôte ${targetId}...`);
       
+      // Nettoyage ancienne connexion si elle existe
       if (this.connections[targetId]) {
-          this.connections[targetId].close();
+          try { this.connections[targetId].close(); } catch(e) {}
           delete this.connections[targetId];
       }
 
@@ -252,7 +259,7 @@ class ConnectivityService {
       const connTimeout = setTimeout(() => {
           if (!conn.open) {
               console.warn(`[NET] Timeout connexion vers ${conn.peer}. Close.`);
-              conn.close();
+              try { conn.close(); } catch(e) {}
           }
       }, 8000);
 
@@ -284,7 +291,7 @@ class ConnectivityService {
       
       conn.on('error', (err) => {
           console.warn(`[NET] Erreur Tunnel ${conn.peer}:`, err);
-          conn.close();
+          try { conn.close(); } catch(e) {}
       });
   }
 
@@ -445,12 +452,12 @@ class ConnectivityService {
           this.netInfoUnsubscribe = null;
       }
       
-      Object.values(this.connections).forEach(c => c.close());
+      Object.values(this.connections).forEach(c => { try { c.close(); } catch(e){} });
       this.connections = {};
       this.peersMap = {};
       
       if (this.peer) {
-          this.peer.destroy();
+          try { this.peer.destroy(); } catch(e) {}
           this.peer = null;
       }
   }
