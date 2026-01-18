@@ -560,43 +560,57 @@ export default function OIView({ onClose }: OIViewProps) {
     
     // Récupération du Logo
     const logoPhoto = photos.find(p => p.category === 'photo_logo_unite');
+    // On force un type mime qui fonctionne généralement bien avec le base64 générique
     const logoSrc = logoPhoto?.base64 ? `data:image/jpeg;base64,${logoPhoto.base64}` : null;
 
-    // LOGIQUE DE MISE EN PAGE DU LOGO (PAGE 1)
-    let page1Style = `display: flex; flex-direction: column; height: 90vh;`;
-    let logoHtml = '';
+    const isBg = logo_mode === 'background';
+    const page1TextColor = isBg ? '#FFFFFF' : '#000000';
+    const page1BorderColor = isBg ? '#FFFFFF' : '#000000';
+
+    // CONFIGURATION CSS DE LA PAGE 1
+    // A4 Paysage : 297mm x 210mm. Marges CSS : 1cm.
+    // Pour le fond d'écran, on utilise fixed avec marges négatives pour couvrir toute la page, marges incluses.
     
+    let logoHtml = '';
+    let page1ContainerStyle = '';
+
     if (logoSrc) {
-        if (logo_mode === 'background') {
+        if (isBg) {
             // MODE FOND D'ÉCRAN
-            page1Style += `justify-content: center; position: relative;`;
+            // Image en arrière plan absolu couvrant tout le A4
             logoHtml = `
-                <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 80%; height: auto; opacity: 0.7; z-index: -1;">
-                    <img src="${logoSrc}" style="width: 100%; height: auto;" />
+                <div style="position: fixed; top: -1.1cm; left: -1.1cm; width: 30cm; height: 21.5cm; z-index: -10; overflow: hidden;">
+                    <img src="${logoSrc}" style="width: 100%; height: 100%; object-fit: cover; opacity: 0.6;" />
                 </div>
             `;
+            // Centrage vertical du contenu
+            page1ContainerStyle = `display: flex; flex-direction: column; height: 90vh; justify-content: center; position: relative;`;
         } else {
             // MODE INCLUE
-            // Remonte le titre et cible, affiche le logo en dessous (40% image / 60% titre approx)
-            page1Style += `justify-content: flex-start; padding-top: 20px;`;
-            // Logo 100% opacité
+            // Image affichée normalement dans le flux
             logoHtml = `
-                <div style="margin-top: 20px; text-align: center;">
-                    <img src="${logoSrc}" style="max-width: 80%; max-height: 50vh; width: auto; height: auto;" />
+                <div style="margin-top: 30px; text-align: center; width: 100%; display: flex; justify-content: center;">
+                    <img src="${logoSrc}" style="max-width: 80%; max-height: 400px; width: auto; height: auto; object-fit: contain;" />
                 </div>
             `;
+            // Alignement haut avec padding
+            page1ContainerStyle = `display: flex; flex-direction: column; height: 90vh; justify-content: flex-start; padding-top: 40px; align-items: center;`;
         }
     } else {
-        // Pas de logo : centré par défaut
-        page1Style += `justify-content: center;`;
+        // Pas de logo
+        page1ContainerStyle = `display: flex; flex-direction: column; height: 90vh; justify-content: center; align-items: center;`;
     }
+
+    // Styles dynamiques pour le titre et la cible (couleur blanche si fond d'écran)
+    const h1Style = `font-family: 'Oswald'; text-align: center; font-size: 36px; border: 4px solid ${page1BorderColor}; padding: 20px; margin-bottom: 20px; text-transform: uppercase; letter-spacing: 2px; color: ${page1TextColor}; width: 80%;`;
+    const cibleStyle = `text-align: center; font-size: 20px; font-weight: bold; margin-top: 15px; color: ${page1TextColor};`;
 
     // Génération conditionnelle du titre "Cible"
     let cibleTitleHtml = '';
     if (formData.adversaire_1.nom && formData.adversaire_2.nom) {
-        cibleTitleHtml = `<div style="text-align: center; font-size: 20px; font-weight: bold; margin-top: 15px;">CIBLES : ${formData.adversaire_1.nom} & ${formData.adversaire_2.nom}</div>`;
+        cibleTitleHtml = `<div style="${cibleStyle}">CIBLES : ${formData.adversaire_1.nom} & ${formData.adversaire_2.nom}</div>`;
     } else if (formData.adversaire_1.nom) {
-        cibleTitleHtml = `<div style="text-align: center; font-size: 20px; font-weight: bold; margin-top: 15px;">CIBLE : ${formData.adversaire_1.nom}</div>`;
+        cibleTitleHtml = `<div style="${cibleStyle}">CIBLE : ${formData.adversaire_1.nom}</div>`;
     }
 
     // HELPERS GRAPHIQUES
@@ -750,7 +764,7 @@ export default function OIView({ onClose }: OIViewProps) {
           @page { size: A4 landscape; margin: 1cm; }
           body { font-family: 'JetBrains Mono', sans-serif; background: #fff; color: #000; padding: 0; font-size: 11px; }
           .page-break { page-break-before: always; }
-          h1 { font-family: 'Oswald'; text-align: center; font-size: 36px; border: 4px solid #000; padding: 20px; margin-bottom: 20px; text-transform: uppercase; letter-spacing: 2px; }
+          h1 { font-family: 'Oswald'; }
           h2 { font-family: 'Oswald'; font-size: 16px; border-bottom: 2px solid #000; margin-top: 20px; margin-bottom: 10px; padding-bottom: 2px; text-transform: uppercase; }
           h3 { font-size: 12px; font-weight: bold; margin-top: 10px; margin-bottom: 5px; text-decoration: underline; }
           p { margin: 2px 0; text-align: justify; }
@@ -765,13 +779,20 @@ export default function OIView({ onClose }: OIViewProps) {
       <body>
 
         <!-- PAGE 1: COUVERTURE -->
-        <div style="${page1Style}">
-            ${logo_mode === 'background' ? logoHtml : ''}
-            <div>
-                <h1>OPÉRATION DE POLICE JUDICIAIRE<br/>DU<br/>${date_op}<br/>${unite_redacteur ? unite_redacteur : ''}</h1>
+        <!-- Conteneur avec style dynamique selon le mode logo -->
+        <div style="${page1ContainerStyle}">
+            
+            ${isBg ? logoHtml : ''}
+            
+            <!-- Bloc Titre et Cibles -->
+            <div style="width: 100%; display: flex; flex-direction: column; align-items: center; z-index: 10;">
+                <h1 style="${h1Style}">
+                    OPÉRATION DE POLICE JUDICIAIRE<br/>DU<br/>${date_op}<br/>${unite_redacteur ? unite_redacteur : ''}
+                </h1>
                 ${cibleTitleHtml}
             </div>
-            ${logo_mode === 'included' ? logoHtml : ''}
+
+            ${!isBg ? logoHtml : ''}
         </div>
 
         <div class="page-break"></div>
