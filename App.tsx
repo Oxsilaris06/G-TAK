@@ -37,7 +37,7 @@ import MainCouranteView from './components/MainCouranteView';
 import PrivacyConsentModal from './components/PrivacyConsentModal';
 import { NotificationToast } from './components/NotificationToast';
 import ComposantOrdreInitial from './components/ComposantOrdreInitial'; 
-import ShinyText from './components/ShinyText'; 
+// import ShinyText from './components/ShinyText'; // RETIRÉ
 import LightPillar from './components/LightPillar';
 
 try { SplashScreen.preventAutoHideAsync().catch(() => {}); } catch (e) {}
@@ -604,34 +604,30 @@ const App: React.FC = () => {
 
           <TextInput style={styles.input} placeholder="TRIGRAMME" placeholderTextColor="#52525b" maxLength={6} value={loginInput} onChangeText={setLoginInput} autoCapitalize="characters" />
           
-          <ShinyText 
-            text="Praxis"
-            onPress={() => {
-              if (loginInput.length < 2) return;
-              try { AsyncStorage.setItem(CONFIG.TRIGRAM_STORAGE_KEY, loginInput.toUpperCase()); } catch (e) {}
-              if (loginInput.toUpperCase() !== settings.username) configService.update({ username: loginInput.toUpperCase() });
-              setUser(prev => ({ ...prev, callsign: loginInput.toUpperCase(), joinedAt: Date.now() }));
-              setView('menu');
-            }}
-            style={{ ...styles.strategicaBtn, marginTop: 50, width: '100%', backgroundColor: 'rgba(0,0,0,0.5)' }} 
-            textStyle={styles.strategicaBtnText}
-            speed={3}
-            color="#ffffff"
-            shineColor="#0008ff"
-            yoyo
-          />
+          {/* BOUTON PRAXIS STANDARDISÉ ET CENTRÉ */}
+          <View style={{ marginTop: 50, width: '100%', alignItems: 'center' }}>
+            <TouchableOpacity
+              onPress={() => {
+                if (loginInput.length < 2) return;
+                try { AsyncStorage.setItem(CONFIG.TRIGRAM_STORAGE_KEY, loginInput.toUpperCase()); } catch (e) {}
+                if (loginInput.toUpperCase() !== settings.username) configService.update({ username: loginInput.toUpperCase() });
+                setUser(prev => ({ ...prev, callsign: loginInput.toUpperCase(), joinedAt: Date.now() }));
+                setView('menu');
+              }}
+              style={[styles.strategicaBtn, { backgroundColor: 'rgba(0,0,0,0.5)', width: '100%', alignItems: 'center' }]} 
+            >
+              <Text style={styles.strategicaBtnText}>Praxis</Text>
+            </TouchableOpacity>
+          </View>
           
-          <View style={{ marginTop: 20 }}>
-            <ShinyText 
-              text="Stratégica"
+          {/* BOUTON STRATEGICA STANDARDISÉ ET CENTRÉ */}
+          <View style={{ marginTop: 20, width: '100%', alignItems: 'center' }}>
+            <TouchableOpacity 
               onPress={() => setView('oi')}
-              style={styles.strategicaBtn}
-              textStyle={styles.strategicaBtnText}
-              speed={3}
-              color="#ffffff"
-              shineColor="#0008ff"
-              yoyo
-            />
+              style={[styles.strategicaBtn, { width: '100%', alignItems: 'center' }]}
+            >
+              <Text style={styles.strategicaBtnText}>Stratégica</Text>
+            </TouchableOpacity>
           </View>
 
           <PrivacyConsentModal onConsentGiven={() => {}} />
