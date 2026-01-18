@@ -31,17 +31,17 @@ interface OIViewProps {
 
 const MEMBER_CONFIG = {
   options: {
-    fonctions: ["Chef inter", "Chef dispo", "Chef Oscar", "DE", "Cyno", "Inter", "Effrac", "AO", "Sans"],
-    cellules: ["AO1", "AO2", "AO3", "AO4", "AO5", "AO6", "AO7", "AO8", "India 1", "India 2", "India 3", "India 4", "India 5", "Effrac", "Sans"],
-    principales: ["UMP9", "G36", "FAP", "Sans"],
-    afis: ["PIE", "LBD40", "LBD44", "Sans"],
-    secondaires: ["PSA", "Sans"],
-    grenades: ["GENL", "MP7", "Sans"],
-    equipements: ["Sans", "BBAL", "Belier", "Lacry", "IL", "Lot 5.11", "Lot Oscar", "Pince"],
-    equipements2: ["Sans", "Échelle", "Stop stick", "Lacry", "Cale", "IL", "Pass"],
-    tenues: ["UBAS", "4S", "Bleu", "Civile", "Ghillie", "Treillis"],
-    gpbs: ["GPBL", "GPBPD", "Sans"],
-    vehicules_types: ["Sharan", "Kodiaq", "5008", "Scénic", "BT", "Blindé"]
+    fonctions: ["Chef inter", "Chef dispo", "Chef Oscar", "DE", "Cyno", "Inter", "Effrac", "AO", "Sanitaire", "Radio", "Sans"],
+    cellules: ["AO1", "AO2", "AO3", "AO4", "AO5", "AO6", "AO7", "AO8", "India 1", "India 2", "India 3", "India 4", "India 5", "Effrac", "Commandement", "Sans"],
+    principales: ["HK 416", "G36", "UMP9", "FAP", "MP5", "MCX", "Sans"],
+    afis: ["PIE", "LBD40", "LBD44", "Taser", "Sans"],
+    secondaires: ["Glock 17", "SIG 2022", "PSA", "Sans"],
+    grenades: ["GENL", "MP7", "DMP", "Fumi", "Sans"],
+    equipements: ["Sans", "BBAL", "Belier", "Lacry", "IL", "Lot 5.11", "Lot Oscar", "Pince", "Drone", "Medipack"],
+    equipements2: ["Sans", "Échelle", "Stop stick", "Lacry", "Cale", "IL", "Pass", "Radio Haute"],
+    tenues: ["UBAS", "4S", "Bleu", "Civile", "Ghillie", "Treillis", "Lourde"],
+    gpbs: ["GPBL", "GPBPD", "Porte-Plaque", "Sans"],
+    vehicules_types: ["Sharan", "Kodiaq", "5008", "Scénic", "BT", "Blindé", "Banalisé"]
   },
   members: [
     { trigramme: "PRC", fonction: "Inter", cellule: "AO1", tenue: "UBAS" },
@@ -59,6 +59,7 @@ const COLORS = {
   textMuted: '#64748b',
   danger: '#ef4444',
   success: '#22c55e',
+  warning: '#eab308',
   border: 'rgba(255, 255, 255, 0.08)',
   inputBg: 'rgba(0, 0, 0, 0.4)'
 };
@@ -235,6 +236,11 @@ export default function OIView({ onClose }: OIViewProps) {
   const [isAnnotationVisible, setIsAnnotationVisible] = useState(false);
   const [currentPhotoToAnnotate, setCurrentPhotoToAnnotate] = useState<string | null>(null);
 
+  // --- MEMBER EDIT STATE ---
+  const [isMemberEditModalVisible, setIsMemberEditModalVisible] = useState(false);
+  const [tempMember, setTempMember] = useState<IMember | null>(null);
+
+
   useEffect(() => {
     loadData();
   }, []);
@@ -351,6 +357,76 @@ export default function OIView({ onClose }: OIViewProps) {
     }
   };
 
+  // GESTION EDITION MEMBRE
+  const openMemberEditor = (member: IMember) => {
+      setTempMember({...member});
+      setIsMemberEditModalVisible(true);
+  };
+
+  const saveMemberChanges = () => {
+      if (!tempMember) return;
+      
+      // Update in Pool
+      let foundInPool = false;
+      const newPool = poolMembers.map(m => {
+          if (m.id === tempMember.id) {
+              foundInPool = true;
+              return tempMember;
+          }
+          return m;
+      });
+
+      if (foundInPool) {
+          setPoolMembers(newPool);
+      } else {
+          // Update in Vehicles
+          const newVehicles = vehicles.map(v => ({
+              ...v,
+              members: v.members.map(m => m.id === tempMember.id ? tempMember : m)
+          }));
+          setVehicles(newVehicles);
+      }
+
+      setIsMemberEditModalVisible(false);
+      setTempMember(null);
+  };
+
+  const createNewMember = () => {
+    const newM: IMember = {
+        id: `m_${Date.now()}`,
+        trigramme: "NOUVEAU",
+        fonction: "Inter",
+        cellule: "India 1",
+        tenue: "UBAS",
+        principales: "HK 416",
+        secondaires: "PSA",
+        afis: "Sans",
+        grenades: "Sans",
+        equipement: "Sans",
+        equipement2: "Sans",
+        gpb: "GPBL"
+    };
+    setPoolMembers(prev => [...prev, newM]);
+    openMemberEditor(newM);
+  };
+
+  const deleteMember = () => {
+      if (!tempMember) return;
+      Alert.alert("Confirmer", "Supprimer cet opérateur ?", [
+          { text: "Annuler", style: "cancel" },
+          { 
+              text: "Supprimer", style: 'destructive', onPress: () => {
+                setPoolMembers(prev => prev.filter(m => m.id !== tempMember.id));
+                setVehicles(prev => prev.map(v => ({
+                    ...v,
+                    members: v.members.filter(m => m.id !== tempMember.id)
+                })));
+                setIsMemberEditModalVisible(false);
+              }
+          }
+      ]);
+  };
+
   const assignSelectedMemberToVehicle = (vehicleId: string) => {
     if (!selectedMemberId) return;
     
@@ -384,7 +460,8 @@ export default function OIView({ onClose }: OIViewProps) {
 
     if (member) {
       setVehicles(prev => prev.map(v => ({ ...v, members: v.members.filter(m => m.id !== memberId) })));
-      setPoolMembers(prev => [...prev, { ...member!, cellule: 'Sans', fonction: 'Sans' }]);
+      // Reset status on return to pool? Optional. Keeping state for now.
+      setPoolMembers(prev => [...prev, member!]);
     }
   };
 
@@ -439,6 +516,26 @@ export default function OIView({ onClose }: OIViewProps) {
     const sub = (t: string) => wrap('h3', t, `color: ${COLORS.primary}; margin-top: 15px; font-family: 'Oswald'; font-size: 14px;`);
     const row = (l: string, v: string) => `<tr><td style="padding: 5px; border: 1px solid #444; width: 30%; font-weight:bold;">${l}</td><td style="padding: 5px; border: 1px solid #444;">${v || '-'}</td></tr>`;
     
+    // Fonction helper pour récupérer et formatter une image spécifique
+    const getPhotoHtml = (category: string, label: string) => {
+        const photo = photos.find(p => p.category === category);
+        if (!photo) return '';
+        
+        return `
+            <div style="border: 1px solid ${COLORS.primary}; padding: 5px; background: #eee; margin-top: 5px;">
+                <div style="text-align:center; font-weight:bold; color:${COLORS.primary}; margin-bottom:5px;">${label}</div>
+                <div style="position: relative; display: inline-block; width: 100%;">
+                    <img src="${photo.uri}" style="width: 100%; height: auto; display: block;" />
+                    ${photo.annotations.map(a => `
+                        <div style="position: absolute; left: ${a.x}%; top: ${a.y}%; width: 20px; height: 20px; background: rgba(255,0,0,0.7); color: white; border-radius: 50%; text-align: center; line-height: 20px; font-size: 10px; transform: translate(-50%, -50%); border: 1px solid white;">
+                            ${a.text}
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+    };
+
     const renderComposition = (prefix: string) => {
         const allMembers = vehicles.flatMap(v => v.members).concat(poolMembers);
         const relevant = allMembers.filter(m => m.cellule.toLowerCase().startsWith(prefix.toLowerCase()));
@@ -452,23 +549,9 @@ export default function OIView({ onClose }: OIViewProps) {
         ).join('');
     };
 
-    const renderImages = (cat: string, title: string) => {
-        const catPhotos = photos.filter(p => p.category === cat);
-        if (catPhotos.length === 0) return '';
-        return catPhotos.map(p => `
-            <div style="page-break-inside: avoid; margin: 10px 0; text-align: center; border: 1px solid ${COLORS.primary}; padding: 5px;">
-                <h4 style="color:${COLORS.primary}; margin:0;">${title}</h4>
-                <div style="position: relative; display: inline-block;">
-                    <img src="${p.uri}" style="max-width: 100%; max-height: 300px;" />
-                    ${p.annotations.map(a => `
-                        <div style="position: absolute; left: ${a.x}%; top: ${a.y}%; width: 20px; height: 20px; background: rgba(255,0,0,0.7); color: white; border-radius: 50%; text-align: center; line-height: 20px; font-size: 10px; transform: translate(-50%, -50%); border: 1px solid white;">
-                            ${a.text}
-                        </div>
-                    `).join('')}
-                </div>
-            </div>
-        `).join('');
-    };
+    // Préparation pour affichage en mode paysage (side by side pour Adversaire)
+    const advPhotoHtml = getPhotoHtml('adversary_photo_preview_container', 'Photo Cible');
+    const hasAdvPhoto = advPhotoHtml !== '';
 
     return `
       <!DOCTYPE html>
@@ -477,44 +560,61 @@ export default function OIView({ onClose }: OIViewProps) {
         <meta charset="utf-8">
         <style>
           @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Oswald:wght@500&display=swap');
-          body { font-family: 'JetBrains Mono', sans-serif; background: #fff; color: #000; padding: 20px; font-size: 12px; }
-          table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
-          .banner { text-align: center; margin-bottom: 20px; border: 2px solid #000; padding: 10px; }
+          /* CONFIGURATION PAYSAGE */
+          @page { size: A4 landscape; margin: 1cm; }
+          body { font-family: 'JetBrains Mono', sans-serif; background: #fff; color: #000; padding: 0; font-size: 11px; }
+          table { width: 100%; border-collapse: collapse; margin-bottom: 5px; }
+          .banner { text-align: center; margin-bottom: 10px; border: 2px solid #000; padding: 5px; background: #f0f0f0; }
+          .row-container { display: flex; flex-direction: row; gap: 15px; align-items: flex-start; }
+          .col-half { flex: 1; }
+          .col-auto { flex: 0 0 auto; width: 40%; } /* Pour la photo */
           .page-break { page-break-before: always; }
+          h2 { margin-bottom: 5px; font-size: 14px; }
+          h3 { margin-bottom: 3px; font-size: 12px; }
+          p { margin: 2px 0; }
         </style>
       </head>
       <body>
         <div class="banner">
-            <h1 style="font-family:'Oswald'; margin:0; font-size: 24px;">ORDRE INITIAL</h1>
+            <h1 style="font-family:'Oswald'; margin:0; font-size: 20px;">ORDRE INITIAL</h1>
             <div>${formData.nom_adversaire} // ${date_op}</div>
         </div>
 
-        ${title('1. SITUATION')}
-        ${sub('1.1 Générale')}${wrap('p', formData.situation_generale)}
-        ${sub('1.2 Particulière')}${wrap('p', formData.situation_particuliere)}
+        <div class="row-container">
+            <!-- COLONNE GAUCHE SITUATION / MISSION -->
+            <div class="col-half">
+                ${title('1. SITUATION')}
+                ${sub('1.1 Générale')}${wrap('p', formData.situation_generale)}
+                ${sub('1.2 Particulière')}${wrap('p', formData.situation_particuliere)}
+            </div>
+             <!-- COLONNE DROITE MISSION -->
+             <div class="col-half">
+                ${title('3. MISSION')}
+                <div style="font-size: 14px; font-weight: bold; border: 2px solid ${COLORS.danger}; padding: 10px; text-align: center; background: #fff0f0;">
+                    ${formData.missions_psig.replace(/\n/g, '<br>')}
+                </div>
+            </div>
+        </div>
 
         ${title('2. ADVERSAIRE(S)')}
-        <table>
-            ${row('Nom', formData.nom_adversaire)}
-            ${row('Domicile', formData.domicile_adversaire)}
-            ${row('Description', `${formData.stature_adversaire} / ${formData.ethnie_adversaire}`)}
-            ${row('Véhicules', Array.isArray(formData.vehicules_list) ? formData.vehicules_list.join(', ') : formData.vehicules_list)}
-            ${row('Armes', formData.armes_connues)}
-        </table>
-        ${renderImages('adversary_photo_preview_container', 'Photo Cible 1')}
-        
-        ${formData.nom_adversaire_2 ? `
-            ${sub('Cible Secondaire')}
-            <table>
-                ${row('Nom', formData.nom_adversaire_2)}
-                ${row('Domicile', formData.domicile_adversaire_2)}
-            </table>
-            ${renderImages('adversary_photo_preview_container_2', 'Photo Cible 2')}
-        ` : ''}
-
-        ${title('3. MISSION')}
-        <div style="font-size: 16px; font-weight: bold; border: 2px solid ${COLORS.danger}; padding: 10px; text-align: center;">
-            ${formData.missions_psig.replace(/\n/g, '<br>')}
+        <div class="row-container">
+            <div style="flex: 1;">
+                <table>
+                    ${row('Nom', formData.nom_adversaire)}
+                    ${row('Domicile', formData.domicile_adversaire)}
+                    ${row('Description', `${formData.stature_adversaire} / ${formData.ethnie_adversaire}`)}
+                    ${row('Véhicules', Array.isArray(formData.vehicules_list) ? formData.vehicules_list.join(', ') : formData.vehicules_list)}
+                    ${row('Armes', formData.armes_connues)}
+                </table>
+                ${formData.nom_adversaire_2 ? `
+                    ${sub('Cible Secondaire')}
+                    <table>
+                        ${row('Nom', formData.nom_adversaire_2)}
+                        ${row('Domicile', formData.domicile_adversaire_2)}
+                    </table>
+                ` : ''}
+            </div>
+            ${hasAdvPhoto ? `<div class="col-auto">${advPhotoHtml}</div>` : ''}
         </div>
 
         ${title('4. EXÉCUTION')}
@@ -523,39 +623,53 @@ export default function OIView({ onClose }: OIViewProps) {
         ${sub('Chronologie')}
         <table>
             <tr style="background:#eee;"><th>Type</th><th>Heure</th><th>Action</th></tr>
-            ${formData.time_events.map(e => `<tr><td style="border:1px solid #ccc; padding:4px;">${e.type}</td><td style="border:1px solid #ccc;">${e.hour}</td><td style="border:1px solid #ccc;">${e.description}</td></tr>`).join('')}
+            ${formData.time_events.map(e => `<tr><td style="border:1px solid #ccc; padding:2px;">${e.type}</td><td style="border:1px solid #ccc;">${e.hour}</td><td style="border:1px solid #ccc;">${e.description}</td></tr>`).join('')}
         </table>
+
+        <div class="page-break"></div>
 
         ${title('5. ARTICULATION')}
         ${sub('Place du Chef')} ${wrap('div', formData.place_chef)}
         
-        ${sub('INDIA (Inter)')}
-        ${renderComposition('India')}
-        ${wrap('div', `<strong>Mission:</strong> ${formData.india_mission}`)}
-        ${wrap('div', `<strong>CAT:</strong> ${formData.india_cat.replace(/\n/g, '<br>')}`)}
-        
-        ${renderImages('photo_container_itineraire_exterieur_preview_container', 'Itinéraire Ext')}
-
-        ${sub('AO (Appui/Obs)')}
-        ${renderComposition('AO')}
-        ${wrap('div', `<strong>Mission:</strong> ${formData.ao_mission}`)}
-        
-        ${renderImages('photo_container_emplacement_ao_preview_container', 'Vue AO')}
+        <div class="row-container">
+            <div class="col-half">
+                ${sub('INDIA (Inter)')}
+                ${renderComposition('India')}
+                ${wrap('div', `<strong>Mission:</strong> ${formData.india_mission}`)}
+                ${wrap('div', `<strong>CAT:</strong> ${formData.india_cat.replace(/\n/g, '<br>')}`)}
+                
+                ${getPhotoHtml('photo_container_itineraire_exterieur_preview_container', 'Itinéraire Ext')}
+            </div>
+            
+            <div class="col-half">
+                ${sub('AO (Appui/Obs)')}
+                ${renderComposition('AO')}
+                ${wrap('div', `<strong>Mission:</strong> ${formData.ao_mission}`)}
+                
+                ${getPhotoHtml('photo_container_emplacement_ao_preview_container', 'Vue AO')}
+            </div>
+        </div>
 
         ${title('6. PATRACDVR')}
         ${vehicles.map(v => `
-            <div style="margin-bottom: 10px; border: 1px solid #ccc; padding: 5px;">
+            <div style="margin-bottom: 5px; border: 1px solid #ccc; padding: 4px; background: #fafafa;">
                 <strong>${v.name} (${v.type})</strong>: 
                 ${v.members.map(m => `${m.trigramme} (${m.principales}/${m.tenue})`).join(', ')}
             </div>
         `).join('')}
 
         ${title('7. DIVERS & SÉCURITÉ')}
-        ${sub('Conduites à tenir')}
-        ${wrap('div', formData.cat_generales.replace(/\n/g, '<br>'))}
-        ${formData.no_go ? `<div style="color:red; font-weight:bold; margin-top:10px;">NO GO: ${formData.no_go}</div>` : ''}
+        <div class="row-container">
+            <div class="col-half">
+                ${sub('Conduites à tenir')}
+                ${wrap('div', formData.cat_generales.replace(/\n/g, '<br>'))}
+            </div>
+            <div class="col-half">
+                ${formData.no_go ? `<div style="color:red; font-weight:bold; border: 1px solid red; padding: 5px;">NO GO: ${formData.no_go}</div>` : ''}
+            </div>
+        </div>
 
-        <div style="margin-top: 50px; text-align: center; font-size: 10px; color: #666;">
+        <div style="margin-top: 20px; text-align: right; font-size: 9px; color: #666;">
             Généré par G-TAK // ${new Date().toLocaleString()}
         </div>
       </body>
@@ -566,7 +680,12 @@ export default function OIView({ onClose }: OIViewProps) {
   const handleGeneratePDF = async () => {
     try {
       const html = generateHTML();
-      const { uri } = await Print.printToFileAsync({ html });
+      // On force le mode landscape dans les options d'impression également
+      const { uri } = await Print.printToFileAsync({ 
+          html,
+          width: 842, // A4 landscape width in points (approx)
+          height: 595 // A4 landscape height
+      });
       await Sharing.shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' });
     } catch (e) {
       Alert.alert("Erreur PDF", "Impossible de générer le document.");
@@ -584,11 +703,13 @@ export default function OIView({ onClose }: OIViewProps) {
         <View style={styles.inputGroup}>
             <Text style={styles.label}>{label}</Text>
             <TextInput
-                style={[styles.input, multiline && { height: 80, textAlignVertical: 'top' }]}
+                style={[
+                    styles.input, 
+                    multiline && { minHeight: 80, maxHeight: 200, textAlignVertical: 'top' } // Auto-grow style
+                ]}
                 value={displayValue || ''}
                 onChangeText={(t) => {
                     if (Array.isArray(rawValue)) {
-                        // Si c'est un tableau, on convertit la string en tableau
                         updateField(field, t.split(',').map(s => s.trim()));
                     } else {
                         updateField(field, t);
@@ -620,6 +741,72 @@ export default function OIView({ onClose }: OIViewProps) {
       </View>
     </View>
   );
+
+  const renderMemberEditModal = () => {
+      if (!isMemberEditModalVisible || !tempMember) return null;
+
+      const renderSelect = (label: string, field: keyof IMember, options: string[]) => (
+          <View style={{marginBottom: 15}}>
+              <Text style={styles.label}>{label}</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 8}}>
+                  {options.map(opt => (
+                      <TouchableOpacity 
+                        key={opt} 
+                        style={[styles.chip, tempMember[field] === opt && styles.chipSelected]}
+                        onPress={() => setTempMember({...tempMember, [field]: opt})}
+                      >
+                          <Text style={{color: tempMember[field] === opt ? 'white' : COLORS.textMuted}}>{opt}</Text>
+                      </TouchableOpacity>
+                  ))}
+              </ScrollView>
+          </View>
+      );
+
+      return (
+          <Modal visible={isMemberEditModalVisible} animationType="slide" transparent>
+              <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalContainer}>
+                  <View style={styles.modalContent}>
+                      <View style={styles.modalHeader}>
+                          <Text style={styles.modalTitle}>ÉDITION OPÉRATEUR</Text>
+                          <TouchableOpacity onPress={() => setIsMemberEditModalVisible(false)}><Text style={{color:COLORS.danger, fontWeight:'bold'}}>FERMER</Text></TouchableOpacity>
+                      </View>
+                      
+                      <ScrollView style={{maxHeight: '80%'}}>
+                          <View style={styles.inputGroup}>
+                              <Text style={styles.label}>TRIGRAMME</Text>
+                              <TextInput 
+                                style={styles.input} 
+                                value={tempMember.trigramme} 
+                                onChangeText={t => setTempMember({...tempMember, trigramme: t.toUpperCase()})}
+                                autoCapitalize="characters"
+                                maxLength={5}
+                              />
+                          </View>
+
+                          {renderSelect("FONCTION", "fonction", MEMBER_CONFIG.options.fonctions)}
+                          {renderSelect("CELLULE", "cellule", MEMBER_CONFIG.options.cellules)}
+                          {renderSelect("TENUE", "tenue", MEMBER_CONFIG.options.tenues)}
+                          {renderSelect("ARMEMENT PRINCIPAL", "principales", MEMBER_CONFIG.options.principales)}
+                          {renderSelect("ARMEMENT SECONDAIRE", "secondaires", MEMBER_CONFIG.options.secondaires)}
+                          {renderSelect("GRENADES", "grenades", MEMBER_CONFIG.options.grenades)}
+                          {renderSelect("EQUIPEMENT SPÉCIAL", "equipement", MEMBER_CONFIG.options.equipements)}
+                          {renderSelect("EQUIPEMENT DIVERS", "equipement2", MEMBER_CONFIG.options.equipements2)}
+                          {renderSelect("PROTECTION (GPB)", "gpb", MEMBER_CONFIG.options.gpbs)}
+                      </ScrollView>
+
+                      <View style={{flexDirection:'row', gap:10, marginTop:10}}>
+                          <TouchableOpacity onPress={deleteMember} style={[styles.navBtn, {backgroundColor: COLORS.surfaceLight, borderColor: COLORS.danger}]}>
+                              <Text style={{color: COLORS.danger, fontWeight: 'bold'}}>SUPPRIMER</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity onPress={saveMemberChanges} style={[styles.navBtn, {backgroundColor: COLORS.success, borderColor: COLORS.success}]}>
+                              <Text style={{color: '#000', fontWeight: 'bold'}}>SAUVEGARDER</Text>
+                          </TouchableOpacity>
+                      </View>
+                  </View>
+              </KeyboardAvoidingView>
+          </Modal>
+      );
+  };
 
   const renderStepContent = () => {
     switch (step) {
@@ -732,7 +919,7 @@ export default function OIView({ onClose }: OIViewProps) {
         return (
           <View>
             <View style={{flexDirection:'row', justifyContent:'space-between', marginBottom:10}}>
-                <Text style={styles.helper}>Tapez un membre puis un véhicule pour assigner.</Text>
+                <Text style={styles.helper}>Tapez pour sélectionner. Maintenir pour éditer.</Text>
                 <TouchableOpacity onPress={() => addVehicle('Kodiaq')}><Text style={{color:COLORS.success}}>+ VEHICULE</Text></TouchableOpacity>
             </View>
 
@@ -749,7 +936,13 @@ export default function OIView({ onClose }: OIViewProps) {
                     </View>
                     <View style={{flexDirection:'row', flexWrap:'wrap', gap:5, marginTop:5}}>
                         {v.members.map(m => (
-                            <TouchableOpacity key={m.id} onPress={() => returnMemberToPool(m.id)} style={styles.memberBadge}>
+                            <TouchableOpacity 
+                                key={m.id} 
+                                onPress={() => returnMemberToPool(m.id)} 
+                                onLongPress={() => openMemberEditor(m)}
+                                delayLongPress={500}
+                                style={styles.memberBadge}
+                            >
                                 <Text style={styles.memberText}>{m.trigramme}</Text>
                             </TouchableOpacity>
                         ))}
@@ -757,7 +950,13 @@ export default function OIView({ onClose }: OIViewProps) {
                 </TouchableOpacity>
             ))}
 
-            <Text style={[styles.label, {marginTop:20}]}>POOL (NON ASSIGNÉS)</Text>
+            <View style={{flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginTop: 20}}>
+                <Text style={styles.label}>POOL (NON ASSIGNÉS)</Text>
+                <TouchableOpacity onPress={createNewMember} style={{padding:5}}>
+                    <Text style={{color: COLORS.primary, fontWeight: 'bold'}}>+ AJOUTER PAX</Text>
+                </TouchableOpacity>
+            </View>
+            
             <View style={{flexDirection:'row', flexWrap:'wrap', gap:5}}>
                 {poolMembers.map(m => (
                     <TouchableOpacity 
@@ -767,6 +966,8 @@ export default function OIView({ onClose }: OIViewProps) {
                             selectedMemberId === m.id && { borderColor: COLORS.primary, backgroundColor: '#1e3a8a' }
                         ]}
                         onPress={() => handleMemberTap(m)}
+                        onLongPress={() => openMemberEditor(m)}
+                        delayLongPress={500}
                     >
                         <Text style={{color:'#fff', fontWeight:'bold'}}>{m.trigramme}</Text>
                         <Text style={{color:'#aaa', fontSize:9}}>{m.fonction}</Text>
@@ -829,7 +1030,9 @@ export default function OIView({ onClose }: OIViewProps) {
             <Text style={styles.backButtonText}>{"<"}</Text>
         </TouchableOpacity>
         
-        <Text style={styles.headerTitle}>G-TAK OI GENERATOR</Text>
+        {/* TITRE CENTRE ET FLEXIBLE */}
+        <Text style={styles.headerTitle} numberOfLines={1} adjustsFontSizeToFit>G-TAK OI GENERATOR</Text>
+        
         <View style={{width: 40}} />
       </View>
 
@@ -845,7 +1048,7 @@ export default function OIView({ onClose }: OIViewProps) {
       </View>
 
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{flex:1}}>
-        <ScrollView style={styles.content} contentContainerStyle={{paddingBottom: 50}}>
+        <ScrollView style={styles.content} contentContainerStyle={{paddingBottom: 150}}>
             {renderStepContent()}
         </ScrollView>
       </KeyboardAvoidingView>
@@ -865,6 +1068,8 @@ export default function OIView({ onClose }: OIViewProps) {
             </TouchableOpacity>
         )}
       </View>
+
+      {renderMemberEditModal()}
 
       {/* ANNOTATION MODAL */}
       <Modal visible={isAnnotationVisible} animationType="slide" onRequestClose={() => setIsAnnotationVisible(false)}>
@@ -920,7 +1125,7 @@ export default function OIView({ onClose }: OIViewProps) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.bg },
   header: { padding: 15, borderBottomWidth: 1, borderColor: COLORS.border, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  headerTitle: { color: COLORS.primary, fontSize: 18, fontWeight: 'bold', letterSpacing: 2 },
+  headerTitle: { color: COLORS.primary, fontSize: 18, fontWeight: 'bold', letterSpacing: 2, flex: 1, textAlign: 'center' },
   backButton: { padding: 5, width: 40 },
   backButtonText: { color: COLORS.text, fontSize: 24, fontWeight: 'bold' },
   progressScroll: { backgroundColor: COLORS.surface },
@@ -954,5 +1159,11 @@ const styles = StyleSheet.create({
   // PHOTOS
   photoThumb: { width: '48%', margin: '1%', height: 100, backgroundColor: '#222', borderRadius: 4, overflow: 'hidden' },
   photoCat: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: 'rgba(0,0,0,0.6)', color: '#fff', fontSize: 10, padding: 2, textAlign: 'center' },
-  annotBadge: { position: 'absolute', top: 5, right: 5, width: 8, height: 8, borderRadius: 4, backgroundColor: COLORS.danger }
+  annotBadge: { position: 'absolute', top: 5, right: 5, width: 8, height: 8, borderRadius: 4, backgroundColor: COLORS.danger },
+
+  // MODAL EDIT MEMBER
+  modalContainer: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', padding: 20 },
+  modalContent: { backgroundColor: '#18181b', borderRadius: 12, padding: 20, maxHeight: '90%', borderWidth:1, borderColor: '#333' },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20 },
+  modalTitle: { color: 'white', fontSize: 18, fontWeight: 'bold' }
 });
