@@ -90,6 +90,7 @@ interface IAdversaire {
 interface IOIState {
   date_op: string;
   trigramme_redacteur: string;
+  unite_redacteur: string; // Ajouté pour le titre PDF (Unité)
   situation_generale: string;
   situation_particuliere: string;
   adversaire_1: IAdversaire;
@@ -169,6 +170,7 @@ const DEFAULT_ADVERSAIRE: IAdversaire = {
 const INITIAL_STATE: IOIState = {
   date_op: "",
   trigramme_redacteur: "",
+  unite_redacteur: "", // Initiale vide
   situation_generale: "", situation_particuliere: "",
   adversaire_1: { ...DEFAULT_ADVERSAIRE },
   adversaire_2: { ...DEFAULT_ADVERSAIRE },
@@ -553,8 +555,16 @@ export default function OIView({ onClose }: OIViewProps) {
 
   // --- HTML GENERATOR FOR PDF ---
   const generateHTML = () => {
-    const { date_op, trigramme_redacteur } = formData;
+    const { date_op, trigramme_redacteur, unite_redacteur } = formData;
     
+    // Génération conditionnelle du titre "Cible"
+    let cibleTitleHtml = '';
+    if (formData.adversaire_1.nom && formData.adversaire_2.nom) {
+        cibleTitleHtml = `<div style="text-align: center; font-size: 20px; font-weight: bold; margin-top: 15px;">CIBLES : ${formData.adversaire_1.nom} & ${formData.adversaire_2.nom}</div>`;
+    } else if (formData.adversaire_1.nom) {
+        cibleTitleHtml = `<div style="text-align: center; font-size: 20px; font-weight: bold; margin-top: 15px;">CIBLE : ${formData.adversaire_1.nom}</div>`;
+    }
+
     // HELPERS GRAPHIQUES
     const getPhotosHtml = (category: string, label: string, pageBreakBefore = false) => {
         const catPhotos = photos.filter(p => p.category === category);
@@ -722,8 +732,8 @@ export default function OIView({ onClose }: OIViewProps) {
 
         <!-- PAGE 1: COUVERTURE -->
         <div style="display: flex; flex-direction: column; justify-content: center; height: 90vh;">
-            <h1>OI PELOTON<br/>DU ${date_op}<br/><br/>SURVEILLANCE<br/>INTERVENTION</h1>
-            <div style="text-align: center; font-size: 14px; font-weight: bold;">CIBLE: ${formData.adversaire_1.nom}</div>
+            <h1>OPÉRATION DE POLICE JUDICIAIRE<br/>DU<br/>${date_op}<br/>${unite_redacteur ? unite_redacteur : ''}</h1>
+            ${cibleTitleHtml}
         </div>
 
         <div class="page-break"></div>
@@ -1219,6 +1229,7 @@ export default function OIView({ onClose }: OIViewProps) {
                     <Text style={{color:COLORS.text, textAlign:'center', fontSize: 16, fontWeight: 'bold'}}>L'Ordre Initial est prêt.</Text>
                     
                     {renderInput("Trigramme Rédacteur (PDF)", formData.trigramme_redacteur, t => updateField('trigramme_redacteur', t), false, "Ex: MDL CHEF")}
+                    {renderInput("Unité Rédacteur (PDF)", formData.unite_redacteur, t => updateField('unite_redacteur', t), false, "Ex: PSIG XX")}
 
                     <TouchableOpacity style={[styles.navBtn, {backgroundColor: COLORS.success, width:'100%', height: 60}]} onPress={handleGeneratePDF}>
                         <MaterialIcons name="picture-as-pdf" size={24} color="black" style={{marginRight: 10}}/>
