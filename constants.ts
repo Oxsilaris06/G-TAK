@@ -5,41 +5,39 @@ export const CONFIG = {
   SESSION_STORAGE_KEY: 'tacsuite_v1_session',
   TRIGRAM_STORAGE_KEY: 'tacsuite_v1_trigram',
   
-  // Configuration PeerJS Optimisée & Stabilisée pour Android
+  // Configuration PeerJS Optimisée & Stabilisée pour Android/Mobile
   PEER_CONFIG: {
     secure: true, 
     host: '0.peerjs.com', 
     port: 443, 
     path: '/',
     
-    // Debug level 1 pour éviter de spammer la console (cause de ralentissements)
-    debug: 1, 
+    debug: 1, // Garder 1 pour éviter les logs excessifs qui bloquent le thread JS
     
     config: {
       // CRITIQUE : iceCandidatePoolSize doit être à 0 sur React Native Android.
-      // Une valeur > 0 provoque souvent l'erreur "Failed to initialize PeerConnection"
       iceCandidatePoolSize: 0, 
       
       iceServers: [
-        // 1. Google - Le Standard (Port 19302 UDP)
-        // Note: Utilisation de tableaux ['...'] pour compatibilité stricte Android
-        { urls: ['stun:stun.l.google.com:19302'] },
-
-        // 2. Google - Variante (Port 53 UDP)
-        // Passe souvent les pare-feux stricts
+        // 1. PRIORITÉ ABSOLUE : Google Port 53 (UDP)
+        // Le port 53 est celui du DNS, presque jamais bloqué ou bridé par les opérateurs 4G/5G.
+        // C'est la clé pour une connexion rapide sur mobile sans TURN.
         { urls: ['stun:stun.l.google.com:53'] },
 
-        // 3. Twilio Public (Port 3478 UDP)
-        // Suppression de "?transport=udp" qui peut faire planter le parseur natif
-        { urls: ['stun:global.stun.twilio.com:3478'] },
-        
-        // 4. Stun Protocol
-        { urls: ['stun:stun.stunprotocol.org:3478'] } 
+        // 2. Google Standard (Port 19302)
+        // Fallback standard très robuste.
+        { urls: ['stun:stun.l.google.com:19302'] },
+
+        // 3. Twilio (Port 3478)
+        // Bonne alternative si Google est lent dans la région.
+        { urls: ['stun:global.stun.twilio.com:3478'] }
       ],
     },
     
-    // Ping espacé (25s) pour économie batterie
-    pingInterval: 25000, 
+    // Ping plus agressif (10s au lieu de 25s)
+    // Les NATs des opérateurs mobiles (CGNAT) ferment les ports inactifs très vite.
+    // 10s assure que le tunnel reste ouvert même en 5G statique.
+    pingInterval: 10000, 
   }
 };
 
