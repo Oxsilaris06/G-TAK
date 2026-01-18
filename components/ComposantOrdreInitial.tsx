@@ -31,21 +31,21 @@ interface OIViewProps {
 
 const MEMBER_CONFIG = {
   options: {
-    fonctions: ["Chef inter", "Chef dispo", "Chef Oscar", "DE", "Cyno", "Inter", "Effrac", "AO", "Sanitaire", "Radio", "Sans"],
+    fonctions: ["Chef inter", "Chef dispo", "Chef Oscar", "DE", "Cyno", "Inter", "Effrac", "AO", "Sans"],
     cellules: ["AO1", "AO2", "AO3", "AO4", "AO5", "AO6", "AO7", "AO8", "India 1", "India 2", "India 3", "India 4", "India 5", "Effrac", "Commandement", "Sans"],
-    principales: ["HK 416", "G36", "UMP9", "FAP", "MP5", "MCX", "Sans"],
-    afis: ["PIE", "LBD40", "LBD44", "Taser", "Sans"],
-    secondaires: ["Glock 17", "SIG 2022", "PSA", "Sans"],
-    grenades: ["GENL", "MP7", "DMP", "Fumi", "Sans"],
-    equipements: ["Sans", "BBAL", "Belier", "Lacry", "IL", "Lot 5.11", "Lot Oscar", "Pince", "Drone", "Medipack"],
-    equipements2: ["Sans", "Échelle", "Stop stick", "Lacry", "Cale", "IL", "Pass", "Radio Haute"],
-    tenues: ["UBAS", "4S", "Bleu", "Civile", "Ghillie", "Treillis", "Lourde"],
-    gpbs: ["GPBL", "GPBPD", "Porte-Plaque", "Sans"],
-    vehicules_types: ["Sharan", "Kodiaq", "5008", "Scénic", "BT"]
+    principales: [ "G36", "UMP9", "FAP", "MP5", "Sans"],
+    afis: ["PIE", "LBD40", "LBD44", "PIE", "Sans"],
+    secondaires: ["SIG 2022","G26", "Sans"],
+    grenades: ["GENL", "MP7", "FAR", "Sans"],
+    equipements: ["Sans", "BBAL", "Belier", "Lacry", "IL", "Lot 5.11", "Lot Oscar", "Pince", "Drone", "Cam pieton",],
+    equipements2: ["Sans", "Échelle", "Stop stick", "Lacry", "Cale", "IL", "Pass","Cam pieton", "TPH700"],
+    tenues: ["UBAS", "4S", "Bleu", "Civile", "Ghillie", "Treillis", "MO"],
+    gpbs: ["GPBL", "GPBPD", "Sans"],
+    vehicules_types: ["Sharan", "Kodiaq", "5008", "Scénic","Kodiaq Bana"]
   },
   members: [
-    { trigramme: "PRC", fonction: "Inter", cellule: "AO1", tenue: "UBAS" },
-    { trigramme: "RTI", fonction: "Sans", cellule: "India 1", tenue: "UBAS" },
+    { trigramme: "XX", fonction: "Inter", cellule: "AO1", tenue: "UBAS" },
+    { trigramme: "YY", fonction: "Sans", cellule: "India 1", tenue: "UBAS" },
   ]
 };
 
@@ -87,6 +87,7 @@ interface IAdversaire {
 
 interface IOIState {
   date_op: string;
+  trigramme_redacteur: string; // Ajouté pour le footer PDF
   situation_generale: string;
   situation_particuliere: string;
   adversaire_1: IAdversaire;
@@ -152,7 +153,7 @@ interface IPhotoAnnotation {
 interface IPhoto {
   id: string;
   uri: string;
-  base64?: string; // Ajout pour garantir l'affichage PDF
+  base64?: string; // Indispensable pour PDF
   category: string;
   annotations: IPhotoAnnotation[];
 }
@@ -165,6 +166,7 @@ const DEFAULT_ADVERSAIRE: IAdversaire = {
 
 const INITIAL_STATE: IOIState = {
   date_op: "",
+  trigramme_redacteur: "",
   situation_generale: "", situation_particuliere: "",
   adversaire_1: { ...DEFAULT_ADVERSAIRE },
   adversaire_2: { ...DEFAULT_ADVERSAIRE },
@@ -260,9 +262,14 @@ export default function OIView({ onClose }: OIViewProps) {
   const [isAnnotationVisible, setIsAnnotationVisible] = useState(false);
   const [currentPhotoToAnnotate, setCurrentPhotoToAnnotate] = useState<string | null>(null);
 
-  // --- MEMBER EDIT STATE ---
+  // Member Edit State
   const [isMemberEditModalVisible, setIsMemberEditModalVisible] = useState(false);
   const [tempMember, setTempMember] = useState<IMember | null>(null);
+
+  // Vehicle Rename State
+  const [isVehicleRenameVisible, setIsVehicleRenameVisible] = useState(false);
+  const [vehicleToRename, setVehicleToRename] = useState<IVehicle | null>(null);
+  const [newVehicleName, setNewVehicleName] = useState("");
 
   useEffect(() => {
     loadData();
@@ -486,17 +493,46 @@ export default function OIView({ onClose }: OIViewProps) {
     setVehicles([...vehicles, newVeh]);
   };
 
+  // NOUVEAU: Logique de suppression de véhicule avec retour des membres
+  const removeVehicle = (vehicle: IVehicle) => {
+      // D'abord on récupère les membres pour les remettre dans le pool
+      const membersToReturn = vehicle.members;
+      
+      // On met à jour les états
+      setVehicles(prev => prev.filter(v => v.id !== vehicle.id));
+      setPoolMembers(prev => [...prev, ...membersToReturn]);
+  };
+
+  // NOUVEAU: Logique de renommage de véhicule
+  const openRenameVehicle = (vehicle: IVehicle) => {
+      setVehicleToRename(vehicle);
+      setNewVehicleName(vehicle.name);
+      setIsVehicleRenameVisible(true);
+  };
+
+  const confirmRenameVehicle = () => {
+      if (vehicleToRename && newVehicleName.trim()) {
+          setVehicles(prev => prev.map(v => v.id === vehicleToRename.id ? { ...v, name: newVehicleName.trim() } : v));
+      }
+      setIsVehicleRenameVisible(false);
+      setVehicleToRename(null);
+  };
+
+
   // --- PHOTO LOGIC ---
   const pickImage = async (category: string) => {
     let result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: false, quality: 0.7, base64: true
+      allowsEditing: false, 
+      quality: 0.7, 
+      base64: true // IMPORTANT: Base64 requis pour PDF
     });
-    if (!result.canceled) {
+    if (!result.canceled && result.assets && result.assets.length > 0) {
+      const asset = result.assets[0];
       const newPhoto: IPhoto = { 
           id: Date.now().toString(), 
-          uri: result.assets[0].uri, 
-          base64: result.assets[0].base64 || undefined, // Stockage du base64 pour PDF
+          uri: asset.uri, 
+          base64: asset.base64 || undefined, // Stockage explicite
           category, 
           annotations: [] 
       };
@@ -523,7 +559,7 @@ export default function OIView({ onClose }: OIViewProps) {
 
   // --- HTML GENERATOR FOR PDF ---
   const generateHTML = () => {
-    const { date_op } = formData;
+    const { date_op, trigramme_redacteur } = formData;
     
     // HELPERS GRAPHIQUES
     const getPhotosHtml = (category: string, label: string, width = "100%", maxHeight = "300px", pageBreakBefore = false) => {
@@ -537,12 +573,13 @@ export default function OIView({ onClose }: OIViewProps) {
         html += `<div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 10px;">`;
         
         catPhotos.forEach(photo => {
-            // Utilisation du base64 si dispo pour garantir l'affichage dans le PDF
-            const imgSrc = photo.base64 ? `data:image/jpeg;base64,${photo.base64}` : photo.uri;
+            // CORRECTION: Utilisation du Base64 pour garantir l'affichage
+            const imageSrc = photo.base64 ? `data:image/jpeg;base64,${photo.base64}` : photo.uri;
+
             html += `
             <div style="border: 2px solid #000; padding: 5px; margin-bottom: 10px; background: #fff; width: ${width}; page-break-inside: avoid;">
                 <div style="position: relative; display: block; width: 100%; margin: 0 auto;">
-                    <img src="${imgSrc}" style="width: 100%; max-height: ${maxHeight}; object-fit:contain; display: block;" />
+                    <img src="${imageSrc}" style="width: 100%; max-height: ${maxHeight}; object-fit:contain; display: block;" />
                     ${photo.annotations.map(a => `
                         <div style="position: absolute; left: ${a.x}%; top: ${a.y}%; width: 20px; height: 20px; background: red; color: white; border-radius: 50%; text-align: center; line-height: 20px; font-size: 12px; font-weight:bold; transform: translate(-50%, -50%); border: 2px solid white;">
                             ${a.text}
@@ -562,11 +599,11 @@ export default function OIView({ onClose }: OIViewProps) {
         if (catPhotos.length === 0) return '';
         
         return catPhotos.map(photo => {
-            const imgSrc = photo.base64 ? `data:image/jpeg;base64,${photo.base64}` : photo.uri;
+            const imageSrc = photo.base64 ? `data:image/jpeg;base64,${photo.base64}` : photo.uri;
             return `
             <div style="border: 2px solid #000; padding: 2px; margin-bottom: 5px; background: #fff;">
                 <div style="position: relative;">
-                    <img src="${imgSrc}" style="width: 100%; max-height: 200px; object-fit:contain; display: block;" />
+                    <img src="${imageSrc}" style="width: 100%; max-height: 200px; object-fit:contain; display: block;" />
                     ${photo.annotations.map(a => `
                         <div style="position: absolute; left: ${a.x}%; top: ${a.y}%; width: 15px; height: 15px; background: red; color: white; border-radius: 50%; text-align: center; line-height: 15px; font-size: 10px; font-weight:bold; transform: translate(-50%, -50%); border: 1px solid white;">
                             ${a.text}
@@ -577,15 +614,15 @@ export default function OIView({ onClose }: OIViewProps) {
         `;}).join('');
     };
 
-    // Helper pour formater la ligne "Cellule" dans Articulation
+    // CORRECTION ARTICULATION: Formatage "Cellule : XXX/NNN (India1)"
     const formatCelluleMembers = (prefix: string) => {
         const allMembers = vehicles.flatMap(v => v.members).concat(poolMembers);
-        // Filtrer les membres dont la cellule commence par le prefixe (ex: "India" ou "AO")
-        const relevantMembers = allMembers.filter(m => m.cellule.toLowerCase().startsWith(prefix.toLowerCase()));
+        // Filtrer par préfixe (ex: membres contenant "India" ou "AO")
+        const relevantMembers = allMembers.filter(m => m.cellule && m.cellule.toLowerCase().includes(prefix.toLowerCase()));
         
         if (relevantMembers.length === 0) return '';
 
-        // Grouper par cellule exacte (ex: "India 1", "India 2")
+        // Grouper par Nom de cellule EXACT (ex: "India 1", "India 2")
         const grouped: {[key:string]: string[]} = {};
         relevantMembers.forEach(m => {
             const cellName = m.cellule;
@@ -593,13 +630,15 @@ export default function OIView({ onClose }: OIViewProps) {
             grouped[cellName].push(m.trigramme);
         });
 
-        // Formater: "TRIG/TRIG (Cellule) - TRIG (Cellule)"
+        // Formater string
         const parts = Object.keys(grouped).sort().map(cellName => {
             const trigs = grouped[cellName].join('/');
             return `${trigs} (${cellName})`;
         });
 
-        return `<div style="margin-top:5px; border-top:1px solid #ccc; padding-top:2px;"><strong>CELLULE :</strong> ${parts.join(' - ')}</div>`;
+        if (parts.length === 0) return '';
+
+        return `<div style="margin-top:5px; border-top:1px solid #ccc; padding-top:2px; font-size:10px;"><strong>CELLULES :</strong> ${parts.join(' - ')}</div>`;
     };
 
     const drawTableAdv = (adv: IAdversaire, title: string) => {
@@ -792,8 +831,9 @@ export default function OIView({ onClose }: OIViewProps) {
                 <div class="box" style="font-size:9px;">
                     <strong>CAT SPÉCIFIQUE:</strong><br/>
                     ${formData.india_cat.replace(/\n/g, '<br>')}
-                    ${formatCelluleMembers("India")}
                 </div>
+                <!-- AJOUT LIGNE CELLULE -->
+                ${formatCelluleMembers("India")}
             </div>
             <div class="col" style="padding-left: 10px;">
                 <div style="background:#000; color:#fff; padding:5px; font-weight:bold; text-align:center;">AO (APPUI)</div>
@@ -806,23 +846,16 @@ export default function OIView({ onClose }: OIViewProps) {
                 <div class="box" style="font-size:9px;">
                     <strong>CAT SPÉCIFIQUE:</strong><br/>
                     ${formData.ao_cat.replace(/\n/g, '<br>')}
-                    ${formatCelluleMembers("AO")}
                 </div>
+                 <!-- AJOUT LIGNE CELLULE -->
+                ${formatCelluleMembers("AO")}
             </div>
         </div>
 
         <!-- PAGES DÉDIÉES PHOTOS (ORDRE DEMANDÉ) -->
-        
-        <!-- LOGISTIQUE -->
         ${getPhotosHtml('photo_logistique', 'LOGISTIQUE', '48%', '400px', true)}
-        
-        <!-- VUE AO -->
         ${getPhotosHtml('photo_ao_vue', 'VUE EMPLACEMENT AO', '48%', '400px', true)}
-        
-        <!-- ITINÉRAIRE INDIA -->
         ${getPhotosHtml('photo_india_iti', 'ITINÉRAIRE INDIA', '48%', '400px', true)}
-        
-        <!-- EFFRACTION -->
         ${getPhotosHtml('photo_effrac', 'DÉTAILS EFFRACTION', '48%', '400px', true)}
 
         <div class="page-break"></div>
@@ -852,7 +885,7 @@ export default function OIView({ onClose }: OIViewProps) {
         </div>
 
         <div style="margin-top: 50px; text-align: center; font-size: 8px;">
-            DOCUMENT GÉNÉRÉ PAR G-TAK // ${new Date().toLocaleString()}
+            DOCUMENT GÉNÉRÉ PAR ${trigramme_redacteur || 'G-TAK'} // ${new Date().toLocaleString()}
         </div>
 
       </body>
@@ -971,6 +1004,29 @@ export default function OIView({ onClose }: OIViewProps) {
     );
   };
 
+  const renderVehicleRenameModal = () => {
+      if(!isVehicleRenameVisible || !vehicleToRename) return null;
+      return (
+        <Modal visible={isVehicleRenameVisible} animationType="fade" transparent>
+            <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalContainer}>
+                <View style={[styles.modalContent, {maxHeight: 200}]}>
+                    <Text style={[styles.modalTitle, {marginBottom:20}]}>RENOMMER VÉHICULE</Text>
+                    <TextInput 
+                        style={styles.input} 
+                        value={newVehicleName} 
+                        onChangeText={setNewVehicleName} 
+                        autoFocus 
+                    />
+                    <View style={{flexDirection:'row', gap:10, marginTop:20}}>
+                        <TouchableOpacity onPress={() => setIsVehicleRenameVisible(false)} style={[styles.navBtn, {borderColor: COLORS.danger}]}><Text style={{color: COLORS.danger}}>ANNULER</Text></TouchableOpacity>
+                        <TouchableOpacity onPress={confirmRenameVehicle} style={[styles.navBtn, {backgroundColor: COLORS.success}]}><Text style={{color: '#000'}}>VALIDER</Text></TouchableOpacity>
+                    </View>
+                </View>
+            </KeyboardAvoidingView>
+        </Modal>
+      );
+  };
+
   // --- STEPS RENDER ---
   const renderStepContent = () => {
     switch(step) {
@@ -1067,10 +1123,17 @@ export default function OIView({ onClose }: OIViewProps) {
                         <TouchableOpacity onPress={addVehicle}><Text style={{color:COLORS.success}}>+ VEHICULE</Text></TouchableOpacity>
                     </View>
                     {vehicles.map(v => (
-                        <TouchableOpacity key={v.id} style={styles.vehCard} onPress={() => assignSelectedMemberToVehicle(v.id)}>
+                        <TouchableOpacity 
+                            key={v.id} 
+                            style={styles.vehCard} 
+                            onPress={() => assignSelectedMemberToVehicle(v.id)}
+                            onLongPress={() => openRenameVehicle(v)}
+                            delayLongPress={600}
+                        >
                             <View style={{flexDirection:'row', justifyContent:'space-between'}}>
                                 <Text style={styles.vehTitle}>{v.name} ({v.type})</Text>
-                                <Text style={{color:COLORS.danger}} onPress={() => setVehicles(vehicles.filter(x => x.id !== v.id))}>X</Text>
+                                {/* CORRECTION: removeVehicle renvoie les membres dans le pool */}
+                                <Text style={{color:COLORS.danger}} onPress={() => removeVehicle(v)}>X</Text>
                             </View>
                             <View style={{flexDirection:'row', flexWrap:'wrap', gap:5, marginTop:5}}>
                                 {v.members.map(m => (
@@ -1150,6 +1213,8 @@ export default function OIView({ onClose }: OIViewProps) {
                 <View style={{alignItems:'center', gap: 20, marginTop: 50}}>
                     <Text style={{color:COLORS.text, textAlign:'center'}}>L'Ordre Initial est prêt.</Text>
                     
+                    {renderInput("Trigramme Rédacteur (PDF)", formData.trigramme_redacteur, t => updateField('trigramme_redacteur', t), false, "Ex: MDL CHEF")}
+
                     <TouchableOpacity style={[styles.navBtn, {backgroundColor: COLORS.success, width:'100%', height: 60}]} onPress={handleGeneratePDF}>
                         <Text style={[styles.navBtnText, {color:'#000', fontSize:18}]}>GÉNÉRER PDF</Text>
                     </TouchableOpacity>
@@ -1213,6 +1278,7 @@ export default function OIView({ onClose }: OIViewProps) {
       </View>
 
       {renderMemberEditModal()}
+      {renderVehicleRenameModal()}
 
       <Modal visible={isAnnotationVisible} animationType="slide" onRequestClose={() => setIsAnnotationVisible(false)}>
         <SafeAreaView style={{flex:1, backgroundColor:'#000'}}>
@@ -1252,7 +1318,8 @@ export default function OIView({ onClose }: OIViewProps) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.bg },
-  header: { padding: 15, borderBottomWidth: 1, borderColor: COLORS.border, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  // CORRECTION PADDING TOP HEADER
+  header: { padding: 15, paddingTop: Platform.OS === 'android' ? 40 : 15, borderBottomWidth: 1, borderColor: COLORS.border, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   headerTitle: { color: COLORS.primary, fontSize: 18, fontWeight: 'bold', letterSpacing: 2, flex: 1, textAlign: 'center' },
   backButton: { padding: 5, width: 40 },
   backButtonText: { color: COLORS.text, fontSize: 24, fontWeight: 'bold' },
