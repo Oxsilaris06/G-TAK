@@ -1,4 +1,5 @@
 import Peer, { DataConnection } from 'peerjs';
+import NetInfo, { NetInfoState } from '@react-native-community/netinfo';
 import { CONFIG } from '../constants';
 import { UserData, OperatorRole, OperatorStatus } from '../types';
 import { AppStateStatus } from 'react-native';
@@ -19,6 +20,8 @@ type Listener = (event: ConnectivityEvent) => void;
 const RECONNECT_INTERVAL = 3000;
 const SYNC_INTERVAL = 2000;
 const HANDSHAKE_RETRY = 1000;
+// Délai max avant de considérer que la création du Peer a échoué et de réessayer
+const PEER_CREATION_TIMEOUT = 5000; 
 
 class ConnectivityService {
   private peer: Peer | null = null;
@@ -33,10 +36,18 @@ class ConnectivityService {
   private syncInterval: any = null;
   private retryTimeout: any = null;
   private handshakeInterval: any = null;
+  private creationTimeout: any = null;
+  
+  // Gestion Réseau
+  private netInfoUnsubscribe: (() => void) | null = null;
+  private lastNetworkType: string | null = null;
   
   private isDestroyed = false;
-  // REMOVED: isPaused logic to ensure background transmission continues
   private isConnecting = false;
+
+  constructor() {
+      this.setupNetworkMonitor();
+  }
 
   public subscribe(listener: Listener): () => void {
     this.listeners.push(listener);
@@ -47,17 +58,53 @@ class ConnectivityService {
     this.listeners.forEach(l => l(event));
   }
 
+  // --- GESTION INTELLIGENTE DU RÉSEAU ---
+  
+  private setupNetworkMonitor() {
+      // On écoute les changements physiques de réseau (Wifi <-> 4G/5G)
+      this.netInfoUnsubscribe = NetInfo.addEventListener(state => {
+          if (!state.isConnected) return;
+          
+          const currentType = state.type;
+          
+          // Si on change de type de réseau (ex: wifi -> cellular), l'IP locale change.
+          // Le socket WebRTC actuel devient "zombie" (mort silencieux).
+          // Il faut le tuer et le recréer de force.
+          if (this.lastNetworkType && this.lastNetworkType !== currentType) {
+              console.log(`[NET] Changement Réseau détecté: ${this.lastNetworkType} -> ${currentType}`);
+              this.handleNetworkSwitch();
+          }
+          
+          this.lastNetworkType = currentType;
+      });
+  }
+
+  private handleNetworkSwitch() {
+      if (this.isDestroyed) return;
+
+      console.log("[NET] Reconstruction forcée du lien réseau...");
+      this.notify({ type: 'TOAST', msg: 'Changement réseau : Reconnexion...', level: 'warning' });
+
+      // On détruit proprement l'instance actuelle pour fermer les ports
+      if (this.peer) {
+          this.peer.destroy();
+          this.peer = null;
+      }
+      this.isConnecting = false;
+
+      // Petit délai pour laisser le système OS libérer les sockets
+      setTimeout(() => {
+          // On recrée avec le même ID si possible pour que les autres nous retrouvent
+          const targetId = (this.role === OperatorRole.HOST && this.user?.id) ? this.user.id : undefined;
+          this.createPeer(targetId);
+      }, 500);
+  }
+
   public handleAppStateChange(status: AppStateStatus) {
-      if (status === 'background') {
-          // We keep the connection alive in background for tactical tracking
-          // Optional: You could lower the sync rate here if needed, but for now we keep it active.
-          console.log("[NET] App in background - Maintaining Tactical Link");
-      } else if (status === 'active') {
+      if (status === 'active') {
           if (!this.peer || this.peer.disconnected || this.peer.destroyed) {
-              console.log("[NET] Resume from background: Reconnecting...");
+              console.log("[NET] Retour premier plan : Vérification connexion...");
               this.scheduleReconnect(true);
-          } else if (this.role === OperatorRole.OPR && this.hostId && !this.connections[this.hostId]) {
-              this.connectToHost(this.hostId);
           }
       }
   }
@@ -70,6 +117,8 @@ class ConnectivityService {
     this.role = role;
     this.hostId = targetHostId || null;
 
+    // Si on est Host, on génère l'ID nous-même ou on laisse PeerJS le faire (mais ici on veut contrôler)
+    // Pour simplifier, on laisse PeerJS générer un ID court si on est Host
     const myId = role === OperatorRole.HOST ? this.generateShortId() : undefined; 
     
     console.log(`[NET] Init. Role: ${role}, TargetHost: ${targetHostId}`);
@@ -80,12 +129,30 @@ class ConnectivityService {
     if (this.isConnecting) return;
     this.isConnecting = true;
 
+    // Nettoyage timeout précédent
+    if (this.creationTimeout) clearTimeout(this.creationTimeout);
+
     try {
-        console.log("[NET] Creating Peer...");
+        console.log(`[NET] Création Peer (Tentative avec ID: ${id || 'AUTO'})...`);
         const peer = new Peer(id, CONFIG.PEER_CONFIG as any);
         this.peer = peer;
 
+        // --- TIMEOUT DE SÉCURITÉ (Fix lenteur création) ---
+        // Si PeerJS ne répond pas 'open' dans les 5s, on considère que c'est mort (UDP bloqué ou serveur lent)
+        // et on retry immédiatement. Ça évite d'attendre 30s le timeout TCP par défaut.
+        this.creationTimeout = setTimeout(() => {
+            if (!peer.open) {
+                console.warn("[NET] Timeout création Peer (>5s). Reset forcé.");
+                this.isConnecting = false;
+                peer.destroy();
+                this.createPeer(id); // Retry récursif
+            }
+        }, PEER_CREATION_TIMEOUT);
+
         peer.on('open', (peerId) => {
+            // Succès ! On annule le timeout de sécurité
+            if (this.creationTimeout) clearTimeout(this.creationTimeout);
+            
             this.isConnecting = false;
             console.log(`[NET] Peer OPEN: ${peerId}`);
             if (this.user) this.user.id = peerId;
@@ -98,12 +165,13 @@ class ConnectivityService {
                 this.notify({ type: 'TOAST', msg: `Hôte Actif: ${peerId}`, level: 'success' });
                 this.startHostSync();
             } else if (this.hostId) {
+                // Client : on se connecte à l'hôte
                 setTimeout(() => this.connectToHost(this.hostId!), 500);
             }
         });
 
         peer.on('connection', (conn) => {
-            console.log(`[NET] Incoming connection from ${conn.peer}`);
+            console.log(`[NET] Connexion entrante de ${conn.peer}`);
             this.setupConnection(conn);
         });
 
@@ -112,23 +180,25 @@ class ConnectivityService {
             console.error(`[NET] Peer Error: ${err.type}`, err);
             
             if (err.type === 'unavailable-id') {
-                this.notify({ type: 'TOAST', msg: 'ID Hôte indisponible (déjà pris ?)', level: 'warning' });
-                setTimeout(() => this.createPeer(undefined), 1000);
+                // Si l'ID est pris (ex: ancien Host fantôme), on en génère un nouveau
+                this.notify({ type: 'TOAST', msg: 'ID Hôte indisponible, nouvel ID...', level: 'warning' });
+                setTimeout(() => this.createPeer(undefined), 500);
             } else if (err.type === 'peer-unavailable') {
+                // L'hôte n'est pas (encore) là
                 if (!this.isDestroyed && this.role === OperatorRole.OPR) {
-                   console.log(`[NET] Host ${this.hostId} not found yet... retrying.`);
+                   console.log(`[NET] Hôte ${this.hostId} introuvable. Retry...`);
                    this.scheduleReconnect();
                 }
-            } else if (err.type === 'network' || err.type === 'disconnected' || err.type === 'server-error' || err.type === 'socket-error') {
+            } else {
+                // Erreurs réseau génériques
                 this.scheduleReconnect();
-            } else if (err.type === 'browser-incompatible') {
-                this.notify({ type: 'TOAST', msg: 'Erreur compatibilité WebRTC', level: 'error' });
             }
         });
 
         peer.on('disconnected', () => {
-            console.log('[NET] Disconnected from signaling server');
+            console.log('[NET] Déconnecté du serveur de signalement (mais P2P peut être actif)');
             if (!this.isDestroyed && this.peer && !this.peer.destroyed) {
+                // Tenter une reconnexion douce au serveur de signalement
                 this.peer.reconnect();
             }
         });
@@ -144,22 +214,24 @@ class ConnectivityService {
       if (this.retryTimeout) clearTimeout(this.retryTimeout);
       if (this.isDestroyed) return;
 
-      const delay = immediate ? 100 : RECONNECT_INTERVAL;
+      const delay = immediate ? 200 : RECONNECT_INTERVAL;
 
       this.retryTimeout = setTimeout(() => {
-          console.log('[NET] Reconnecting sequence...');
+          console.log('[NET] Séquence de reconnexion...');
           if (this.peer) {
               this.peer.destroy();
               this.peer = null;
           }
-          this.createPeer(this.role === OperatorRole.HOST && this.user?.id ? this.user.id : undefined);
+          // On essaye de reprendre notre ID si on était Host
+          const targetId = (this.role === OperatorRole.HOST && this.user?.id) ? this.user.id : undefined;
+          this.createPeer(targetId);
       }, delay);
   }
 
   public connectToHost(targetId: string) {
       if (!this.peer || this.peer.destroyed) return;
       
-      console.log(`[NET] Connecting to Host ${targetId}...`);
+      console.log(`[NET] Connexion vers Hôte ${targetId}...`);
       
       if (this.connections[targetId]) {
           this.connections[targetId].close();
@@ -167,17 +239,26 @@ class ConnectivityService {
       }
 
       const conn = this.peer.connect(targetId, { 
-          reliable: true, 
+          reliable: true, // TCP-like : Crucial pour éviter la perte de paquets sur 4G/5G
           serialization: 'json',
-          metadata: { role: 'OPR', version: '3.3.0' }
+          metadata: { role: 'OPR', version: '4.0.0' }
       });
       
       this.setupConnection(conn);
   }
 
   private setupConnection(conn: DataConnection) {
+      // Timeout de connexion P2P : Si le tunnel ne s'ouvre pas en 8s, on coupe
+      const connTimeout = setTimeout(() => {
+          if (!conn.open) {
+              console.warn(`[NET] Timeout connexion vers ${conn.peer}. Close.`);
+              conn.close();
+          }
+      }, 8000);
+
       conn.on('open', () => {
-          console.log(`[NET] Tunnel OPEN with ${conn.peer}`);
+          clearTimeout(connTimeout);
+          console.log(`[NET] Tunnel OUVERT avec ${conn.peer}`);
           this.connections[conn.peer] = conn;
 
           if (this.role === OperatorRole.HOST) {
@@ -191,17 +272,19 @@ class ConnectivityService {
       conn.on('data', (data) => this.handleData(data, conn.peer));
       
       conn.on('close', () => {
-          console.log(`[NET] Tunnel CLOSE with ${conn.peer}`);
+          console.log(`[NET] Tunnel FERMÉ avec ${conn.peer}`);
           this.removePeer(conn.peer); 
           
           if (this.role === OperatorRole.OPR && conn.peer === this.hostId) {
               this.notify({ type: 'DISCONNECTED', reason: 'NO_HOST' });
-              this.scheduleReconnect();
+              // Reconnexion très agressive si on perd l'hôte
+              this.scheduleReconnect(true);
           }
       });
       
       conn.on('error', (err) => {
-          console.warn(`[NET] Conn Error with ${conn.peer}:`, err);
+          console.warn(`[NET] Erreur Tunnel ${conn.peer}:`, err);
+          conn.close();
       });
   }
 
@@ -218,9 +301,11 @@ class ConnectivityService {
   private startClientHandshake(conn: DataConnection) {
       if (this.handshakeInterval) clearInterval(this.handshakeInterval);
       
-      console.log('[NET] Sending initial HELLO...');
+      console.log('[NET] Envoi HELLO initial...');
       conn.send({ type: 'HELLO', user: this.user });
 
+      // On répète le Hello jusqu'à recevoir le SYNC (Ack)
+      // Utile sur réseaux à forte perte de paquets (Edge/3G/5G saturée)
       this.handshakeInterval = setInterval(() => {
           if (conn.open) {
               conn.send({ type: 'HELLO', user: this.user });
@@ -252,9 +337,10 @@ class ConnectivityService {
   }
 
   private handleData(data: any, fromId: string) {
+      // Handshake Ack
       if (this.role === OperatorRole.OPR && data.type === 'SYNC') {
           if (this.handshakeInterval) {
-              console.log('[NET] Handshake success, stopping retry.');
+              console.log('[NET] Handshake réussi (SYNC reçu).');
               clearInterval(this.handshakeInterval);
               this.handshakeInterval = null;
               this.notify({ type: 'TOAST', msg: 'Synchronisé', level: 'success' });
@@ -266,12 +352,12 @@ class ConnectivityService {
           this.notify({ type: 'TOAST', msg: `${callsign} a quitté.`, level: 'info' });
           this.removePeer(fromId);
           if (this.role === OperatorRole.HOST) {
+               // Relais aux autres clients
                this.broadcast({ type: 'CLIENT_LEAVING', id: fromId, callsign: callsign });
           }
           return; 
       }
       
-      // NEW: Rally Notification handling
       if (data.type === 'RALLY_REQ') {
           this.notify({ type: 'TOAST', msg: `${data.sender} vous rejoint !`, level: 'info' });
       }
@@ -351,6 +437,13 @@ class ConnectivityService {
       if (this.syncInterval) clearInterval(this.syncInterval);
       if (this.handshakeInterval) clearInterval(this.handshakeInterval);
       if (this.retryTimeout) clearTimeout(this.retryTimeout);
+      if (this.creationTimeout) clearTimeout(this.creationTimeout);
+      
+      // On ne désinscrit PAS le moniteur réseau lors d'un cleanup partiel (reco)
+      if (full && this.netInfoUnsubscribe) {
+          this.netInfoUnsubscribe();
+          this.netInfoUnsubscribe = null;
+      }
       
       Object.values(this.connections).forEach(c => c.close());
       this.connections = {};
@@ -363,7 +456,7 @@ class ConnectivityService {
   }
 
   private generateShortId(): string {
-      return Math.random().toString(36).substring(2, 10).toUpperCase();
+      return Math.random().toString(36).substring(2, 7).toUpperCase();
   }
 }
 
