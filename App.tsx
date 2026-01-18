@@ -37,8 +37,8 @@ import MainCouranteView from './components/MainCouranteView';
 import PrivacyConsentModal from './components/PrivacyConsentModal';
 import { NotificationToast } from './components/NotificationToast';
 import ComposantOrdreInitial from './components/ComposantOrdreInitial'; 
-// import ShinyText from './components/ShinyText'; // RETIRÉ
-import LightPillar from './components/LightPillar';
+// Remplacement du composant lourd 3D par une version native optimisée
+import TacticalBackground from './components/TacticalBackground';
 
 try { SplashScreen.preventAutoHideAsync().catch(() => {}); } catch (e) {}
 
@@ -635,17 +635,8 @@ const App: React.FC = () => {
     } else if (view === 'login') {
       return (
         <View style={styles.centerContainer}>
-          {/* ARRIÈRE PLAN 3D AVEC RÉGLAGES - Conditionné pour n'être affiché que sur login */}
-          <LightPillar 
-            topColor="#2100a3"
-            bottomColor="#021369"
-            intensity={0.7}
-            glowAmount={0.005}
-            pillarWidth={10}
-            pillarHeight={1}
-            noiseIntensity={0.7}
-            pillarRotation={72}
-          />
+          {/* VERSION OPTIMISÉE SANS SHADER 3D LOURD */}
+          <TacticalBackground />
 
           <TextInput style={styles.input} placeholder="TRIGRAMME" placeholderTextColor="#52525b" maxLength={6} value={loginInput} onChangeText={setLoginInput} autoCapitalize="characters" />
           
