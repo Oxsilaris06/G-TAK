@@ -23,6 +23,11 @@ const HANDSHAKE_RETRY = 1000;
 // Délai max avant de considérer que la création du Peer a échoué (UDP bloqué ?) et de réessayer
 const PEER_CREATION_TIMEOUT = 5000; 
 
+// --- TIMEOUTS DE SURVIE (WATCHDOG) ---
+const HEALTH_CHECK_INTERVAL = 5000; // Vérification toutes les 5s
+const HOST_TIMEOUT = 15000;         // Client: Si pas de nouvelles de l'hôte en 15s -> Reconnexion
+const ZOMBIE_TIMEOUT = 30000;       // Hôte: Si un client est muet 30s -> Exclusion technique
+
 class ConnectivityService {
   private peer: Peer | null = null;
   private connections: Record<string, DataConnection> = {};
@@ -37,7 +42,12 @@ class ConnectivityService {
   private retryTimeout: any = null;
   private handshakeInterval: any = null;
   private creationTimeout: any = null;
+  private healthCheckInterval: any = null; // NOUVEAU: Timer de surveillance
   
+  // Suivi d'activité pour le Watchdog
+  private lastHostActivity: number = Date.now();
+  private lastPeerActivity: Record<string, number> = {};
+
   // Gestion Réseau
   private netInfoUnsubscribe: (() => void) | null = null;
   private lastNetworkType: string | null = null;
@@ -113,6 +123,8 @@ class ConnectivityService {
               console.log("[NET] Retour premier plan : Vérification connexion...");
               this.scheduleReconnect(true);
           }
+          // On force une mise à jour de l'activité pour éviter un timeout immédiat
+          this.lastHostActivity = Date.now();
       }
   }
 
@@ -123,12 +135,67 @@ class ConnectivityService {
     this.user = { ...user, role };
     this.role = role;
     this.hostId = targetHostId || null;
+    this.lastHostActivity = Date.now();
 
     // Si on est Host, on génère l'ID nous-même ou on laisse PeerJS le faire
     const myId = role === OperatorRole.HOST ? this.generateShortId() : undefined; 
     
     console.log(`[NET] Init. Role: ${role}, TargetHost: ${targetHostId}`);
     this.createPeer(myId);
+    
+    // Démarrage du Watchdog
+    this.startHealthCheck();
+  }
+
+  // --- NOUVEAU : SYSTEME DE WATCHDOG ---
+  private startHealthCheck() {
+      if (this.healthCheckInterval) clearInterval(this.healthCheckInterval);
+      
+      this.healthCheckInterval = setInterval(() => {
+          if (this.isDestroyed || this.isConnecting) return;
+
+          const now = Date.now();
+
+          // 1. AUTO-GUÉRISON PEERJS
+          // Si le peer est en mode "disconnected" (souvent temporaire), on tente un reconnect doux
+          if (this.peer && !this.peer.destroyed && this.peer.disconnected) {
+              console.log("[WATCHDOG] Peer déconnecté du signaling -> Tentative reconnect...");
+              this.peer.reconnect();
+          }
+
+          // 2. LOGIQUE CLIENT : HÔTE MORT ?
+          if (this.role === OperatorRole.OPR && this.hostId) {
+              // Si on est censé être connecté mais qu'on a rien reçu depuis HOST_TIMEOUT
+              // On vérifie aussi si on a bien une connexion active dans la liste
+              const hasConnection = !!this.connections[this.hostId];
+              
+              if (hasConnection && (now - this.lastHostActivity > HOST_TIMEOUT)) {
+                  console.warn(`[WATCHDOG] Hôte silencieux depuis ${Math.round((now - this.lastHostActivity)/1000)}s. Reconnexion forcée.`);
+                  this.notify({ type: 'TOAST', msg: 'Lien Hôte instable...', level: 'warning' });
+                  this.scheduleReconnect(true); // Restart complet
+                  this.lastHostActivity = now; // Reset pour éviter boucle infinie immédiate
+              }
+          }
+
+          // 3. LOGIQUE HÔTE : CLIENTS ZOMBIES ?
+          if (this.role === OperatorRole.HOST) {
+              Object.keys(this.connections).forEach(peerId => {
+                  const lastSeen = this.lastPeerActivity[peerId] || now;
+                  if (now - lastSeen > ZOMBIE_TIMEOUT) {
+                      console.warn(`[WATCHDOG] Client ${peerId} zombie détecté. Nettoyage.`);
+                      const conn = this.connections[peerId];
+                      if (conn) { 
+                          try { conn.close(); } catch(e){} 
+                          delete this.connections[peerId];
+                      }
+                      delete this.lastPeerActivity[peerId];
+                      // On ne notifie pas l'UI tout de suite, on laisse le removePeer le faire proprement
+                      this.removePeer(peerId);
+                  }
+              });
+          }
+
+      }, HEALTH_CHECK_INTERVAL);
   }
 
   private createPeer(id?: string) {
@@ -163,6 +230,7 @@ class ConnectivityService {
             console.log(`[NET] Peer OPEN: ${peerId}`);
             if (this.user) this.user.id = peerId;
             this.notify({ type: 'PEER_OPEN', id: peerId });
+            this.lastHostActivity = Date.now(); // Reset timer
 
             if (this.role === OperatorRole.HOST) {
                 this.hostId = peerId;
@@ -267,6 +335,8 @@ class ConnectivityService {
           clearTimeout(connTimeout);
           console.log(`[NET] Tunnel OUVERT avec ${conn.peer}`);
           this.connections[conn.peer] = conn;
+          // Initialisation activité pour éviter kill immédiat
+          this.lastPeerActivity[conn.peer] = Date.now(); 
 
           if (this.role === OperatorRole.HOST) {
               this.sendSync(conn);
@@ -303,6 +373,7 @@ class ConnectivityService {
           delete this.peersMap[peerId];
           this.notify({ type: 'PEERS_UPDATED', peers: this.peersMap });
       }
+      if (this.lastPeerActivity[peerId]) delete this.lastPeerActivity[peerId];
   }
 
   private startClientHandshake(conn: DataConnection) {
@@ -344,6 +415,12 @@ class ConnectivityService {
   }
 
   private handleData(data: any, fromId: string) {
+      // Mise à jour de l'activité pour le Watchdog
+      this.lastPeerActivity[fromId] = Date.now();
+      if (fromId === this.hostId) {
+          this.lastHostActivity = Date.now();
+      }
+
       // Handshake Ack
       if (this.role === OperatorRole.OPR && data.type === 'SYNC') {
           if (this.handshakeInterval) {
@@ -386,7 +463,7 @@ class ConnectivityService {
               if (u.id !== this.user?.id) newMap[u.id] = u;
           });
           this.peersMap = newMap;
-          this.notify({ type: 'PEERS_UPDATED', peers: this.peersMap });
+          this.notiAfy({ type: 'PEERS_UPDATED', peers: this.peersMap });
       } else if (data.type === 'KICK' && fromId === this.hostId) {
           this.cleanup();
           this.notify({ type: 'DISCONNECTED', reason: 'KICKED' });
@@ -445,6 +522,7 @@ class ConnectivityService {
       if (this.handshakeInterval) clearInterval(this.handshakeInterval);
       if (this.retryTimeout) clearTimeout(this.retryTimeout);
       if (this.creationTimeout) clearTimeout(this.creationTimeout);
+      if (this.healthCheckInterval) clearInterval(this.healthCheckInterval);
       
       // On ne désinscrit PAS le moniteur réseau lors d'un cleanup partiel (reco)
       if (full && this.netInfoUnsubscribe) {
@@ -455,6 +533,7 @@ class ConnectivityService {
       Object.values(this.connections).forEach(c => { try { c.close(); } catch(e){} });
       this.connections = {};
       this.peersMap = {};
+      this.lastPeerActivity = {};
       
       if (this.peer) {
           try { this.peer.destroy(); } catch(e) {}
