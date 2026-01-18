@@ -21,7 +21,7 @@ import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system';
 import * as DocumentPicker from 'expo-document-picker';
-import { MaterialIcons } from '@expo/vector-icons'; // Ajout pour cohérence visuelle
+import { MaterialIcons } from '@expo/vector-icons';
 
 // --- PROPS ---
 interface OIViewProps {
@@ -35,7 +35,7 @@ const MEMBER_CONFIG = {
     fonctions: ["Chef inter", "Chef dispo", "Chef Oscar", "DE", "Cyno", "Inter", "Effrac", "AO", "Sanitaire", "Radio", "Sans"],
     cellules: ["AO1", "AO2", "AO3", "AO4", "AO5", "AO6", "AO7", "AO8", "India 1", "India 2", "India 3", "India 4", "India 5", "Effrac", "Commandement", "Sans"],
     principales: [ "G36", "UMP9", "FAP", "MP5", "Sans"],
-    afis: ["PIE", "LBD40", "LBD44", "PIE", "Sans"],
+    afis: ["PIE", "LBD40", "LBD44", "Sans"],
     secondaires: ["SIG 2022","G26", "Sans"],
     grenades: ["GENL", "MP7", "FAR", "Sans"],
     equipements: ["Sans", "BBAL", "Belier", "Lacry", "IL", "Lot 5.11", "Lot Oscar", "Pince", "Drone", "Cam pieton",],
@@ -50,20 +50,19 @@ const MEMBER_CONFIG = {
   ]
 };
 
-// COULEURS HARMONISÉES AVEC APP.TSX
 const COLORS = {
   bg: '#050505',
-  surface: '#18181b', // Cohérent avec menuCard dans App.tsx
-  surfaceLight: '#27272a', // Cohérent avec les séparateurs et boutons secondaires
-  primary: '#3b82f6', // Bleu standardisé
+  surface: '#18181b',
+  surfaceLight: '#27272a',
+  primary: '#3b82f6',
   secondary: '#94a3b8',
-  text: '#e0e0e0', // Légèrement plus clair pour contraste
-  textMuted: '#71717a', // Cohérent avec App.tsx
+  text: '#e0e0e0',
+  textMuted: '#71717a',
   danger: '#ef4444',
   success: '#22c55e',
   warning: '#eab308',
-  border: 'rgba(255, 255, 255, 0.05)', // Plus subtil comme dans App.tsx
-  inputBg: '#000000' // Fond noir pour inputs
+  border: 'rgba(255, 255, 255, 0.05)',
+  inputBg: '#000000'
 };
 
 // --- TYPES COMPLETS ---
@@ -122,7 +121,7 @@ interface IOIState {
   cat_generales: string;
   no_go: string;
   cat_liaison: string;
-  logo_mode: 'background' | 'included'; // Nouveau champ pour le mode du logo
+  logo_mode: 'background' | 'included';
 }
 
 interface IMember {
@@ -443,8 +442,8 @@ export default function OIView({ onClose }: OIViewProps) {
 
   const createNewMember = () => {
     const newM: IMember = {
-        id: `m_${Date.now()}`, trigramme: "NOUVEAU", fonction: "Inter", cellule: "India 1",
-        tenue: "UBAS", principales: "HK 416", secondaires: "PSA", afis: "Sans", grenades: "Sans",
+        id: `m_${Date.now()}`, trigramme: "X", fonction: "Inter", cellule: "India 1",
+        tenue: "UBAS", principales: "Sans", secondaires: "PSA", afis: "Sans", grenades: "Sans",
         equipement: "Sans", equipement2: "Sans", gpb: "GPBL"
     };
     setPoolMembers(prev => [...prev, newM]);
@@ -567,8 +566,7 @@ export default function OIView({ onClose }: OIViewProps) {
     // LOGIQUE DE MISE EN PAGE DU LOGO (PAGE 1)
     let page1Style = `display: flex; flex-direction: column; height: 90vh;`;
     let logoHtml = '';
-    let topContentStyle = '';
-
+    
     if (logoSrc) {
         if (logo_mode === 'background') {
             // MODE FOND D'ÉCRAN
@@ -580,7 +578,7 @@ export default function OIView({ onClose }: OIViewProps) {
             `;
         } else {
             // MODE INCLUE
-            // "La photo se mets en dessous de l'encadré ... Ce qui a pour effet de remonter ces deux éléments quasiment au plus haut (petit padding)"
+            // Remonte le titre et cible, affiche le logo en dessous (40% image / 60% titre approx)
             page1Style += `justify-content: flex-start; padding-top: 20px;`;
             // Logo 100% opacité
             logoHtml = `
@@ -1041,10 +1039,11 @@ export default function OIView({ onClose }: OIViewProps) {
                         {renderSelect("TENUE", "tenue", MEMBER_CONFIG.options.tenues)}
                         {renderSelect("ARMEMENT PRINCIPAL", "principales", MEMBER_CONFIG.options.principales)}
                         {renderSelect("ARMEMENT SECONDAIRE", "secondaires", MEMBER_CONFIG.options.secondaires)}
-                        {/* AJOUT CATÉGORIE AFI */}
+                        {/* AJOUT CATÉGORIE AFI ET EQUIPEMENT 2 */}
                         {renderSelect("A.F.I.", "afis", MEMBER_CONFIG.options.afis)}
                         {renderSelect("GRENADES", "grenades", MEMBER_CONFIG.options.grenades)}
                         {renderSelect("EQUIPEMENT", "equipement", MEMBER_CONFIG.options.equipements)}
+                        {renderSelect("ÉQUIPEMENT 2", "equipement2", MEMBER_CONFIG.options.equipements2)}
                         {renderSelect("PROTECTION", "gpb", MEMBER_CONFIG.options.gpbs)}
                     </ScrollView>
                     <View style={{flexDirection:'row', gap:10, marginTop:10}}>
