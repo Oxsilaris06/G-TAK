@@ -152,6 +152,7 @@ interface IPhotoAnnotation {
 interface IPhoto {
   id: string;
   uri: string;
+  base64?: string; // Ajout pour garantir l'affichage PDF
   category: string;
   annotations: IPhotoAnnotation[];
 }
@@ -192,7 +193,7 @@ const INITIAL_STATE: IOIState = {
   cat_liaison: "TOM: \nDIR: \nGestuelle et visuelle entre les éléments INDIA"
 };
 
-// --- SOUS-COMPOSANTS (Pour éviter l'erreur de Hooks) ---
+// --- SOUS-COMPOSANTS ---
 
 const DynamicListInput = ({ label, list, onChange, placeholder = "Ajouter..." }: { label: string, list: string[], onChange: (l: string[]) => void, placeholder?: string }) => {
     const [txt, setTxt] = useState("");
@@ -344,7 +345,6 @@ export default function OIView({ onClose }: OIViewProps) {
     }
   };
 
-  // Import spécifique pour la config PATRAC (Membres)
   const importMemberConfig = async () => {
       try {
           const result = await DocumentPicker.getDocumentAsync({ type: 'application/json', copyToCacheDirectory: true });
@@ -353,7 +353,6 @@ export default function OIView({ onClose }: OIViewProps) {
           const jsonString = await FileSystem.readAsStringAsync(fileUri);
           const data = JSON.parse(jsonString);
 
-          // On s'attend à un tableau de membres ou un objet avec une clé members
           let newMembers: IMember[] = [];
           if (Array.isArray(data)) {
               newMembers = data;
@@ -364,11 +363,9 @@ export default function OIView({ onClose }: OIViewProps) {
               return;
           }
 
-          // Ajout des IDs uniques si manquants et fusion avec le pool existant
           const processedMembers = newMembers.map((m, i) => ({
               ...m,
               id: m.id || `m_imp_${Date.now()}_${i}`,
-              // Valeurs par défaut si manquantes
               principales: m.principales || "Sans",
               secondaires: m.secondaires || "PSA",
               tenue: m.tenue || "UBAS",
@@ -496,7 +493,13 @@ export default function OIView({ onClose }: OIViewProps) {
       allowsEditing: false, quality: 0.7, base64: true
     });
     if (!result.canceled) {
-      const newPhoto: IPhoto = { id: Date.now().toString(), uri: result.assets[0].uri, category, annotations: [] };
+      const newPhoto: IPhoto = { 
+          id: Date.now().toString(), 
+          uri: result.assets[0].uri, 
+          base64: result.assets[0].base64 || undefined, // Stockage du base64 pour PDF
+          category, 
+          annotations: [] 
+      };
       setPhotos([...photos, newPhoto]);
     }
   };
@@ -523,7 +526,6 @@ export default function OIView({ onClose }: OIViewProps) {
     const { date_op } = formData;
     
     // HELPERS GRAPHIQUES
-    // Modifié pour supporter plusieurs photos (filtrage par catégorie)
     const getPhotosHtml = (category: string, label: string, width = "100%", maxHeight = "300px", pageBreakBefore = false) => {
         const catPhotos = photos.filter(p => p.category === category);
         if (catPhotos.length === 0) return '';
@@ -535,10 +537,12 @@ export default function OIView({ onClose }: OIViewProps) {
         html += `<div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 10px;">`;
         
         catPhotos.forEach(photo => {
+            // Utilisation du base64 si dispo pour garantir l'affichage dans le PDF
+            const imgSrc = photo.base64 ? `data:image/jpeg;base64,${photo.base64}` : photo.uri;
             html += `
             <div style="border: 2px solid #000; padding: 5px; margin-bottom: 10px; background: #fff; width: ${width}; page-break-inside: avoid;">
                 <div style="position: relative; display: block; width: 100%; margin: 0 auto;">
-                    <img src="${photo.uri}" style="width: 100%; max-height: ${maxHeight}; object-fit:contain; display: block;" />
+                    <img src="${imgSrc}" style="width: 100%; max-height: ${maxHeight}; object-fit:contain; display: block;" />
                     ${photo.annotations.map(a => `
                         <div style="position: absolute; left: ${a.x}%; top: ${a.y}%; width: 20px; height: 20px; background: red; color: white; border-radius: 50%; text-align: center; line-height: 20px; font-size: 12px; font-weight:bold; transform: translate(-50%, -50%); border: 2px solid white;">
                             ${a.text}
@@ -553,15 +557,16 @@ export default function OIView({ onClose }: OIViewProps) {
         return html;
     };
 
-    // Helper spécifique pour les photos à côté des tableaux adversaires
     const getSingleSidePhotoHtml = (category: string) => {
         const catPhotos = photos.filter(p => p.category === category);
         if (catPhotos.length === 0) return '';
-        // On prend juste la première ou on les empile verticalement
-        return catPhotos.map(photo => `
+        
+        return catPhotos.map(photo => {
+            const imgSrc = photo.base64 ? `data:image/jpeg;base64,${photo.base64}` : photo.uri;
+            return `
             <div style="border: 2px solid #000; padding: 2px; margin-bottom: 5px; background: #fff;">
                 <div style="position: relative;">
-                    <img src="${photo.uri}" style="width: 100%; max-height: 200px; object-fit:contain; display: block;" />
+                    <img src="${imgSrc}" style="width: 100%; max-height: 200px; object-fit:contain; display: block;" />
                     ${photo.annotations.map(a => `
                         <div style="position: absolute; left: ${a.x}%; top: ${a.y}%; width: 15px; height: 15px; background: red; color: white; border-radius: 50%; text-align: center; line-height: 15px; font-size: 10px; font-weight:bold; transform: translate(-50%, -50%); border: 1px solid white;">
                             ${a.text}
@@ -569,7 +574,32 @@ export default function OIView({ onClose }: OIViewProps) {
                     `).join('')}
                 </div>
             </div>
-        `).join('');
+        `;}).join('');
+    };
+
+    // Helper pour formater la ligne "Cellule" dans Articulation
+    const formatCelluleMembers = (prefix: string) => {
+        const allMembers = vehicles.flatMap(v => v.members).concat(poolMembers);
+        // Filtrer les membres dont la cellule commence par le prefixe (ex: "India" ou "AO")
+        const relevantMembers = allMembers.filter(m => m.cellule.toLowerCase().startsWith(prefix.toLowerCase()));
+        
+        if (relevantMembers.length === 0) return '';
+
+        // Grouper par cellule exacte (ex: "India 1", "India 2")
+        const grouped: {[key:string]: string[]} = {};
+        relevantMembers.forEach(m => {
+            const cellName = m.cellule;
+            if (!grouped[cellName]) grouped[cellName] = [];
+            grouped[cellName].push(m.trigramme);
+        });
+
+        // Formater: "TRIG/TRIG (Cellule) - TRIG (Cellule)"
+        const parts = Object.keys(grouped).sort().map(cellName => {
+            const trigs = grouped[cellName].join('/');
+            return `${trigs} (${cellName})`;
+        });
+
+        return `<div style="margin-top:5px; border-top:1px solid #ccc; padding-top:2px;"><strong>CELLULE :</strong> ${parts.join(' - ')}</div>`;
     };
 
     const drawTableAdv = (adv: IAdversaire, title: string) => {
@@ -762,6 +792,7 @@ export default function OIView({ onClose }: OIViewProps) {
                 <div class="box" style="font-size:9px;">
                     <strong>CAT SPÉCIFIQUE:</strong><br/>
                     ${formData.india_cat.replace(/\n/g, '<br>')}
+                    ${formatCelluleMembers("India")}
                 </div>
             </div>
             <div class="col" style="padding-left: 10px;">
@@ -775,6 +806,7 @@ export default function OIView({ onClose }: OIViewProps) {
                 <div class="box" style="font-size:9px;">
                     <strong>CAT SPÉCIFIQUE:</strong><br/>
                     ${formData.ao_cat.replace(/\n/g, '<br>')}
+                    ${formatCelluleMembers("AO")}
                 </div>
             </div>
         </div>
