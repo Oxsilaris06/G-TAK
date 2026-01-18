@@ -855,7 +855,7 @@ export default function OIView({ onClose }: OIViewProps) {
         <!-- PAGE 4: MISSION & EXECUTION -->
         <div class="row">
             <div class="col">
-                 <h2>4. MISSION PSIG</h2>
+                 <h2>4. MISSION </h2>
                  <div class="box" style="text-align:center; font-weight:bold; ${enlargedStyle} background:#f0f0f0;">
                     ${formData.missions_psig.replace(/\n/g, '<br>')}
                  </div>
@@ -936,7 +936,7 @@ export default function OIView({ onClose }: OIViewProps) {
         <div class="page-break"></div>
 
         <!-- PAGE Y: CAT & LOGISTIQUE -->
-        <h2>9. DIVERS & SÉCURITÉ</h2>
+        <h2>9. CAT & LOGISTIQUE</h2>
         <div class="row">
             <div class="col">
                 <h3>CONDUITES À TENIR GÉNÉRALES</h3>
