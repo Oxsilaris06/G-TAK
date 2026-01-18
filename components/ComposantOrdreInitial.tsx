@@ -13,9 +13,6 @@ import {
   KeyboardAvoidingView,
   Image,
   Dimensions,
-  FlatList,
-  Switch,
-  ActivityIndicator,
   Share
 } from 'react-native';
 import * as Print from 'expo-print';
@@ -27,7 +24,7 @@ import * as DocumentPicker from 'expo-document-picker';
 
 // --- PROPS ---
 interface OIViewProps {
-    onClose?: () => void; // Prop pour fermer le composant
+    onClose?: () => void;
 }
 
 // --- CONSTANTES & CONFIGURATION ---
@@ -49,7 +46,6 @@ const MEMBER_CONFIG = {
   members: [
     { trigramme: "PRC", fonction: "Inter", cellule: "AO1", tenue: "UBAS" },
     { trigramme: "RTI", fonction: "Sans", cellule: "India 1", tenue: "UBAS" },
-    // ... (Liste extensible)
   ]
 };
 
@@ -89,7 +85,7 @@ interface IOIState {
   attitude_adversaire: string;
   volume_list: string[]; // Chips
   substances_adversaire: string;
-  vehicules_list: string[]; // Dynamic inputs
+  vehicules_list: string[]; // Dynamic inputs -> géré comme string séparée par virgules dans l'UI
   armes_connues: string;
   me_list: string[]; // ME1, ME2...
 
@@ -183,7 +179,7 @@ interface IPhotoAnnotation {
 interface IPhoto {
   id: string;
   uri: string;
-  category: string; // ID du container HTML original (ex: 'adversary_photo_preview_container')
+  category: string;
   annotations: IPhotoAnnotation[];
 }
 
@@ -233,15 +229,11 @@ export default function OIView({ onClose }: OIViewProps) {
   const [vehicles, setVehicles] = useState<IVehicle[]>([]);
   const [poolMembers, setPoolMembers] = useState<IMember[]>([]);
   const [photos, setPhotos] = useState<IPhoto[]>([]);
-  const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null); // Pour PATRACDVR
+  const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
   
   // Annotation Modal State
   const [isAnnotationVisible, setIsAnnotationVisible] = useState(false);
   const [currentPhotoToAnnotate, setCurrentPhotoToAnnotate] = useState<string | null>(null);
-
-  // Quick Edit Modal State
-  const [isQuickEditVisible, setIsQuickEditVisible] = useState(false);
-  const [memberToEdit, setMemberToEdit] = useState<IMember | null>(null);
 
   useEffect(() => {
     loadData();
@@ -267,7 +259,6 @@ export default function OIView({ onClose }: OIViewProps) {
         if (data.poolMembers) setPoolMembers(data.poolMembers);
         if (data.photos) setPhotos(data.photos);
       } else {
-        // Load default members if no session
         const initialPool = MEMBER_CONFIG.members.map((m, i) => ({
           ...m,
           id: `m_${Date.now()}_${i}`,
@@ -327,7 +318,7 @@ export default function OIView({ onClose }: OIViewProps) {
         setPhotos([]);
       }
 
-      await saveData(); // Sauvegarde locale immédiate
+      await saveData();
       Alert.alert("Succès", "Session importée avec succès.");
 
     } catch (e) {
@@ -351,19 +342,12 @@ export default function OIView({ onClose }: OIViewProps) {
     updateField(field, list.filter(v => v !== value));
   };
 
-  const addDynamicItem = (field: keyof IOIState, value: string) => {
-    const list = (formData[field] as string[]) || [];
-    updateField(field, [...list, value]);
-  };
-
-  // --- PATRACDVR LOGIC (Tap to select) ---
+  // --- PATRACDVR LOGIC ---
   const handleMemberTap = (member: IMember) => {
     if (selectedMemberId === member.id) {
-      setSelectedMemberId(null); // Deselect
-      setIsQuickEditVisible(false);
+      setSelectedMemberId(null);
     } else {
       setSelectedMemberId(member.id);
-      setMemberToEdit(member);
     }
   };
 
@@ -514,7 +498,7 @@ export default function OIView({ onClose }: OIViewProps) {
             ${row('Nom', formData.nom_adversaire)}
             ${row('Domicile', formData.domicile_adversaire)}
             ${row('Description', `${formData.stature_adversaire} / ${formData.ethnie_adversaire}`)}
-            ${row('Véhicules', formData.vehicules_list.join(', '))}
+            ${row('Véhicules', Array.isArray(formData.vehicules_list) ? formData.vehicules_list.join(', ') : formData.vehicules_list)}
             ${row('Armes', formData.armes_connues)}
         </table>
         ${renderImages('adversary_photo_preview_container', 'Photo Cible 1')}
@@ -591,18 +575,31 @@ export default function OIView({ onClose }: OIViewProps) {
 
   // --- RENDERING WIZARD ---
 
-  const renderInput = (label: string, field: keyof IOIState, multiline = false) => (
-    <View style={styles.inputGroup}>
-      <Text style={styles.label}>{label}</Text>
-      <TextInput
-        style={[styles.input, multiline && { height: 80, textAlignVertical: 'top' }]}
-        value={formData[field] as string}
-        onChangeText={(t) => updateField(field, t)}
-        multiline={multiline}
-        placeholderTextColor={COLORS.textMuted}
-      />
-    </View>
-  );
+  const renderInput = (label: string, field: keyof IOIState, multiline = false) => {
+    // CORRECTION : Gestion sécurisée des tableaux pour TextInput
+    const rawValue = formData[field];
+    const displayValue = Array.isArray(rawValue) ? rawValue.join(', ') : (rawValue as string);
+
+    return (
+        <View style={styles.inputGroup}>
+            <Text style={styles.label}>{label}</Text>
+            <TextInput
+                style={[styles.input, multiline && { height: 80, textAlignVertical: 'top' }]}
+                value={displayValue || ''}
+                onChangeText={(t) => {
+                    if (Array.isArray(rawValue)) {
+                        // Si c'est un tableau, on convertit la string en tableau
+                        updateField(field, t.split(',').map(s => s.trim()));
+                    } else {
+                        updateField(field, t);
+                    }
+                }}
+                multiline={multiline}
+                placeholderTextColor={COLORS.textMuted}
+            />
+        </View>
+    );
+  };
 
   const renderChips = (field: keyof IOIState, options: string[]) => (
     <View style={styles.inputGroup}>
@@ -827,13 +824,13 @@ export default function OIView({ onClose }: OIViewProps) {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        {/* BOUTON RETOUR AJOUTÉ ICI */}
+        {/* BOUTON RETOUR */}
         <TouchableOpacity onPress={onClose} style={styles.backButton}>
             <Text style={styles.backButtonText}>{"<"}</Text>
         </TouchableOpacity>
         
         <Text style={styles.headerTitle}>G-TAK OI GENERATOR</Text>
-        <View style={{width: 40}} /> {/* Spacer pour équilibre */}
+        <View style={{width: 40}} />
       </View>
 
       {/* Progress Bar */}
