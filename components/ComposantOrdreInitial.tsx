@@ -32,7 +32,7 @@ interface OIViewProps {
 
 const MEMBER_CONFIG = {
   options: {
-    fonctions: ["Chef inter", "Chef dispo", "Chef Oscar", "DE", "Cyno", "Inter", "Effrac", "AO", "Sanitaire", "Radio", "Sans"],
+    fonctions: ["Chef inter", "Chef dispo", "Chef Oscar","Conducteur","Chef de Bord", "DE", "Cyno", "Inter", "Effrac", "AO", "Sans"],
     cellules: ["AO1", "AO2", "AO3", "AO4", "AO5", "AO6", "AO7", "AO8", "India 1", "India 2", "India 3", "India 4", "India 5", "Effrac", "Commandement", "Sans"],
     principales: [ "G36", "UMP9", "FAP", "MP5", "Sans"],
     afis: ["PIE", "LBD40", "LBD44", "Sans"],
@@ -41,7 +41,7 @@ const MEMBER_CONFIG = {
     equipements: ["Sans", "BBAL", "Belier", "Lacry", "IL", "Lot 5.11", "Lot Oscar", "Pince", "Drone", "Cam pieton",],
     equipements2: ["Sans", "Échelle", "Stop stick", "Lacry", "Cale", "IL", "Pass","Cam pieton", "TPH700"],
     tenues: ["UBAS", "4S", "Bleu", "Civile", "Ghillie", "Treillis", "MO"],
-    gpbs: ["GPBL", "GPBPD", "Sans"],
+    gpbs: ["GPBL", "GPBPD","Casque Mo","Casque Lourd", "Sans"],
     vehicules_types: ["Sharan", "Kodiaq", "5008", "Scénic","Kodiaq Bana"]
   },
   members: [
@@ -570,7 +570,7 @@ export default function OIView({ onClose }: OIViewProps) {
     // COULEURS DYNAMIQUES (Basées sur la logique fournie)
     const isDark = pdf_theme === 'dark';
     const colors = isDark ? {
-        bg: '#1e1e1e', // rgb(30,30,30)
+        bg: '#000000', // rgb(0,0,0)
         text: '#ffffff',
         accent: '#5b9bd5', // rgb(91,155,213)
         danger: '#c0392b',
@@ -654,7 +654,7 @@ export default function OIView({ onClose }: OIViewProps) {
             const imageSrc = photo.base64 ? `data:image/jpeg;base64,${photo.base64}` : photo.uri;
 
             html += `
-            <div style="border: 2px solid ${colors.accent}; padding: 0; margin-bottom: 10px; background: ${isDark ? '#000' : '#fff'}; width: ${itemWidth}; height: ${maxHeight}; page-break-inside: avoid; box-sizing: border-box; overflow: hidden;">
+            <div style="border: 2px solid ${colors.accent}; padding: 0; margin-bottom: 10px; background: transparent; width: ${itemWidth}; height: ${maxHeight}; page-break-inside: avoid; box-sizing: border-box; overflow: hidden;">
                 <div style="position: relative; display: block; width: 100%; height: 100%; margin: 0 auto;">
                     <img src="${imageSrc}" style="width: 100%; height: 100%; object-fit: cover; display: block; margin: 0 auto;" />
                     ${photo.annotations.map(a => `
@@ -678,7 +678,7 @@ export default function OIView({ onClose }: OIViewProps) {
         return catPhotos.map(photo => {
             const imageSrc = photo.base64 ? `data:image/jpeg;base64,${photo.base64}` : photo.uri;
             return `
-            <div style="border: 2px solid ${colors.accent}; padding: 2px; margin-bottom: 5px; background: ${isDark ? '#000' : '#fff'};">
+            <div style="border: 2px solid ${colors.accent}; padding: 2px; margin-bottom: 5px; background: transparent;">
                 <div style="position: relative;">
                     <img src="${imageSrc}" style="width: 100%; height: 300px; object-fit:cover; display: block;" />
                     ${photo.annotations.map(a => `
@@ -1067,19 +1067,42 @@ export default function OIView({ onClose }: OIViewProps) {
 
   const renderMemberEditModal = () => {
     if (!isMemberEditModalVisible || !tempMember) return null;
-    const renderSelect = (label: string, field: keyof IMember, options: string[]) => (
-        <View style={{marginBottom: 15}}>
-            <Text style={styles.label}>{label}</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 8}}>
-                {options.map(opt => (
-                    <TouchableOpacity key={opt} style={[styles.chip, tempMember[field] === opt && styles.chipSelected]}
-                      onPress={() => setTempMember({...tempMember, [field]: opt})}>
-                        <Text style={{color: tempMember[field] === opt ? 'white' : COLORS.textMuted}}>{opt}</Text>
-                    </TouchableOpacity>
-                ))}
-            </ScrollView>
-        </View>
-    );
+    const renderSelect = (label: string, field: keyof IMember, options: string[], multiple = false) => {
+        const currentVal = tempMember[field] || "";
+        const selectedValues = multiple ? currentVal.split(" / ").filter(Boolean) : [currentVal];
+
+        const toggleValue = (opt: string) => {
+            if (!multiple) {
+                setTempMember({...tempMember, [field]: opt});
+                return;
+            }
+            
+            let newValues;
+            if (selectedValues.includes(opt)) {
+                newValues = selectedValues.filter(v => v !== opt);
+            } else {
+                newValues = [...selectedValues, opt];
+            }
+            setTempMember({...tempMember, [field]: newValues.join(" / ")});
+        };
+
+        return (
+            <View style={{marginBottom: 15}}>
+                <Text style={styles.label}>{label}</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 8}}>
+                    {options.map(opt => {
+                        const isSelected = selectedValues.includes(opt);
+                        return (
+                            <TouchableOpacity key={opt} style={[styles.chip, isSelected && styles.chipSelected]}
+                              onPress={() => toggleValue(opt)}>
+                                <Text style={{color: isSelected ? 'white' : COLORS.textMuted}}>{opt}</Text>
+                            </TouchableOpacity>
+                        );
+                    })}
+                </ScrollView>
+            </View>
+        );
+    };
     return (
         <Modal visible={isMemberEditModalVisible} animationType="slide" transparent>
             <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalContainer}>
@@ -1093,17 +1116,17 @@ export default function OIView({ onClose }: OIViewProps) {
                             <Text style={styles.label}>TRIGRAMME</Text>
                             <TextInput style={styles.input} value={tempMember.trigramme} onChangeText={t => setTempMember({...tempMember, trigramme: t.toUpperCase()})} maxLength={5}/>
                         </View>
-                        {renderSelect("FONCTION", "fonction", MEMBER_CONFIG.options.fonctions)}
-                        {renderSelect("CELLULE", "cellule", MEMBER_CONFIG.options.cellules)}
+                        {renderSelect("FONCTION", "fonction", MEMBER_CONFIG.options.fonctions, true)}
+                        {renderSelect("CELLULE", "cellule", MEMBER_CONFIG.options.cellules, true)}
                         {renderSelect("TENUE", "tenue", MEMBER_CONFIG.options.tenues)}
                         {renderSelect("ARMEMENT PRINCIPAL", "principales", MEMBER_CONFIG.options.principales)}
                         {renderSelect("ARMEMENT SECONDAIRE", "secondaires", MEMBER_CONFIG.options.secondaires)}
                         {/* AJOUT CATÉGORIE AFI ET EQUIPEMENT 2 */}
-                        {renderSelect("A.F.I.", "afis", MEMBER_CONFIG.options.afis)}
-                        {renderSelect("GRENADES", "grenades", MEMBER_CONFIG.options.grenades)}
-                        {renderSelect("EQUIPEMENT", "equipement", MEMBER_CONFIG.options.equipements)}
-                        {renderSelect("ÉQUIPEMENT 2", "equipement2", MEMBER_CONFIG.options.equipements2)}
-                        {renderSelect("PROTECTION", "gpb", MEMBER_CONFIG.options.gpbs)}
+                        {renderSelect("A.F.I.", "afis", MEMBER_CONFIG.options.afis, true)}
+                        {renderSelect("GRENADES", "grenades", MEMBER_CONFIG.options.grenades, true)}
+                        {renderSelect("EQUIPEMENT", "equipement", MEMBER_CONFIG.options.equipements, true)}
+                        {renderSelect("ÉQUIPEMENT 2", "equipement2", MEMBER_CONFIG.options.equipements2, true)}
+                        {renderSelect("PROTECTION", "gpb", MEMBER_CONFIG.options.gpbs, true)}
                     </ScrollView>
                     <View style={{flexDirection:'row', gap:10, marginTop:10}}>
                         <TouchableOpacity onPress={deleteMember} style={[styles.navBtn, {borderColor: COLORS.danger, borderWidth: 1, backgroundColor: 'transparent'}]}><Text style={{color: COLORS.danger}}>SUPPRIMER</Text></TouchableOpacity>
