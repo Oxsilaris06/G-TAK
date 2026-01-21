@@ -304,22 +304,13 @@ const App: React.FC = () => {
               }
               break;
           case 'PEERS_UPDATED': 
+              // --- CORRECTION MAJEURE ICI ---
+              // On remplace COMPLÈTEMENT la liste locale par celle du service.
+              // Le service est la source de vérité.
               setPeers(prev => {
-                  const incoming = event.peers;
-                  const candidates = Object.values({ ...prev, ...incoming });
-                  const byCallsign: Record<string, UserData[]> = {};
-                  candidates.forEach(p => {
-                      if (!byCallsign[p.callsign]) byCallsign[p.callsign] = [];
-                      byCallsign[p.callsign].push(p);
-                  });
-                  const cleanPeers: Record<string, UserData> = {};
-                  Object.keys(byCallsign).forEach(sign => {
-                      if (sign === userRef.current.callsign) return;
-                      const group = byCallsign[sign];
-                      group.sort((a, b) => b.joinedAt - a.joinedAt);
-                      cleanPeers[group[0].id] = group[0];
-                  });
-                  return cleanPeers;
+                  const incoming = event.peers; // C'est la map complète et à jour du service
+                  // On ne fait PLUS de merge { ...prev, ...incoming } pour éviter de garder les "morts"
+                  return { ...incoming };
               });
               break;
           case 'HOST_CONNECTED': setHostId(event.hostId); showToast("Lien Hôte établi", "success"); break;
