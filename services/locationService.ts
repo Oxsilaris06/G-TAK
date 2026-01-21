@@ -19,21 +19,51 @@ class LocationService {
     private lastLocation: LocationData | null = null;
     private isTracking = false;
 
-    // Configuration GPS "Tactique" (Haute précision, filtrage minimum)
+    // Configuration par défaut (Mode "Normal/Équilibré")
+    // Ces valeurs seront écrasées par updateOptions() venant des Settings
     private locationOptions: Location.LocationTaskOptions = {
-        accuracy: Location.Accuracy.BestForNavigation, // Le plus précis possible
-        distanceInterval: 2, // Mise à jour tous les 2 mètres
-        deferredUpdatesInterval: 1000, // Minimum 1 seconde entre updates
-        deferredUpdatesDistance: 2, // Minimum 2 mètres
+        accuracy: Location.Accuracy.High, 
+        distanceInterval: 10, 
+        timeInterval: 5000,
+        deferredUpdatesInterval: 5000, 
+        deferredUpdatesDistance: 10, 
+        
+        // Options iOS critiques (toujours actives par défaut)
+        pausesUpdatesAutomatically: false, 
+        activityType: Location.ActivityType.Fitness, 
+        showsBackgroundLocationIndicator: true, 
+        
+        // Options Android
         foregroundService: {
-            notificationTitle: "Suivi Tactique Actif",
-            notificationBody: "Acquisition de la position en cours...",
-            notificationColor: "#000000"
+            notificationTitle: "G-TAK Actif",
+            notificationBody: "Position et lien tactique maintenus",
+            notificationColor: "#ef4444"
         }
     };
 
     constructor() {
         this.defineTask();
+    }
+
+    // --- API PUBLIQUE POUR LES REGLAGES ---
+    
+    /**
+     * Permet à la modale Settings de mettre à jour la stratégie GPS
+     * (Ex: Passer en mode "Navigation" précis ou "Économie")
+     */
+    public async updateOptions(newOptions: Partial<Location.LocationTaskOptions>) {
+        console.log("[Location] Mise à jour dynamique des options:", newOptions);
+        
+        // Fusion avec les options existantes
+        this.locationOptions = { ...this.locationOptions, ...newOptions };
+
+        // Si le tracking est actif, on doit le redémarrer pour que OS prenne en compte les changements
+        // (Android/iOS ne permettent pas de changer les paramètres d'un service actif à la volée sans restart)
+        if (this.isTracking) {
+            console.log("[Location] Redémarrage du service pour appliquer les nouveaux réglages...");
+            await this.stopTracking();
+            await this.startTracking();
+        }
     }
 
     private defineTask() {
@@ -56,44 +86,51 @@ class LocationService {
         if (this.isTracking) return;
 
         const { status } = await Location.requestBackgroundPermissionsAsync();
+        
         if (status !== 'granted') {
-            console.warn("[Location] Background permission denied");
-            // Fallback foreground only
+            console.warn("[Location] Background permission denied or limited");
             const fgStatus = await Location.requestForegroundPermissionsAsync();
             if (fgStatus.status !== 'granted') return;
         }
 
-        console.log("[Location] Starting High-Precision Tracking");
+        console.log(`[Location] Démarrage (Précision: ${this.locationOptions.accuracy}, Interval: ${this.locationOptions.timeInterval}ms)`);
         
-        // Démarrage du service d'arrière-plan
-        await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, this.locationOptions);
-        
-        // Démarrage doublé en avant-plan pour réactivité immédiate
-        Location.watchPositionAsync({
-            accuracy: Location.Accuracy.BestForNavigation,
-            distanceInterval: 2,
-            timeInterval: 1000
-        }, (loc) => {
-             // On traite aussi les updates foreground, le filtre gérera les doublons
-             this.processLocation(loc);
-        });
+        try {
+            // 1. Service d'arrière-plan (Le coeur du maintien en vie)
+            await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, this.locationOptions);
+            
+            // 2. Watcher de premier plan (Pour la fluidité UI quand l'app est ouverte)
+            // On aligne les paramètres du watcher sur ceux du background pour la cohérence
+            await Location.watchPositionAsync({
+                accuracy: this.locationOptions.accuracy as Location.Accuracy,
+                distanceInterval: this.locationOptions.distanceInterval,
+                timeInterval: this.locationOptions.timeInterval
+            }, (loc) => {
+                 this.processLocation(loc);
+            });
 
-        this.isTracking = true;
+            this.isTracking = true;
+        } catch (e) {
+            console.error("[Location] Erreur démarrage tracking:", e);
+        }
     }
 
     async stopTracking() {
         if (!this.isTracking) return;
         try {
-            await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
-        } catch(e) {}
+            const isRegistered = await TaskManager.isTaskRegisteredAsync(LOCATION_TASK_NAME);
+            if (isRegistered) {
+                await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
+            }
+        } catch(e) {
+            console.warn("[Location] Erreur arrêt tracking:", e);
+        }
         this.isTracking = false;
     }
 
     private processLocation(rawLoc: any) {
-        // Filtrage simple des sauts GPS (Accuracy check)
-        // Si la précision est > 50m, on ignore le point (trop imprécis pour du tactique)
-        if (rawLoc.coords.accuracy && rawLoc.coords.accuracy > 50) {
-            // console.debug("[Location] Point ignored, bad accuracy:", rawLoc.coords.accuracy);
+        // Filtrage de sécurité pour éviter les sauts GPS majeurs (>100m d'erreur)
+        if (rawLoc.coords.accuracy && rawLoc.coords.accuracy > 100) {
             return;
         }
 
@@ -108,9 +145,6 @@ class LocationService {
 
         this.lastLocation = newLoc;
         this.notify(newLoc);
-        
-        // TODO: Envoyer ici la position au serveur via WebSocket/Firebase
-        // sendToBackend(newLoc); 
     }
 
     subscribe(cb: (loc: LocationData) => void) {
