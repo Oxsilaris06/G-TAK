@@ -586,6 +586,8 @@ export default function OIView({ onClose }: OIViewProps) {
     const page1TextColor = isBg ? '#FFFFFF' : colors.text;
     const page1BorderColor = isBg ? '#FFFFFF' : colors.accent;
 
+    const bgOpacity = isDark ? 0.6 : 0.9;
+
     // CONFIGURATION CSS DE LA PAGE 1
     // A4 Paysage : 297mm x 210mm. Marges CSS : 1cm.
     // Pour le fond d'écran, on utilise absolute avec marges négatives pour couvrir toute la page, marges incluses.
@@ -599,8 +601,8 @@ export default function OIView({ onClose }: OIViewProps) {
             // Image en arrière plan absolu (et non fixed) pour rester uniquement sur la page 1
             // Couvre tout le A4 (29.7cm x 21cm) en compensant les marges de 1cm
             logoHtml = `
-                <div style="position: absolute; top: -1cm; left: -1cm; width: 297mm; height: 210mm; z-index: -10; overflow: hidden;">
-                    <img src="${logoSrc}" style="width: 100%; height: 100%; object-fit: cover; opacity: 0.6;" />
+                <div style="position: absolute; top: -1cm; left: -1cm; width: 297mm; height: 210mm; z-index: -10; overflow: hidden; display: flex; justify-content: center; align-items: center; background-color: ${colors.bg};">
+                    <img src="${logoSrc}" style="width: 100%; height: 100%; object-fit: contain; opacity: ${bgOpacity};" />
                 </div>
             `;
             // Centrage vertical du contenu
@@ -609,8 +611,8 @@ export default function OIView({ onClose }: OIViewProps) {
             // MODE INCLUE
             // Image affichée normalement dans le flux
             logoHtml = `
-                <div style="margin-top: 30px; text-align: center; width: 100%; display: flex; justify-content: center;">
-                    <img src="${logoSrc}" style="max-width: 80%; max-height: 400px; width: auto; height: auto; object-fit: contain;" />
+                <div style="margin-top: 10px; flex: 1; min-height: 0; display: flex; justify-content: center; align-items: flex-start; width: 100%;">
+                    <img src="${logoSrc}" style="max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain;" />
                 </div>
             `;
             // Alignement haut avec padding
