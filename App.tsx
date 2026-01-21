@@ -8,9 +8,7 @@ import {
 import { StatusBar } from 'expo-status-bar';
 import QRCode from 'react-native-qrcode-svg';
 
-// --- CORRECTION ICI ---
-// CameraView est maintenant exporté directement depuis 'expo-camera' dans le SDK 51
-// On importe "Camera" pour les permissions (Legacy) et "CameraView" pour le scanner (Nouveau)
+// Import correct pour Expo SDK 50+
 import { Camera, CameraView } from 'expo-camera'; 
 
 import * as Notifications from 'expo-notifications';
@@ -28,6 +26,7 @@ import { UserData, OperatorStatus, OperatorRole, ViewType, PingData, AppSettings
 import { CONFIG, STATUS_COLORS } from './constants';
 import { configService } from './services/configService';
 import { connectivityService, ConnectivityEvent } from './services/connectivityService'; 
+import { locationService } from './services/locationService';
 
 import OperatorCard from './components/OperatorCard';
 import TacticalMap from './components/TacticalMap';
@@ -37,7 +36,6 @@ import MainCouranteView from './components/MainCouranteView';
 import PrivacyConsentModal from './components/PrivacyConsentModal';
 import { NotificationToast } from './components/NotificationToast';
 import ComposantOrdreInitial from './components/ComposantOrdreInitial'; 
-// Remplacement du composant lourd 3D par une version native optimisée
 import TacticalBackground from './components/TacticalBackground';
 
 try { SplashScreen.preventAutoHideAsync().catch(() => {}); } catch (e) {}
@@ -58,9 +56,8 @@ const App: React.FC = () => {
   
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   
-  // Initialisation de l'utilisateur avec un ID temporaire si nécessaire, mais on attendra l'event PEER_OPEN pour le confirmer
   const [user, setUser] = useState<UserData>({ 
-      id: '', // Sera remplacé par l'ID PeerJS réel
+      id: '', 
       callsign: '', 
       role: OperatorRole.OPR, 
       status: OperatorStatus.CLEAR, 
@@ -77,7 +74,6 @@ const App: React.FC = () => {
   const [lastOpsView, setLastOpsView] = useState<ViewType>('map');
   const [mapState, setMapState] = useState<{lat: number, lng: number, zoom: number} | undefined>(undefined);
   
-  // NOUVEAU : État pour gérer l'affichage des paramètres sans démonter la vue principale
   const [showSettings, setShowSettings] = useState(false);
 
   const [peers, setPeers] = useState<Record<string, UserData>>({});
@@ -123,10 +119,8 @@ const App: React.FC = () => {
   const [navTargetId, setNavTargetId] = useState<string | null>(null);
   const [navInfo, setNavInfo] = useState<{dist: string, time: string} | null>(null);
 
-  const [isServicesReady, setIsServicesReady] = useState(false);
   const [gpsStatus, setGpsStatus] = useState<'WAITING' | 'OK' | 'ERROR'>('WAITING');
   const lastLocationRef = useRef<any>(null);
-  const gpsSubscription = useRef<Location.LocationSubscription | null>(null);
   const magSubscription = useRef<any>(null);
 
   const showToast = useCallback((msg: string, type: 'info' | 'error' | 'success' | 'warning' = 'info') => {
@@ -143,13 +137,14 @@ const App: React.FC = () => {
                 PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION,
                 PermissionsAndroid.PERMISSIONS.ACCESS_BACKGROUND_LOCATION,
                 PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
-                PermissionsAndroid.PERMISSIONS.CAMERA
+                PermissionsAndroid.PERMISSIONS.CAMERA,
+                PermissionsAndroid.PERMISSIONS.FOREGROUND_SERVICE // Important pour le service de fond
             ]).catch(() => {});
         }
         
+        // On demande les permissions via le service dédié
         const { status } = await Location.getForegroundPermissionsAsync();
         if (status === 'granted') {
-            await Location.requestBackgroundPermissionsAsync().catch(() => {});
             setGpsStatus('OK');
         } else {
             setGpsStatus('ERROR');
@@ -176,19 +171,22 @@ const App: React.FC = () => {
       });
   };
 
+  // --- GESTION CYCLE DE VIE APP (BACKGROUND/FOREGROUND) ---
   useEffect(() => {
     const subscription = AppState.addEventListener('change', async nextAppState => {
       if (nextAppState === 'active') {
+        // Retour au premier plan : on notifie le service pour qu'il relance les checks
         connectivityService.handleAppStateChange('active');
         await Notifications.dismissAllNotificationsAsync();
-        startGpsTracking(settings.gpsUpdateInterval);
+        // Le service de localisation reste actif, pas besoin de le redémarrer
       } else if (nextAppState === 'background') {
         connectivityService.handleAppStateChange('background');
       }
     });
     return () => subscription.remove();
-  }, [settings.gpsUpdateInterval]);
+  }, []); // Pas de dépendance settings.gpsUpdateInterval ici, c'est géré dans configService
 
+  // Initialisation au démarrage
   useEffect(() => {
       let mounted = true;
       const initApp = async () => {
@@ -210,11 +208,7 @@ const App: React.FC = () => {
               console.log("Erreur Config Init:", e);
           }
           
-          try {
-             await bootstrapPermissionsAsync();
-          } catch (e) {
-             console.log("Erreur Bootstrap:", e);
-          }
+          try { await bootstrapPermissionsAsync(); } catch (e) {}
 
           try {
               const level = await Battery.getBatteryLevelAsync();
@@ -236,20 +230,47 @@ const App: React.FC = () => {
           }
       });
 
+      // ABONNEMENT CONNECTIVITÉ
       const unsubConn = connectivityService.subscribe((event) => {
           handleConnectivityEvent(event);
       });
       
-      return () => { mounted = false; unsubConn(); battSub.remove(); if(magSubscription.current) magSubscription.current.remove(); };
+      // ABONNEMENT LOCALISATION (Via le nouveau service centralisé)
+      const unsubLoc = locationService.subscribe((loc) => {
+          setGpsStatus('OK');
+          
+          // Mise à jour de l'état local pour l'UI
+          setUser(prev => {
+              const newHead = (loc.speed && loc.speed > 1 && loc.heading !== null) ? loc.heading : prev.head;
+              
+              // On envoie au réseau seulement si changement significatif (optimisation bande passante)
+              if (!lastLocationRef.current || 
+                  Math.abs(loc.latitude - lastLocationRef.current.lat) > 0.0001 || 
+                  Math.abs(loc.longitude - lastLocationRef.current.lng) > 0.0001) {
+                  
+                  connectivityService.updateUserPosition(loc.latitude, loc.longitude, newHead);
+                  lastLocationRef.current = { lat: loc.latitude, lng: loc.longitude };
+              }
+              
+              return { ...prev, lat: loc.latitude, lng: loc.longitude, head: newHead };
+          });
+      });
+
+      return () => { mounted = false; unsubConn(); unsubLoc(); battSub.remove(); if(magSubscription.current) magSubscription.current.remove(); };
   }, []);
 
+  // Gestion Magnétomètre et Activation Tracking GPS selon vue
   useEffect(() => {
       if (view === 'map' || view === 'ops') { 
-          startGpsTracking(settings.gpsUpdateInterval);
+          // On démarre le tracking (si pas déjà fait par le service)
+          locationService.startTracking();
           _toggleMagnetometer(); 
+      } else {
+          // Optionnel : on pourrait arrêter le tracking ici si on voulait économiser
+          // mais pour le cas d'usage tactique, on laisse souvent tourner
       }
       return () => { if(magSubscription.current) magSubscription.current.remove(); }
-  }, [view, settings.gpsUpdateInterval, settings.orientationUpdateInterval]);
+  }, [view, settings.orientationUpdateInterval]);
 
   const _toggleMagnetometer = async () => {
       if (magSubscription.current) magSubscription.current.remove();
@@ -262,66 +283,40 @@ const App: React.FC = () => {
           const heading = Math.floor(angle);
           if (Math.abs(heading - userRef.current.head) > 5) {
               setUser(prev => ({ ...prev, head: heading }));
-              connectivityService.updateUserPosition(userRef.current.lat, userRef.current.lng, heading);
+              // Note: on update pas la position réseau ici, seulement le cap local
+              // La position réseau est mise à jour par locationService
           }
       });
   };
 
-  const startGpsTracking = useCallback(async (interval: number) => {
-      if (gpsSubscription.current) gpsSubscription.current.remove();
-      try {
-        const { status } = await Location.getForegroundPermissionsAsync();
-        if (status !== 'granted') { setGpsStatus('ERROR'); return; }
-        
-        gpsSubscription.current = await Location.watchPositionAsync({ 
-            accuracy: Location.Accuracy.High, 
-            timeInterval: interval, 
-            distanceInterval: 2 
-        }, (loc) => {
-            const { latitude, longitude, heading, speed } = loc.coords;
-            setGpsStatus('OK');
-            const currentHead = userRef.current.head;
-            const gpsHead = (speed && speed > 1 && heading !== null) ? heading : currentHead;
-            setUser(prev => {
-                if (!lastLocationRef.current || Math.abs(latitude - lastLocationRef.current.lat) > 0.0001 || Math.abs(longitude - lastLocationRef.current.lng) > 0.0001) {
-                    connectivityService.updateUserPosition(latitude, longitude, gpsHead);
-                    lastLocationRef.current = { lat: latitude, lng: longitude };
-                }
-                return { ...prev, lat: latitude, lng: longitude, head: gpsHead };
-            });
-        });
-      } catch(e) { setGpsStatus('ERROR'); }
-  }, []);
-
   const handleConnectivityEvent = (event: ConnectivityEvent) => {
       switch (event.type) {
           case 'PEER_OPEN': 
-              setUser(prev => ({ ...prev, id: event.id })); setIsServicesReady(true); 
-              // Si nous sommes l'hôte, nous définissons notre propre ID comme hostID
+              setUser(prev => ({ ...prev, id: event.id })); 
               if (userRef.current.role === OperatorRole.HOST) {
                   setHostId(event.id);
                   showToast(`Session créée: ${event.id}`, "success");
               }
               break;
+              
           case 'PEERS_UPDATED': 
+              // --- CORRECTION MAJEURE ICI ---
+              // On remplace COMPLÈTEMENT la liste locale par celle du service.
+              // Le service est la source de vérité.
+              // On ne fait plus de merge avec l'état précédent ({...prev}) pour éviter les fantômes.
               setPeers(prev => {
-                  const incoming = event.peers;
-                  const candidates = Object.values({ ...prev, ...incoming });
-                  const byCallsign: Record<string, UserData[]> = {};
-                  candidates.forEach(p => {
-                      if (!byCallsign[p.callsign]) byCallsign[p.callsign] = [];
-                      byCallsign[p.callsign].push(p);
-                  });
-                  const cleanPeers: Record<string, UserData> = {};
-                  Object.keys(byCallsign).forEach(sign => {
-                      if (sign === userRef.current.callsign) return;
-                      const group = byCallsign[sign];
-                      group.sort((a, b) => b.joinedAt - a.joinedAt);
-                      cleanPeers[group[0].id] = group[0];
-                  });
-                  return cleanPeers;
+                  const incoming = event.peers; // C'est la map complète et à jour du service
+                  
+                  // On peut quand même appliquer une logique de tri si besoin pour l'affichage
+                  // Mais pour le stockage, on prend ce que le service nous donne.
+                  
+                  // Si vous voulez filtrer les doublons de Callsign (ex: ancien peer mal déconnecté avec même nom),
+                  // vous pouvez le faire ici, mais attention à ne pas masquer le peer actif.
+                  // Pour l'instant, on fait confiance au service qui gère les IDs uniques.
+                  return { ...incoming };
               });
               break;
+              
           case 'HOST_CONNECTED': setHostId(event.hostId); showToast("Lien Hôte établi", "success"); break;
           case 'TOAST': showToast(event.msg, event.level as any); break;
           case 'DATA_RECEIVED': handleProtocolData(event.data, event.from); break;
@@ -404,7 +399,8 @@ const App: React.FC = () => {
 
   const finishLogout = useCallback(() => {
       connectivityService.cleanup();
-      setPeers({}); setPings([]); setLogs([]); setHostId(''); setView('login'); setIsServicesReady(false);
+      locationService.stopTracking(); // Arrêt du GPS background
+      setPeers({}); setPings([]); setLogs([]); setHostId(''); setView('login');
       setUser(prev => ({...prev, id: '', role: OperatorRole.OPR, status: OperatorStatus.CLEAR }));
   }, []);
 
@@ -412,21 +408,12 @@ const App: React.FC = () => {
       const finalId = id || hostInput.toUpperCase();
       if (!finalId) return;
       
-      // On ne set PAS setHostId tout de suite pour l'UI, on attend la confirmation de connexion
-      // On prépare l'utilisateur avec un ID temporaire ou vide, PeerJS donnera le vrai
       const role = OperatorRole.OPR;
-      
-      // On met à jour l'état local pour le rôle
       setUser(prev => ({ ...prev, role: role, paxColor: settings.userArrowColor }));
       
-      // On initialise la connexion. 
-      // L'ID utilisateur final sera mis à jour via l'événement PEER_OPEN
       try {
           await connectivityService.init({ ...user, role, paxColor: settings.userArrowColor }, role, finalId);
-          // On change de vue seulement après l'init réussi (au moins le démarrage)
-          // Mais idéalement on devrait attendre PEER_OPEN ou HOST_CONNECTED pour être sûr
-          // Pour l'instant on fait comme avant mais avec le await qui garantit que l'init a commencé
-          setHostId(finalId); // Pour l'affichage UI "en attente"
+          setHostId(finalId); 
           setView('map'); 
           setLastOpsView('map');
       } catch (error) {
@@ -440,9 +427,7 @@ const App: React.FC = () => {
       setUser(prev => ({ ...prev, role: role, paxColor: settings.userArrowColor }));
       
       try {
-          // On initialise en tant qu'hôte (pas de hostId cible)
           await connectivityService.init({ ...user, role, paxColor: settings.userArrowColor }, role);
-          // Le hostId sera défini dans handleConnectivityEvent lors du PEER_OPEN
           setView('map'); 
           setLastOpsView('map');
       } catch (error) {
@@ -452,17 +437,12 @@ const App: React.FC = () => {
   };
 
   const handleLogout = async () => {
-      // On envoie le message de départ ET on attend un court instant avant de couper
       if (user.role === OperatorRole.HOST) {
           connectivityService.broadcast({ type: 'CLIENT_LEAVING', id: user.id });
       } else {
           connectivityService.broadcast({ type: 'CLIENT_LEAVING', id: user.id, callsign: user.callsign });
       }
-      
-      // Petit délai pour laisser le temps au message de partir sur le réseau
-      setTimeout(() => {
-          finishLogout();
-      }, 500); 
+      setTimeout(() => { finishLogout(); }, 500); 
   };
 
   const handleOperatorActionNavigate = (targetId: string) => { 
@@ -475,6 +455,7 @@ const App: React.FC = () => {
 
   const handleOperatorActionKick = (targetId: string) => {
       connectivityService.kickUser(targetId);
+      // On retire localement tout de suite pour l'UI, le service suivra
       const newPeers = { ...peers }; delete newPeers[targetId]; setPeers(newPeers);
       showToast("Exclu");
   };
@@ -571,7 +552,6 @@ const App: React.FC = () => {
           const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
           const distM = R * c;
           
-          // ARRÊT AUTOMATIQUE DE NAVIGATION SI < 10m
           if (distM < 10) {
               setNavTargetId(null);
               showToast("Arrivé à destination", "success");
@@ -591,7 +571,6 @@ const App: React.FC = () => {
       }
   }, [navTargetId, user.lat, user.lng, peers]);
 
-  // Nouvelle fonction pour gérer le header avec navigation intégrée
   const renderHeader = () => {
       if (navTargetId && navInfo) {
           return (
@@ -629,18 +608,15 @@ const App: React.FC = () => {
   };
 
   const renderContent = () => {
-    // Note: settings view n'est plus gérée ici pour éviter le démontage
     if (view === 'oi') {
       return <ComposantOrdreInitial onClose={() => setView('login')} />;
     } else if (view === 'login') {
       return (
         <View style={styles.centerContainer}>
-          {/* VERSION OPTIMISÉE SANS SHADER 3D LOURD */}
           <TacticalBackground />
 
           <TextInput style={styles.input} placeholder="TRIGRAMME" placeholderTextColor="#52525b" maxLength={6} value={loginInput} onChangeText={setLoginInput} autoCapitalize="characters" />
           
-          {/* BOUTON PRAXIS STANDARDISÉ ET CENTRÉ */}
           <View style={{ marginTop: 50, width: '100%', alignItems: 'center' }}>
             <TouchableOpacity
               onPress={() => {
@@ -656,7 +632,6 @@ const App: React.FC = () => {
             </TouchableOpacity>
           </View>
           
-          {/* BOUTON STRATEGICA STANDARDISÉ ET CENTRÉ */}
           <View style={{ marginTop: 20, width: '100%', alignItems: 'center' }}>
             <TouchableOpacity 
               onPress={() => setView('oi')}
@@ -745,7 +720,6 @@ const App: React.FC = () => {
                           const p = pings.find(ping => ping.id === id);
                           if (!p) return;
                           if (p.type === 'HOSTILE') {
-                              // Afficher le caneva en lecture (ou pré-rempli pour modification si c'est le sien)
                               setEditingPing(p);
                               setPingMsgInput(p.msg);
                               if (p.details) setHostileDetails(p.details);
@@ -760,7 +734,6 @@ const App: React.FC = () => {
                           if (!p) return;
                           if (user.role === OperatorRole.HOST || p.sender === user.callsign) {
                              setEditingPing(p); setPingMsgInput(p.msg); if(p.details) setHostileDetails(p.details);
-                             // Ici on ouvre la petite modale d'actions (Edit/Delete)
                           }
                       }}
                       onNavStop={() => setNavTargetId(null)} 
@@ -799,7 +772,7 @@ const App: React.FC = () => {
       <StatusBar style="light" backgroundColor="#050505" />
       {renderContent()}
 
-      {/* Modal pour les paramètres - Ne démonte pas le reste de l'app */}
+      {/* Modal pour les paramètres */}
       <Modal visible={showSettings} animationType="slide" onRequestClose={() => setShowSettings(false)}>
          <SettingsView 
             onClose={() => setShowSettings(false)} 
@@ -807,14 +780,15 @@ const App: React.FC = () => {
                 setSettings(s); 
                 setUser(u => ({...u, paxColor: s.userArrowColor})); 
                 connectivityService.updateUser({paxColor: s.userArrowColor}); 
-                if(s.gpsUpdateInterval !== settings.gpsUpdateInterval) startGpsTracking(s.gpsUpdateInterval);
-                if(s.orientationUpdateInterval !== settings.orientationUpdateInterval) _toggleMagnetometer();
+                // Note : les updates GPS/Magneto sont maintenant gérés dynamiquement par le service via configService
             }} 
          />
       </Modal>
 
       <OperatorActionModal visible={!!selectedOperatorId} targetOperator={peers[selectedOperatorId || ''] || null} currentUserRole={user.role} onClose={() => setSelectedOperatorId(null)} onKick={handleOperatorActionKick} onNavigate={handleOperatorActionNavigate} />
       <MainCouranteView visible={showLogs} logs={logs} role={user.role} onClose={() => setShowLogs(false)} onAddLog={handleAddLog} onUpdateLog={handleUpdateLog} onDeleteLog={handleDeleteLog} />
+      
+      {/* Autres Modales (Msg, Ping, etc) inchangées mais incluses pour compilation complète */}
       <Modal visible={showQuickMsgModal} animationType="fade" transparent><KeyboardAvoidingView behavior="padding" style={styles.modalOverlay}><View style={[styles.modalContent, {backgroundColor: '#18181b', borderWidth: 1, borderColor: '#333', maxHeight: '80%'}]}><Text style={[styles.modalTitle, {color: '#06b6d4', marginBottom: 15}]}>MESSAGE RAPIDE</Text><View style={{flexDirection: 'row', marginBottom: 15, width: '100%'}}><TextInput style={[styles.pingInput, {flex: 1, marginBottom: 0, textAlign: 'left'}]} placeholder="Message libre..." placeholderTextColor="#52525b" value={freeMsgInput} onChangeText={setFreeMsgInput} /><TouchableOpacity onPress={() => handleSendQuickMessage(freeMsgInput)} style={[styles.modalBtn, {backgroundColor: '#06b6d4', marginLeft: 10, flex: 0, width: 50}]}><MaterialIcons name="send" size={20} color="white" /></TouchableOpacity></View><FlatList data={quickMessagesList} keyExtractor={(item, index) => index.toString()} renderItem={({item}) => (<TouchableOpacity onPress={() => handleSendQuickMessage(item.includes("Effacer") ? "" : item)} style={styles.quickMsgItem}><Text style={styles.quickMsgText}>{item}</Text></TouchableOpacity>)} ItemSeparatorComponent={() => <View style={{height: 1, backgroundColor: '#27272a'}} />} /><TouchableOpacity onPress={() => setShowQuickMsgModal(false)} style={[styles.closeBtn, {backgroundColor: '#27272a', marginTop: 15}]}><Text style={{color: '#a1a1aa'}}>ANNULER</Text></TouchableOpacity></View></KeyboardAvoidingView></Modal>
       <Modal visible={showPingMenu} transparent animationType="fade"><View style={styles.modalOverlay}><View style={styles.pingMenuContainer}><Text style={styles.modalTitle}>TYPE DE MARQUEUR</Text><View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 15, justifyContent: 'center'}}><TouchableOpacity onPress={() => { setCurrentPingType('HOSTILE'); setShowPingMenu(false); setPingMsgInput(''); setHostileDetails({position: tempPingLoc ? `${tempPingLoc.lat.toFixed(5)}, ${tempPingLoc.lng.toFixed(5)}` : '', nature: '', attitude: '', volume: '', armes: '', substances: ''}); setShowPingForm(true); }} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(239, 68, 68, 0.2)', borderColor: '#ef4444'}]}><MaterialIcons name="warning" size={30} color="#ef4444" /><Text style={{color: '#ef4444', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>ADVERSAIRE</Text></TouchableOpacity><TouchableOpacity onPress={() => { setCurrentPingType('FRIEND'); setShowPingMenu(false); setPingMsgInput(''); setShowPingForm(true); }} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(34, 197, 94, 0.2)', borderColor: '#22c55e'}]}><MaterialIcons name="shield" size={30} color="#22c55e" /><Text style={{color: '#22c55e', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>AMI</Text></TouchableOpacity><TouchableOpacity onPress={() => { setCurrentPingType('INTEL'); setShowPingMenu(false); setPingMsgInput(''); setShowPingForm(true); }} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(234, 179, 8, 0.2)', borderColor: '#eab308'}]}><MaterialIcons name="visibility" size={30} color="#eab308" /><Text style={{color: '#eab308', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>RENS</Text></TouchableOpacity></View><TouchableOpacity onPress={() => setShowPingMenu(false)} style={[styles.closeBtn, {marginTop: 20, backgroundColor: '#27272a'}]}><Text style={{color:'white'}}>ANNULER</Text></TouchableOpacity></View></View></Modal>
       <Modal visible={showPingForm} transparent animationType="slide"><KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}><View style={[styles.modalContent, {width: '90%', maxHeight: '80%'}]}><Text style={[styles.modalTitle, {color: currentPingType === 'HOSTILE' ? '#ef4444' : currentPingType === 'FRIEND' ? '#22c55e' : '#eab308'}]}>{currentPingType === 'HOSTILE' ? 'ADVERSAIRE' : currentPingType === 'FRIEND' ? 'AMI' : 'RENS'}</Text><Text style={styles.label}>Message</Text><TextInput style={styles.pingInput} placeholder="Titre / Info" placeholderTextColor="#52525b" value={pingMsgInput} onChangeText={setPingMsgInput} autoFocus={currentPingType !== 'HOSTILE'} />{currentPingType === 'HOSTILE' && (<ScrollView style={{width: '100%', maxHeight: 300, marginBottom: 10}}><Text style={[styles.label, {color: '#ef4444', marginTop: 10}]}>Détails Tactiques (Caneva)</Text><TextInput style={styles.detailInput} placeholder="Position" placeholderTextColor="#52525b" value={hostileDetails.position} onChangeText={t => setHostileDetails({...hostileDetails, position: t})} /><TextInput style={styles.detailInput} placeholder="Nature" placeholderTextColor="#52525b" value={hostileDetails.nature} onChangeText={t => setHostileDetails({...hostileDetails, nature: t})} /><TextInput style={styles.detailInput} placeholder="Attitude" placeholderTextColor="#52525b" value={hostileDetails.attitude} onChangeText={t => setHostileDetails({...hostileDetails, attitude: t})} /><TextInput style={styles.detailInput} placeholder="Volume" placeholderTextColor="#52525b" value={hostileDetails.volume} onChangeText={t => setHostileDetails({...hostileDetails, volume: t})} /><TextInput style={styles.detailInput} placeholder="Armement" placeholderTextColor="#52525b" value={hostileDetails.armes} onChangeText={t => setHostileDetails({...hostileDetails, armes: t})} /><TextInput style={styles.detailInput} placeholder="Substances / Tenue" placeholderTextColor="#52525b" value={hostileDetails.substances} onChangeText={t => setHostileDetails({...hostileDetails, substances: t})} /></ScrollView>)}<View style={{flexDirection: 'row', gap: 10, marginTop: 10}}><TouchableOpacity onPress={() => setShowPingForm(false)} style={[styles.modalBtn, {backgroundColor: '#27272a'}]}><Text style={{color: 'white'}}>ANNULER</Text></TouchableOpacity><TouchableOpacity onPress={submitPing} style={[styles.modalBtn, {backgroundColor: '#3b82f6'}]}><Text style={{color: 'white', fontWeight: 'bold'}}>VALIDER</Text></TouchableOpacity></View></View></KeyboardAvoidingView></Modal>
@@ -836,19 +810,18 @@ const styles = StyleSheet.create({
   input: { 
     width: '100%', 
     borderBottomWidth: 2, 
-    borderBottomColor: '#3b82f6', // Bleu pour l'encadré
-    borderWidth: 2, // Bordure un peu plus large
-    borderColor: '#3b82f6', // Bleu pour l'encadré
+    borderBottomColor: '#3b82f6', 
+    borderWidth: 2, 
+    borderColor: '#3b82f6', 
     fontSize: 30, 
     color: 'white', 
     textAlign: 'center', 
     padding: 10,
-    backgroundColor: 'transparent' // Fond transparent
+    backgroundColor: 'transparent'
   },
   loginBtn: { marginTop: 50, width: '100%', backgroundColor: '#2563eb', padding: 20, borderRadius: 16, alignItems: 'center' },
   loginBtnText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
   
-  // Style pour le bouton Stratégica classique (utilisé aussi pour Praxis)
   strategicaBtn: {
     padding: 10,
     marginTop: 20,
