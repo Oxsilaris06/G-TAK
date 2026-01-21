@@ -599,12 +599,12 @@ export default function OIView({ onClose }: OIViewProps) {
             // Image en arrière plan absolu (et non fixed) pour rester uniquement sur la page 1
             // Couvre tout le A4 (29.7cm x 21cm) en compensant les marges de 1cm
             logoHtml = `
-                <div style="position: absolute; top: -1cm; left: -1cm; width: 29.7cm; height: 21cm; z-index: -10; overflow: hidden;">
+                <div style="position: absolute; top: -1cm; left: -1cm; width: 297mm; height: 210mm; z-index: -10; overflow: hidden;">
                     <img src="${logoSrc}" style="width: 100%; height: 100%; object-fit: cover; opacity: 0.6;" />
                 </div>
             `;
             // Centrage vertical du contenu
-            page1ContainerStyle = `display: flex; flex-direction: column; height: 90vh; justify-content: center; position: relative;`;
+            page1ContainerStyle = `display: flex; flex-direction: column; height: 180mm; justify-content: center; position: relative;`;
         } else {
             // MODE INCLUE
             // Image affichée normalement dans le flux
@@ -614,11 +614,11 @@ export default function OIView({ onClose }: OIViewProps) {
                 </div>
             `;
             // Alignement haut avec padding
-            page1ContainerStyle = `display: flex; flex-direction: column; height: 90vh; justify-content: flex-start; padding-top: 40px; align-items: center;`;
+            page1ContainerStyle = `display: flex; flex-direction: column; height: 180mm; justify-content: flex-start; padding-top: 40px; align-items: center;`;
         }
     } else {
         // Pas de logo
-        page1ContainerStyle = `display: flex; flex-direction: column; height: 90vh; justify-content: center; align-items: center;`;
+        page1ContainerStyle = `display: flex; flex-direction: column; height: 180mm; justify-content: center; align-items: center;`;
     }
 
     // Styles dynamiques pour le titre et la cible (couleur blanche si fond d'écran)
@@ -652,9 +652,9 @@ export default function OIView({ onClose }: OIViewProps) {
             const imageSrc = photo.base64 ? `data:image/jpeg;base64,${photo.base64}` : photo.uri;
 
             html += `
-            <div style="border: 2px solid ${colors.accent}; padding: 0; margin-bottom: 10px; background: ${isDark ? '#000' : '#fff'}; width: ${itemWidth}; page-break-inside: avoid; box-sizing: border-box; overflow: hidden;">
+            <div style="border: 2px solid ${colors.accent}; padding: 0; margin-bottom: 10px; background: ${isDark ? '#000' : '#fff'}; width: ${itemWidth}; height: ${maxHeight}; page-break-inside: avoid; box-sizing: border-box; overflow: hidden;">
                 <div style="position: relative; display: block; width: 100%; height: 100%; margin: 0 auto;">
-                    <img src="${imageSrc}" style="width: 100%; height: auto; max-height: ${maxHeight}; object-fit: contain; display: block; margin: 0 auto;" />
+                    <img src="${imageSrc}" style="width: 100%; height: 100%; object-fit: cover; display: block; margin: 0 auto;" />
                     ${photo.annotations.map(a => `
                         <div style="position: absolute; left: ${a.x}%; top: ${a.y}%; width: 20px; height: 20px; background: ${colors.danger}; color: white; border-radius: 50%; text-align: center; line-height: 20px; font-size: 12px; font-weight:bold; transform: translate(-50%, -50%); border: 2px solid white;">
                             ${a.text}
@@ -678,7 +678,7 @@ export default function OIView({ onClose }: OIViewProps) {
             return `
             <div style="border: 2px solid ${colors.accent}; padding: 2px; margin-bottom: 5px; background: ${isDark ? '#000' : '#fff'};">
                 <div style="position: relative;">
-                    <img src="${imageSrc}" style="width: 100%; max-height: 300px; object-fit:contain; display: block;" />
+                    <img src="${imageSrc}" style="width: 100%; height: 300px; object-fit:cover; display: block;" />
                     ${photo.annotations.map(a => `
                         <div style="position: absolute; left: ${a.x}%; top: ${a.y}%; width: 15px; height: 15px; background: ${colors.danger}; color: white; border-radius: 50%; text-align: center; line-height: 15px; font-size: 10px; font-weight:bold; transform: translate(-50%, -50%); border: 1px solid white;">
                             ${a.text}
@@ -785,8 +785,8 @@ export default function OIView({ onClose }: OIViewProps) {
         <meta charset="utf-8">
         <style>
           @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Oswald:wght@500&display=swap');
-          @page { size: A4 landscape; margin: 1cm; }
-          body { font-family: 'JetBrains Mono', sans-serif; background: ${colors.bg}; color: ${colors.text}; padding: 0; font-size: 11px; }
+          @page { size: A4 landscape; margin: 0; }
+          body { font-family: 'JetBrains Mono', sans-serif; background: ${colors.bg}; color: ${colors.text}; padding: 1cm; margin: 0; font-size: 11px; box-sizing: border-box; }
           .page-break { page-break-before: always; }
           h1 { font-family: 'Oswald'; }
           h2 { font-family: 'Oswald'; font-size: 16px; border-bottom: 2px solid ${colors.accent}; color: ${colors.accent}; margin-top: 20px; margin-bottom: 10px; padding-bottom: 2px; text-transform: uppercase; }
