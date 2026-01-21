@@ -43,6 +43,7 @@ class ConnectivityService {
   private handshakeInterval: any = null;
   private creationTimeout: any = null;
   private healthCheckInterval: any = null; // NOUVEAU: Timer de surveillance
+  private networkSwitchTimeout: any = null; // NOUVEAU: Timer pour le switch réseau
   
   // Suivi d'activité pour le Watchdog
   private lastHostActivity: number = Date.now();
@@ -95,6 +96,9 @@ class ConnectivityService {
       console.log("[NET] Reconstruction forcée du lien réseau...");
       this.notify({ type: 'TOAST', msg: 'Changement réseau : Reconnexion...', level: 'warning' });
 
+      // Nettoyage timeout précédent si changement rapide
+      if (this.networkSwitchTimeout) clearTimeout(this.networkSwitchTimeout);
+
       // Nettoyage préventif des connexions mortes pour éviter les erreurs d'envoi UI
       Object.values(this.connections).forEach(c => { try { c.close(); } catch(e){} });
       this.connections = {};
@@ -108,14 +112,14 @@ class ConnectivityService {
       }
       this.isConnecting = false;
 
-      // Petit délai pour laisser le système OS libérer les sockets (vital sur Android)
-      setTimeout(() => {
-          // On essaie de récupérer notre ancien ID, quel que soit notre rôle
-          // Si on est HOST, c'est crucial. Si on est Client, ça évite les doublons.
+      // DELAI 2 SECONDES (Modifié)
+      this.networkSwitchTimeout = setTimeout(() => {
+          // On essaie de récupérer notre ancien ID
+          // 3 Tentatives pour reprendre le même ID
           const targetId = this.user?.id;
-          console.log(`[NET] Tentative de récupération ID: ${targetId || 'Aucun'}`);
-          this.createPeer(targetId);
-      }, 500);
+          console.log(`[NET] Tentative de récupération ID: ${targetId || 'Aucun'} (apres 2s)`);
+          this.createPeer(targetId, 3);
+      }, 2000);
   }
 
   public handleAppStateChange(status: AppStateStatus) {
@@ -200,7 +204,8 @@ class ConnectivityService {
       }, HEALTH_CHECK_INTERVAL);
   }
 
-  private createPeer(id?: string) {
+  // Modifié pour accepter attempts
+  private createPeer(id?: string, attempts: number = 1) {
     if (this.isConnecting) return;
     this.isConnecting = true;
 
@@ -208,7 +213,7 @@ class ConnectivityService {
     if (this.creationTimeout) clearTimeout(this.creationTimeout);
 
     try {
-        console.log(`[NET] Création Peer (Tentative avec ID: ${id || 'AUTO'})...`);
+        console.log(`[NET] Création Peer (Tentative avec ID: ${id || 'AUTO'}, Essais restants: ${attempts})...`);
         const peer = new Peer(id, CONFIG.PEER_CONFIG as any);
         this.peer = peer;
 
@@ -220,7 +225,7 @@ class ConnectivityService {
                 console.warn("[NET] Timeout création Peer (>5s). Reset forcé.");
                 this.isConnecting = false;
                 try { peer.destroy(); } catch(e) {}
-                this.createPeer(id); // Retry récursif
+                this.createPeer(id, attempts); // Retry avec même nombre d'essais
             }
         }, PEER_CREATION_TIMEOUT);
 
@@ -256,6 +261,13 @@ class ConnectivityService {
             console.error(`[NET] Peer Error: ${err.type}`, err);
             
             if (err.type === 'unavailable-id') {
+                // LOGIQUE 3 TENTATIVES
+                if (id && attempts > 1) {
+                    console.log(`[NET] ID indisponible. Réessai dans 1s (${attempts - 1} restants)...`);
+                    setTimeout(() => this.createPeer(id, attempts - 1), 1000);
+                    return;
+                }
+
                 // Si l'ID est pris (ex: ancien Host fantôme), on en génère un nouveau
                 this.notify({ type: 'TOAST', msg: 'ID Hôte indisponible, nouvel ID...', level: 'warning' });
                 
@@ -534,6 +546,7 @@ class ConnectivityService {
       if (this.retryTimeout) clearTimeout(this.retryTimeout);
       if (this.creationTimeout) clearTimeout(this.creationTimeout);
       if (this.healthCheckInterval) clearInterval(this.healthCheckInterval);
+      if (this.networkSwitchTimeout) clearTimeout(this.networkSwitchTimeout); // Cleanup
       
       // On ne désinscrit PAS le moniteur réseau lors d'un cleanup partiel (reco)
       if (full && this.netInfoUnsubscribe) {
