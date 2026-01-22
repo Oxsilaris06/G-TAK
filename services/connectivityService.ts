@@ -112,13 +112,13 @@ class ConnectivityService {
       }
       this.isConnecting = false;
 
-      // DELAI 2 SECONDES (Modifié)
+      // DELAI 2 SECONDES
       this.networkSwitchTimeout = setTimeout(() => {
           // On essaie de récupérer notre ancien ID
-          // 3 Tentatives pour reprendre le même ID
+          // 5 Tentatives (au lieu de 3) pour laisser le temps au serveur PeerJS de libérer l'ID
           const targetId = this.user?.id;
           console.log(`[NET] Tentative de récupération ID: ${targetId || 'Aucun'} (apres 2s)`);
-          this.createPeer(targetId, 3);
+          this.createPeer(targetId, 5);
       }, 2000);
   }
 
@@ -261,25 +261,40 @@ class ConnectivityService {
             console.error(`[NET] Peer Error: ${err.type}`, err);
             
             if (err.type === 'unavailable-id') {
-                // LOGIQUE 3 TENTATIVES
+                // LOGIQUE TENTATIVES (AMÉLIORÉE)
                 if (id && attempts > 1) {
-                    console.log(`[NET] ID indisponible. Réessai dans 1s (${attempts - 1} restants)...`);
-                    setTimeout(() => this.createPeer(id, attempts - 1), 1000);
+                    // Délai augmenté à 2s pour laisser le temps au serveur de "clean" l'ancien ID
+                    console.log(`[NET] ID indisponible. Réessai dans 2s (${attempts - 1} restants)...`);
+                    setTimeout(() => this.createPeer(id, attempts - 1), 2000);
                     return;
                 }
 
-                // Si l'ID est pris (ex: ancien Host fantôme), on en génère un nouveau
-                this.notify({ type: 'TOAST', msg: 'ID Hôte indisponible, nouvel ID...', level: 'warning' });
+                // Si les tentatives sont épuisées :
                 
-                // CORRECTION : Si l'ID court est pris, on en génère un NOUVEAU court.
-                // Au lieu de laisser PeerJS mettre un UUID long moche.
                 let nextId = undefined;
                 if (this.role === OperatorRole.HOST) {
+                    this.notify({ type: 'TOAST', msg: 'ID Hôte indisponible, nouvel ID...', level: 'warning' });
                     nextId = this.generateShortId();
                     console.log(`[NET] Fallback sur nouvel ID court: ${nextId}`);
+                } 
+                else if (this.role === OperatorRole.OPR && id) {
+                    // SYSTEME DE SUFFIXE DE SESSION
+                    // Plutôt que de générer un UUID aléatoire et perdre l'identité visuelle,
+                    // on ajoute un suffixe court. Ex: BRAVO -> BRAVO-42
+                    const suffix = Math.floor(Math.random() * 1000);
+                    // On essaie de ne pas empiler les suffixes si possible, mais le plus sûr est d'append
+                    nextId = `${id}-${suffix}`;
+                    
+                    this.notify({ type: 'TOAST', msg: `ID bloqué. Suffixe ajouté: ${nextId}`, level: 'warning' });
+                    console.log(`[NET] Fallback OPR sur ID Suffixé: ${nextId}`);
+                }
+                else {
+                    this.notify({ type: 'TOAST', msg: 'ID Hôte indisponible, nouvel ID aléatoire...', level: 'warning' });
+                    // nextId reste undefined => PeerJS générera un UUID
                 }
                 
                 setTimeout(() => this.createPeer(nextId), 500);
+
             } else if (err.type === 'peer-unavailable') {
                 // L'hôte n'est pas (encore) là
                 if (!this.isDestroyed && this.role === OperatorRole.OPR) {
