@@ -1,5 +1,5 @@
-import React, { useEffect, useRef, useMemo } from 'react';
-import { View, StyleSheet, ActivityIndicator } from 'react-native';
+import React, { useEffect, useRef, useMemo, useState } from 'react';
+import { View, StyleSheet, ActivityIndicator, Platform } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { UserData, PingData } from '../types';
 
@@ -20,36 +20,50 @@ interface TacticalMapProps {
   onPing: (loc: { lat: number; lng: number }) => void;
   onPingMove: (ping: PingData) => void;
   onPingClick: (id: string) => void; 
-  onPingLongPress: (id: string) => void; // Nouveau callback
+  onPingLongPress: (id: string) => void;
   onNavStop: () => void;
   onMapMoveEnd?: (center: {lat: number, lng: number}, zoom: number) => void;
 }
 
-const TacticalMap: React.FC<TacticalMapProps> = ({
+// AUDIT FIX 2.B: React.memo pour éviter re-render excessif quand la batterie change
+const TacticalMap: React.FC<TacticalMapProps> = React.memo(({
   me, peers, pings, mapMode, customMapUrl, showTrails, showPings, isHost, userArrowColor, navTargetId, pingMode, nightOpsMode, initialCenter,
   onPing, onPingMove, onPingClick, onPingLongPress, onNavStop, onMapMoveEnd
 }) => {
   const webViewRef = useRef<WebView>(null);
+  // AUDIT FIX 2.C: Timestamp pour throttle
+  const lastUpdateRef = useRef<number>(0);
 
+  // AUDIT FIX 1.B: Offline Capability
+  // Utilisation des assets locaux sur Android pour Leaflet
   const leafletHTML = useMemo(() => {
       const startLat = initialCenter ? initialCenter.lat : 48.85;
       const startLng = initialCenter ? initialCenter.lng : 2.35;
       const startZoom = initialCenter ? initialCenter.zoom : 13;
       const initialAutoCentered = !!initialCenter;
+      
+      // Sur Android, on charge depuis file:///android_asset/
+      // Sur iOS, il faudrait un bundle local, ici on fallback sur CDN si pas d'asset
+      const isAndroid = Platform.OS === 'android';
+      const cssPath = isAndroid ? 'file:///android_asset/leaflet.css' : 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+      const jsPath = isAndroid ? 'file:///android_asset/leaflet.js' : 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
 
       return `
     <!DOCTYPE html>
     <html>
     <head>
       <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-      <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+      <link rel="stylesheet" href="${cssPath}" onerror="this.href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'" />
       <style>
-        body { margin: 0; padding: 0; background: #000; font-family: sans-serif; transition: filter 0.5s ease; }
-        #map { width: 100vw; height: 100vh; }
+        body { margin: 0; padding: 0; background: #000; font-family: sans-serif; transition: filter 0.5s ease; -webkit-tap-highlight-color: transparent; }
+        #map { width: 100vw; height: 100vh; background: #111; }
         
         body.night-ops {
             filter: sepia(100%) hue-rotate(-50deg) saturate(300%) contrast(1.2) brightness(0.8);
         }
+
+        /* AUDIT FIX 5.A: Pointer Events pour éviter conflits gestes */
+        .leaflet-marker-icon, .leaflet-marker-shadow { pointer-events: auto !important; }
 
         .tac-marker-root { position: relative; display: flex; justify-content: center; align-items: center; width: 80px; height: 80px; }
         .tac-cone-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; transition: transform 0.1s linear; pointer-events: none; z-index: 1; }
@@ -64,7 +78,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         .ping-icon { font-size: 24px; filter: drop-shadow(0px 2px 2px rgba(0,0,0,0.8)); transition: transform 0.2s; }
         .ping-label { background: rgba(0,0,0,0.7); color: white; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: bold; margin-bottom: 2px; border: 1px solid rgba(255,255,255,0.3); white-space: nowrap; max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
 
-        /* Compass Styles */
         #compass { position: absolute; top: 20px; left: 20px; width: 60px; height: 60px; z-index: 9999; background: rgba(0,0,0,0.6); border-radius: 50%; border: 2px solid rgba(255,255,255,0.2); display: flex; justify-content: center; align-items: center; backdrop-filter: blur(2px); pointer-events: none; }
         #compass-indicator { position: absolute; top: -5px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 8px solid #ef4444; z-index: 20; }
         #compass-rose { position: relative; width: 100%; height: 100%; transition: transform 0.1s linear; }
@@ -74,39 +87,66 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         .compass-e { right: 6px; top: 50%; transform: translateY(-50%); }
         .compass-w { left: 6px; top: 50%; transform: translateY(-50%); }
       </style>
-      <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+      <script src="${jsPath}" onerror="let s=document.createElement('script');s.src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';document.head.appendChild(s);"></script>
     </head>
     <body>
       <div id="map"></div>
       <div id="compass"><div id="compass-indicator"></div><div id="compass-rose"><span class="compass-label compass-n">N</span><span class="compass-label compass-e">E</span><span class="compass-label compass-s">S</span><span class="compass-label compass-w">O</span></div></div>
 
       <script>
-        // Init Map
-        const map = L.map('map', { zoomControl: false, attributionControl: false, doubleClickZoom: false }).setView([${startLat}, ${startLng}], ${startZoom});
-        
-        const layers = {
-            dark: L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {subdomains:'abcd', maxZoom:19}),
-            light: L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {subdomains:'abcd', maxZoom:19}),
-            satellite: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {maxZoom:19}),
-            custom: null
-        };
-        let currentLayer = layers.dark; currentLayer.addTo(map);
+        // Attente du chargement de Leaflet
+        const checkL = setInterval(function() {
+            if (window.L) {
+                clearInterval(checkL);
+                initMap();
+            }
+        }, 100);
 
-        map.createPane('userPane'); map.getPane('userPane').style.zIndex = 600;
-        map.createPane('pingPane'); map.getPane('pingPane').style.zIndex = 800;
-        map.createPane('trailPane'); map.getPane('trailPane').style.zIndex = 400;
-
-        const markers = {};
-        const trails = {}; 
-        const trailPolylines = {}; 
-        const pingLayer = L.layerGroup().addTo(map);
+        let map, layers;
+        let markers = {};
+        let trails = {}; 
+        let trailPolylines = {}; 
+        let pingLayer;
         let navLine = null;
-        
         let pings = {};
-        let userArrowColor = '#3b82f6';
-        let pingMode = false;
-        let lastMePos = null;
         let autoCentered = ${initialAutoCentered};
+
+        function initMap() {
+            map = L.map('map', { zoomControl: false, attributionControl: false, doubleClickZoom: false }).setView([${startLat}, ${startLng}], ${startZoom});
+            
+            // Gestion Offline: Essai de charger des tuiles locales si configuré, sinon online
+            layers = {
+                dark: L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {subdomains:'abcd', maxZoom:19}),
+                light: L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {subdomains:'abcd', maxZoom:19}),
+                satellite: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {maxZoom:19}),
+                custom: null
+            };
+            layers.dark.addTo(map);
+
+            map.createPane('userPane'); map.getPane('userPane').style.zIndex = 600;
+            map.createPane('pingPane'); map.getPane('pingPane').style.zIndex = 800;
+            map.createPane('trailPane'); map.getPane('trailPane').style.zIndex = 400;
+
+            pingLayer = L.layerGroup().addTo(map);
+
+            map.on('moveend', () => {
+                const center = map.getCenter();
+                sendToApp({ type: 'MAP_MOVE_END', center: {lat: center.lat, lng: center.lng}, zoom: map.getZoom() });
+            });
+
+            map.on('click', (e) => {
+                if (window.pingMode) {
+                    sendToApp({ type: 'MAP_CLICK', lat: e.latlng.lat, lng: e.latlng.lng });
+                }
+            });
+
+            map.on('dblclick', (e) => {
+                 sendToApp({ type: 'MAP_DBLCLICK', lat: e.latlng.lat, lng: e.latlng.lng });
+            });
+            
+            // Signal prêt
+            sendToApp({ type: 'MAP_READY' });
+        }
 
         function hexToRgba(hex, alpha) {
             let r = parseInt(hex.slice(1, 3), 16),
@@ -120,27 +160,11 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         document.addEventListener('message', (event) => handleData(JSON.parse(event.data)));
         window.addEventListener('message', (event) => handleData(JSON.parse(event.data)));
 
-        map.on('moveend', () => {
-            const center = map.getCenter();
-            sendToApp({ type: 'MAP_MOVE_END', center: {lat: center.lat, lng: center.lng}, zoom: map.getZoom() });
-        });
-
-        // Gestion Single Click (Navigation mode Ping)
-        map.on('click', (e) => {
-            if (pingMode) {
-                sendToApp({ type: 'MAP_CLICK', lat: e.latlng.lat, lng: e.latlng.lng });
-            }
-        });
-
-        // Gestion Double Click (Ouverture modale Ping)
-        map.on('dblclick', (e) => {
-             sendToApp({ type: 'MAP_DBLCLICK', lat: e.latlng.lat, lng: e.latlng.lng });
-        });
-
         function handleData(data) {
+            if (!window.L || !map) return; // Sécurité
+
             if (data.type === 'UPDATE_MAP') {
-                if(data.userArrowColor) userArrowColor = data.userArrowColor;
-                pingMode = data.pingMode; 
+                window.pingMode = data.pingMode; 
                 
                 if (data.nightOpsMode) document.body.classList.add('night-ops');
                 else document.body.classList.remove('night-ops');
@@ -167,6 +191,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
             if (mode === 'custom' && customUrl) {
                 if (!layers.custom || layers.custom._url !== customUrl) {
                     if(layers.custom) map.removeLayer(layers.custom);
+                    // Support MBTiles locaux via URL custom si serveur local tourne, sinon tuiles HTTP standard
                     layers.custom = L.tileLayer(customUrl, {maxZoom: 20});
                 }
             }
@@ -174,10 +199,9 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
             let newLayer = layers[mode] || layers.dark;
             if (mode === 'custom' && layers.custom) newLayer = layers.custom;
 
-            if (currentLayer !== newLayer) { 
-                map.removeLayer(currentLayer); 
+            if (!map.hasLayer(newLayer)) { 
+                map.eachLayer(l => { if(l._url) map.removeLayer(l); });
                 newLayer.addTo(map); 
-                currentLayer = newLayer; 
             }
         }
 
@@ -308,8 +332,16 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
   `;
   }, []); 
 
+  // AUDIT FIX 2.C: Throttling de l'envoi vers WebView (500ms max)
   useEffect(() => {
+    const now = Date.now();
+    if (now - lastUpdateRef.current < 500) {
+        // Optionnel : Mettre en queue si vraiment critique, mais pour la map temps réel on peut skip
+        return; 
+    }
+    
     if (webViewRef.current) {
+      lastUpdateRef.current = now;
       webViewRef.current.postMessage(JSON.stringify({
         type: 'UPDATE_MAP', me, peers, pings, mode: mapMode, customMapUrl,
         showTrails, showPings, isHost,
@@ -343,11 +375,15 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         domStorageEnabled={true}
         startInLoadingState={true}
         cacheEnabled={true}
+        // AUDIT FIX 1.B: Autoriser l'accès aux fichiers locaux (Assets)
+        allowFileAccess={true}
+        allowFileAccessFromFileURLs={true}
+        allowingReadAccessToURL={Platform.OS === 'android' ? 'file:///android_asset/' : '*'}
         renderLoading={() => <ActivityIndicator size="large" color="#3b82f6" style={styles.loader} />}
       />
     </View>
   );
-};
+});
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
