@@ -1,5 +1,5 @@
 import React, { useRef, useEffect } from 'react';
-import { Animated, PanResponder, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Animated, PanResponder, StyleSheet, Text, View } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 
 interface Props {
@@ -20,7 +20,8 @@ export const NotificationToast: React.FC<Props> = ({ message, type, isNightOps, 
       onPanResponderRelease: (e, gestureState) => {
         if (Math.abs(gestureState.dx) > 100) {
           // Swiped away
-          Animated.timing(opacity, { toValue: 0, duration: 200, useNativeDriver: true }).start(onDismiss);
+          // CORRECTION: useNativeDriver passe à false pour éviter le conflit avec le PanResponder
+          Animated.timing(opacity, { toValue: 0, duration: 200, useNativeDriver: false }).start(onDismiss);
         } else {
           // Reset
           Animated.spring(pan, { toValue: { x: 0, y: 0 }, useNativeDriver: false }).start();
@@ -31,12 +32,14 @@ export const NotificationToast: React.FC<Props> = ({ message, type, isNightOps, 
 
   useEffect(() => {
     pan.setValue({x:0, y:0});
-    Animated.timing(opacity, { toValue: 1, duration: 300, useNativeDriver: true }).start();
+    // CORRECTION: useNativeDriver passe à false
+    Animated.timing(opacity, { toValue: 1, duration: 300, useNativeDriver: false }).start();
     
     // Auto dismiss unless alert
     if (type !== 'alert') {
       const timer = setTimeout(() => {
-        Animated.timing(opacity, { toValue: 0, duration: 300, useNativeDriver: true }).start(onDismiss);
+        // CORRECTION: useNativeDriver passe à false
+        Animated.timing(opacity, { toValue: 0, duration: 300, useNativeDriver: false }).start(onDismiss);
       }, 4000);
       return () => clearTimeout(timer);
     }
