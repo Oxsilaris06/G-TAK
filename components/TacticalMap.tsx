@@ -37,31 +37,12 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
       const startZoom = initialCenter ? initialCenter.zoom : 13;
       const initialAutoCentered = !!initialCenter;
 
-      // MODIFICATION OFFLINE : Injection directe des assets locaux
-      // Assurez-vous que ces fichiers exportent une string ou sont gérés par un transformer
-      let leafletCssContent = '';
-      let leafletJsContent = '';
-      
-      try {
-          // @ts-ignore
-          leafletCssContent = require('../assets/leaflet.css');
-          // @ts-ignore
-          leafletJsContent = require('../assets/leaflet.js');
-      } catch (e) {
-          console.error("Erreur chargement Leaflet local:", e);
-      }
-
       return `
     <!DOCTYPE html>
     <html>
     <head>
       <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-      
-      <!-- INJECTION CSS LOCAL -->
-      <style>
-        ${leafletCssContent}
-      </style>
-
+      <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
       <style>
         body { margin: 0; padding: 0; background: #000; font-family: sans-serif; transition: filter 0.5s ease; }
         #map { width: 100vw; height: 100vh; }
@@ -93,11 +74,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         .compass-e { right: 6px; top: 50%; transform: translateY(-50%); }
         .compass-w { left: 6px; top: 50%; transform: translateY(-50%); }
       </style>
-      
-      <!-- INJECTION JS LOCAL -->
-      <script>
-        ${leafletJsContent}
-      </script>
+      <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     </head>
     <body>
       <div id="map"></div>
@@ -313,7 +290,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                     pings[p.id].setLatLng([p.lat, p.lng]);
                     if(pings[p.id]._icon) pings[p.id]._icon.innerHTML = html;
                 } else {
-                    const icon = L.divIcon({ className: 'custom-div-icon', html: iconHtml, iconSize: [100, 60], iconAnchor: [50, 50] });
+                    const icon = L.divIcon({ className: 'custom-div-icon', html: html, iconSize: [100, 60], iconAnchor: [50, 50] });
                     const m = L.marker([p.lat, p.lng], { icon: icon, draggable: canDrag, pane: 'pingPane' });
                     
                     m.on('click', () => sendToApp({ type: 'PING_CLICK', id: p.id }));
