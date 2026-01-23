@@ -8,11 +8,8 @@ import {
 import { StatusBar } from 'expo-status-bar';
 import QRCode from 'react-native-qrcode-svg';
 
-// --- CORRECTION ICI ---
-// CameraView est maintenant exporté directement depuis 'expo-camera' dans le SDK 51
-// On importe "Camera" pour les permissions (Legacy) et "CameraView" pour le scanner (Nouveau)
+// --- Imports Camera et Location ---
 import { Camera, CameraView } from 'expo-camera'; 
-
 import * as Notifications from 'expo-notifications';
 import * as Location from 'expo-location';
 import { useKeepAwake } from 'expo-keep-awake';
@@ -28,6 +25,11 @@ import { UserData, OperatorStatus, OperatorRole, ViewType, PingData, AppSettings
 import { CONFIG, STATUS_COLORS } from './constants';
 import { configService } from './services/configService';
 import { connectivityService, ConnectivityEvent } from './services/connectivityService'; 
+// --- NOUVEAUX SERVICES ---
+import { permissionService } from './services/permissionService';
+import { LOCATION_TASK_NAME } from './services/backgroundLocationTask';
+// Il faut importer le fichier task pour que la tâche soit définie dans le bundle
+import './services/backgroundLocationTask';
 
 import OperatorCard from './components/OperatorCard';
 import TacticalMap from './components/TacticalMap';
@@ -37,7 +39,6 @@ import MainCouranteView from './components/MainCouranteView';
 import PrivacyConsentModal from './components/PrivacyConsentModal';
 import { NotificationToast } from './components/NotificationToast';
 import ComposantOrdreInitial from './components/ComposantOrdreInitial'; 
-// Remplacement du composant lourd 3D par une version native optimisée
 import TacticalBackground from './components/TacticalBackground';
 
 try { SplashScreen.preventAutoHideAsync().catch(() => {}); } catch (e) {}
@@ -58,9 +59,8 @@ const App: React.FC = () => {
   
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   
-  // Initialisation de l'utilisateur avec un ID temporaire si nécessaire, mais on attendra l'event PEER_OPEN pour le confirmer
   const [user, setUser] = useState<UserData>({ 
-      id: '', // Sera remplacé par l'ID PeerJS réel
+      id: '', 
       callsign: '', 
       role: OperatorRole.OPR, 
       status: OperatorStatus.CLEAR, 
@@ -76,8 +76,6 @@ const App: React.FC = () => {
   const [lastView, setLastView] = useState<ViewType>('menu'); 
   const [lastOpsView, setLastOpsView] = useState<ViewType>('map');
   const [mapState, setMapState] = useState<{lat: number, lng: number, zoom: number} | undefined>(undefined);
-  
-  // NOUVEAU : État pour gérer l'affichage des paramètres sans démonter la vue principale
   const [showSettings, setShowSettings] = useState(false);
 
   const [peers, setPeers] = useState<Record<string, UserData>>({});
@@ -125,7 +123,7 @@ const App: React.FC = () => {
 
   const [isServicesReady, setIsServicesReady] = useState(false);
   const [gpsStatus, setGpsStatus] = useState<'WAITING' | 'OK' | 'ERROR'>('WAITING');
-  const lastLocationRef = useRef<any>(null);
+  // gpsSubscription n'est plus utilisé avec le mode Background Task, mais on le garde pour cleanup
   const gpsSubscription = useRef<Location.LocationSubscription | null>(null);
   const magSubscription = useRef<any>(null);
 
@@ -134,33 +132,6 @@ const App: React.FC = () => {
       if (type === 'alert' || type === 'warning') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       else if (type === 'success') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   }, []);
-
-  const bootstrapPermissionsAsync = async () => {
-    try {
-        if (Platform.OS === 'android') {
-            await PermissionsAndroid.requestMultiple([
-                PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-                PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION,
-                PermissionsAndroid.PERMISSIONS.ACCESS_BACKGROUND_LOCATION,
-                PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
-                PermissionsAndroid.PERMISSIONS.CAMERA
-            ]).catch(() => {});
-        }
-        
-        const { status } = await Location.getForegroundPermissionsAsync();
-        if (status === 'granted') {
-            await Location.requestBackgroundPermissionsAsync().catch(() => {});
-            setGpsStatus('OK');
-        } else {
-            setGpsStatus('ERROR');
-        }
-
-        const camStatus = await Camera.requestCameraPermissionsAsync();
-        setHasCameraPermission(camStatus.status === 'granted');
-    } catch (e) {
-        console.log("Erreur permissions:", e);
-    }
-  };
 
   const triggerTacticalNotification = async (title: string, body: string) => {
       if (AppState.currentState !== 'background' || settings.disableBackgroundNotifications) return;
@@ -202,18 +173,18 @@ const App: React.FC = () => {
                   } else {
                       setUser(prev => ({...prev, paxColor: s.userArrowColor}));
                   }
-                  
                   setQuickMessagesList(s.quickMessages || DEFAULT_SETTINGS.quickMessages);
                   if (s.customMapUrl) setMapMode('custom');
               }
-          } catch(e) {
-              console.log("Erreur Config Init:", e);
-          }
+          } catch(e) { console.log("Config Error", e); }
           
+          // --- REMPLACEMENT PAR PERMISSION SERVICE ---
           try {
-             await bootstrapPermissionsAsync();
+             await permissionService.requestCriticalPermissions();
+             const camStatus = await Camera.getCameraPermissionsAsync();
+             setHasCameraPermission(camStatus.status === 'granted');
           } catch (e) {
-             console.log("Erreur Bootstrap:", e);
+             console.log("Permission Error", e);
           }
 
           try {
@@ -262,62 +233,75 @@ const App: React.FC = () => {
           const heading = Math.floor(angle);
           if (Math.abs(heading - userRef.current.head) > 5) {
               setUser(prev => ({ ...prev, head: heading }));
+              // On update la position en même temps pour le réseau
               connectivityService.updateUserPosition(userRef.current.lat, userRef.current.lng, heading);
           }
       });
   };
 
+  // --- NOUVEAU SYSTÈME GPS (FOREGROUND SERVICE) ---
   const startGpsTracking = useCallback(async (interval: number) => {
-      if (gpsSubscription.current) gpsSubscription.current.remove();
+      // On arrête les anciens listeners au cas où
+      if (gpsSubscription.current) { gpsSubscription.current.remove(); gpsSubscription.current = null; }
+      
       try {
-        const { status } = await Location.getForegroundPermissionsAsync();
-        if (status !== 'granted') { setGpsStatus('ERROR'); return; }
-        
-        gpsSubscription.current = await Location.watchPositionAsync({ 
-            accuracy: Location.Accuracy.High, 
-            timeInterval: interval, 
-            distanceInterval: 2 
-        }, (loc) => {
-            const { latitude, longitude, heading, speed } = loc.coords;
+        // Vérification si la tâche tourne déjà
+        const hasStarted = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
+        if (hasStarted) {
             setGpsStatus('OK');
-            const currentHead = userRef.current.head;
-            const gpsHead = (speed && speed > 1 && heading !== null) ? heading : currentHead;
-            setUser(prev => {
-                if (!lastLocationRef.current || Math.abs(latitude - lastLocationRef.current.lat) > 0.0001 || Math.abs(longitude - lastLocationRef.current.lng) > 0.0001) {
-                    connectivityService.updateUserPosition(latitude, longitude, gpsHead);
-                    lastLocationRef.current = { lat: latitude, lng: longitude };
-                }
-                return { ...prev, lat: latitude, lng: longitude, head: gpsHead };
-            });
+            return;
+        }
+
+        console.log("[GPS] Démarrage du Service Backbone (Foreground)...");
+        await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
+            accuracy: Location.Accuracy.BestForNavigation,
+            timeInterval: interval,
+            distanceInterval: 2,
+            // C'est ICI que la magie opère pour le background
+            foregroundService: {
+                notificationTitle: "Praxis Backbone",
+                notificationBody: "Lien Tactique & Tracking Actif",
+                notificationColor: "#3b82f6"
+            },
+            showsBackgroundLocationIndicator: true,
+            pausesUpdatesAutomatically: false
         });
-      } catch(e) { setGpsStatus('ERROR'); }
+        setGpsStatus('OK');
+      } catch(e) { 
+          console.error("Erreur start tracking (Backbone):", e);
+          setGpsStatus('ERROR'); 
+          showToast("Erreur GPS Background", "error");
+      }
   }, []);
 
   const handleConnectivityEvent = (event: ConnectivityEvent) => {
       switch (event.type) {
           case 'PEER_OPEN': 
               setUser(prev => ({ ...prev, id: event.id })); setIsServicesReady(true); 
-              // Si nous sommes l'hôte, nous définissons notre propre ID comme hostID
               if (userRef.current.role === OperatorRole.HOST) {
                   setHostId(event.id);
                   showToast(`Session créée: ${event.id}`, "success");
               }
               break;
           case 'PEERS_UPDATED': 
-              // --- CORRECTION MAJEURE ICI ---
-              // On remplace COMPLÈTEMENT la liste locale par celle du service.
-              // Le service est la source de vérité.
-              setPeers(prev => {
-                  const incoming = event.peers; // C'est la map complète et à jour du service
-                  // On ne fait PLUS de merge { ...prev, ...incoming } pour éviter de garder les "morts"
-                  return { ...incoming };
-              });
+              setPeers({ ...event.peers });
               break;
           case 'HOST_CONNECTED': setHostId(event.hostId); showToast("Lien Hôte établi", "success"); break;
           case 'TOAST': showToast(event.msg, event.level as any); break;
           case 'DATA_RECEIVED': handleProtocolData(event.data, event.from); break;
           case 'DISCONNECTED': if (event.reason === 'KICKED') { Alert.alert("Session Terminée", "Exclu de la session."); finishLogout(); } else if (event.reason === 'NO_HOST') { showToast("Recherche Hôte...", "warning"); } break;
           case 'NEW_HOST_PROMOTED': setHostId(event.hostId); if (event.hostId === userRef.current.id) { setUser(p => ({...p, role: OperatorRole.HOST})); Alert.alert("Promotion", "Vous êtes le nouveau Chef de Session."); } break;
+          
+          // --- RECEPTION DE LA POSITION DEPUIS LA TÂCHE DE FOND ---
+          case 'LOCAL_POSITION_UPDATE':
+              // La tâche de fond a reçu une position, on met à jour l'UI
+              setUser(prev => ({ 
+                  ...prev, 
+                  lat: event.lat, 
+                  lng: event.lng, 
+                  head: event.head || prev.head 
+              }));
+              break;
       }
   };
 
@@ -334,7 +318,6 @@ const App: React.FC = () => {
             setPings(prev => [...prev, data.ping]);
             const isHostile = data.ping.type === 'HOSTILE';
             showToast(`${senderName}: ${data.ping.msg}`, isHostile ? 'alert' : 'info');
-            
             if (isHostile) {
                 triggerTacticalNotification(
                     `${senderName} - Contact`, 
@@ -344,21 +327,9 @@ const App: React.FC = () => {
                  triggerTacticalNotification(`${senderName} - Marqueur`, `${data.ping.msg}`);
             }
       }
-      
       else if (data.type === 'LOG_UPDATE' && Array.isArray(data.logs)) {
-          const oldLogs = logsRef.current;
-          const newEntries = data.logs.filter((l: LogEntry) => !oldLogs.find(ol => ol.id === l.id));
-          const hostileEntry = newEntries.find((l: LogEntry) => l.pax.toUpperCase().includes("HOSTILE") || l.paxColor === '#be1b09');
-          
-          if (hostileEntry) {
-              triggerTacticalNotification(
-                  "Hote - (PCTAC) : Hostile", 
-                  `Lieu: ${hostileEntry.lieu || 'N/C'} - Action: ${hostileEntry.action || 'N/C'} - Rem: ${hostileEntry.remarques || 'RAS'}`
-              );
-          }
           setLogs(data.logs);
       }
-      
       else if ((data.type === 'UPDATE_USER' || data.type === 'UPDATE') && data.user) {
           const u = data.user as UserData;
           const prevStatus = peersRef.current[u.id]?.status;
@@ -366,26 +337,12 @@ const App: React.FC = () => {
 
           if (u.status === 'CONTACT' && prevStatus !== 'CONTACT') {
               showToast(`${u.callsign} : CONTACT !`, 'alert');
-              triggerTacticalNotification(
-                  `${u.callsign} - CONTACT`, 
-                  `Position GPS: ${u.lat?.toFixed(5) || 'N/A'}, ${u.lng?.toFixed(5) || 'N/A'}`
-              );
+              triggerTacticalNotification(`${u.callsign} - CONTACT`, `Position GPS: ${u.lat?.toFixed(5)}`);
           }
-
-          if (u.status !== OperatorStatus.CLEAR && u.status !== OperatorStatus.PROGRESSION) {
-              if (u.status === OperatorStatus.BUSY && prevStatus !== OperatorStatus.BUSY) {
-                  showToast(`${u.callsign} : OCCUPÉ`, 'warning');
-              }
-          }
-
-          if (u.lastMsg && u.lastMsg !== prevMsg) {
-             if(u.lastMsg !== 'RAS / Effacer' && u.lastMsg !== '') {
-                 showToast(`${u.callsign}: ${u.lastMsg}`, 'info');
-                 triggerTacticalNotification(`${u.callsign} - Message`, u.lastMsg);
-             }
+          if (u.lastMsg && u.lastMsg !== prevMsg && u.lastMsg !== 'RAS / Effacer' && u.lastMsg !== '') {
+               showToast(`${u.callsign}: ${u.lastMsg}`, 'info');
           }
       }
-      
       else if (data.type === 'SYNC_PINGS') setPings(data.pings);
       else if (data.type === 'SYNC_LOGS') setLogs(data.logs);
       else if (data.type === 'PING_MOVE') setPings(prev => prev.map(p => p.id === data.id ? { ...p, lat: data.lat, lng: data.lng } : p));
@@ -393,7 +350,9 @@ const App: React.FC = () => {
       else if (data.type === 'PING_UPDATE') setPings(prev => prev.map(p => p.id === data.id ? { ...p, msg: data.msg, details: data.details } : p));
   };
 
-  const finishLogout = useCallback(() => {
+  const finishLogout = useCallback(async () => {
+      // Arrêt propre du tracking background
+      try { await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME); } catch(e){}
       connectivityService.cleanup();
       setPeers({}); setPings([]); setLogs([]); setHostId(''); setView('login'); setIsServicesReady(false);
       setUser(prev => ({...prev, id: '', role: OperatorRole.OPR, status: OperatorStatus.CLEAR }));
@@ -402,26 +361,14 @@ const App: React.FC = () => {
   const joinSession = async (id?: string) => {
       const finalId = id || hostInput.toUpperCase();
       if (!finalId) return;
-      
-      // On ne set PAS setHostId tout de suite pour l'UI, on attend la confirmation de connexion
-      // On prépare l'utilisateur avec un ID temporaire ou vide, PeerJS donnera le vrai
       const role = OperatorRole.OPR;
-      
-      // On met à jour l'état local pour le rôle
       setUser(prev => ({ ...prev, role: role, paxColor: settings.userArrowColor }));
-      
-      // On initialise la connexion. 
-      // L'ID utilisateur final sera mis à jour via l'événement PEER_OPEN
       try {
           await connectivityService.init({ ...user, role, paxColor: settings.userArrowColor }, role, finalId);
-          // On change de vue seulement après l'init réussi (au moins le démarrage)
-          // Mais idéalement on devrait attendre PEER_OPEN ou HOST_CONNECTED pour être sûr
-          // Pour l'instant on fait comme avant mais avec le await qui garantit que l'init a commencé
-          setHostId(finalId); // Pour l'affichage UI "en attente"
+          setHostId(finalId); 
           setView('map'); 
           setLastOpsView('map');
       } catch (error) {
-          console.error("Erreur connexion:", error);
           showToast("Erreur de connexion", "alert");
       }
   };
@@ -429,31 +376,22 @@ const App: React.FC = () => {
   const createSession = async () => {
       const role = OperatorRole.HOST;
       setUser(prev => ({ ...prev, role: role, paxColor: settings.userArrowColor }));
-      
       try {
-          // On initialise en tant qu'hôte (pas de hostId cible)
           await connectivityService.init({ ...user, role, paxColor: settings.userArrowColor }, role);
-          // Le hostId sera défini dans handleConnectivityEvent lors du PEER_OPEN
           setView('map'); 
           setLastOpsView('map');
       } catch (error) {
-          console.error("Erreur création session:", error);
           showToast("Erreur création session", "alert");
       }
   };
 
   const handleLogout = async () => {
-      // On envoie le message de départ ET on attend un court instant avant de couper
       if (user.role === OperatorRole.HOST) {
           connectivityService.broadcast({ type: 'CLIENT_LEAVING', id: user.id });
       } else {
           connectivityService.broadcast({ type: 'CLIENT_LEAVING', id: user.id, callsign: user.callsign });
       }
-      
-      // Petit délai pour laisser le temps au message de partir sur le réseau
-      setTimeout(() => {
-          finishLogout();
-      }, 500); 
+      setTimeout(() => { finishLogout(); }, 500); 
   };
 
   const handleOperatorActionNavigate = (targetId: string) => { 
@@ -562,7 +500,6 @@ const App: React.FC = () => {
           const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
           const distM = R * c;
           
-          // ARRÊT AUTOMATIQUE DE NAVIGATION SI < 10m
           if (distM < 10) {
               setNavTargetId(null);
               showToast("Arrivé à destination", "success");
@@ -582,7 +519,6 @@ const App: React.FC = () => {
       }
   }, [navTargetId, user.lat, user.lng, peers]);
 
-  // Nouvelle fonction pour gérer le header avec navigation intégrée
   const renderHeader = () => {
       if (navTargetId && navInfo) {
           return (
@@ -620,18 +556,13 @@ const App: React.FC = () => {
   };
 
   const renderContent = () => {
-    // Note: settings view n'est plus gérée ici pour éviter le démontage
     if (view === 'oi') {
       return <ComposantOrdreInitial onClose={() => setView('login')} />;
     } else if (view === 'login') {
       return (
         <View style={styles.centerContainer}>
-          {/* VERSION OPTIMISÉE SANS SHADER 3D LOURD */}
           <TacticalBackground />
-
           <TextInput style={styles.input} placeholder="TRIGRAMME" placeholderTextColor="#52525b" maxLength={6} value={loginInput} onChangeText={setLoginInput} autoCapitalize="characters" />
-          
-          {/* BOUTON PRAXIS STANDARDISÉ ET CENTRÉ */}
           <View style={{ marginTop: 50, width: '100%', alignItems: 'center' }}>
             <TouchableOpacity
               onPress={() => {
@@ -646,8 +577,6 @@ const App: React.FC = () => {
               <Text style={styles.strategicaBtnText}>Praxis</Text>
             </TouchableOpacity>
           </View>
-          
-          {/* BOUTON STRATEGICA STANDARDISÉ ET CENTRÉ */}
           <View style={{ marginTop: 20, width: '100%', alignItems: 'center' }}>
             <TouchableOpacity 
               onPress={() => setView('oi')}
@@ -656,7 +585,6 @@ const App: React.FC = () => {
               <Text style={styles.strategicaBtnText}>Stratégica</Text>
             </TouchableOpacity>
           </View>
-
           <PrivacyConsentModal onConsentGiven={() => {}} />
         </View>
       );
@@ -736,7 +664,6 @@ const App: React.FC = () => {
                           const p = pings.find(ping => ping.id === id);
                           if (!p) return;
                           if (p.type === 'HOSTILE') {
-                              // Afficher le caneva en lecture (ou pré-rempli pour modification si c'est le sien)
                               setEditingPing(p);
                               setPingMsgInput(p.msg);
                               if (p.details) setHostileDetails(p.details);
@@ -751,7 +678,6 @@ const App: React.FC = () => {
                           if (!p) return;
                           if (user.role === OperatorRole.HOST || p.sender === user.callsign) {
                              setEditingPing(p); setPingMsgInput(p.msg); if(p.details) setHostileDetails(p.details);
-                             // Ici on ouvre la petite modale d'actions (Edit/Delete)
                           }
                       }}
                       onNavStop={() => setNavTargetId(null)} 
@@ -790,7 +716,6 @@ const App: React.FC = () => {
       <StatusBar style="light" backgroundColor="#050505" />
       {renderContent()}
 
-      {/* Modal pour les paramètres - Ne démonte pas le reste de l'app */}
       <Modal visible={showSettings} animationType="slide" onRequestClose={() => setShowSettings(false)}>
          <SettingsView 
             onClose={() => setShowSettings(false)} 
