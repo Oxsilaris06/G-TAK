@@ -1,30 +1,13 @@
 import './polyfills';
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { 
-  StyleSheet, 
-  View, 
-  Text, 
-  TextInput, 
-  TouchableOpacity, 
-  SafeAreaView, 
-  Platform, 
-  Modal, 
-  StatusBar as RNStatusBar, 
-  Alert, 
-  ScrollView, 
-  ActivityIndicator,
-  KeyboardAvoidingView, 
-  AppState, 
-  Image, 
-  FlatList // Vérification: Import explicite
+  StyleSheet, View, Text, TextInput, TouchableOpacity, 
+  SafeAreaView, Platform, Modal, StatusBar as RNStatusBar, Alert, ScrollView, ActivityIndicator,
+  KeyboardAvoidingView, AppState, Image, FlatList
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import QRCode from 'react-native-qrcode-svg';
-
-// Camera & Scanner
 import { Camera, CameraView } from 'expo-camera'; 
-
-// Services & Utils
 import * as Notifications from 'expo-notifications';
 import { useKeepAwake } from 'expo-keep-awake';
 import * as Clipboard from 'expo-clipboard';
@@ -33,8 +16,9 @@ import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SplashScreen from 'expo-splash-screen';
 import * as Battery from 'expo-battery';
+// IMPORT MAGNÉTOMÈTRE POUR L'ORIENTATION
+import { Magnetometer } from 'expo-sensors';
 
-// Core Business Logic
 import { UserData, OperatorStatus, OperatorRole, ViewType, PingData, AppSettings, DEFAULT_SETTINGS, PingType, HostileDetails, LogEntry } from './types';
 import { CONFIG, STATUS_COLORS } from './constants';
 import { configService } from './services/configService';
@@ -42,7 +26,6 @@ import { connectivityService, ConnectivityEvent } from './services/connectivityS
 import { locationService } from './services/locationService'; 
 import { permissionService } from './services/permissionService'; 
 
-// Components
 import OperatorCard from './components/OperatorCard';
 import TacticalMap from './components/TacticalMap';
 import SettingsView from './components/SettingsView';
@@ -62,14 +45,12 @@ Notifications.setNotificationHandler({
 });
 
 const App: React.FC = () => {
-  useKeepAwake(); // Garde l'écran allumé (utile mais pas suffisant pour le background)
+  useKeepAwake();
   
   const [isAppReady, setIsAppReady] = useState(false);
   const [activeNotif, setActiveNotif] = useState<{ id: string, msg: string, type: 'alert' | 'info' | 'success' | 'warning' } | null>(null);
-  
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   
-  // L'ID est maintenant géré par connectivityService (persistance), on laisse vide au départ
   const [user, setUser] = useState<UserData>({ 
       id: '', callsign: '', role: OperatorRole.OPR, status: OperatorStatus.CLEAR, 
       joinedAt: Date.now(), bat: 100, head: 0, lat: 0, lng: 0, lastMsg: '' 
@@ -86,18 +67,20 @@ const App: React.FC = () => {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [hostId, setHostId] = useState<string>('');
   
-  // Refs pour accès synchrone dans les callbacks
   const pingsRef = useRef(pings);
   const logsRef = useRef(logs);
   const peersRef = useRef(peers);
   const userRef = useRef(user);
+  
+  // Ref pour le magnétomètre
+  const magSubscription = useRef<any>(null);
+  const lastSentHead = useRef<number>(0);
 
   useEffect(() => { pingsRef.current = pings; }, [pings]);
   useEffect(() => { logsRef.current = logs; }, [logs]);
   useEffect(() => { peersRef.current = peers; }, [peers]);
   useEffect(() => { userRef.current = user; }, [user]);
 
-  // UI States
   const [loginInput, setLoginInput] = useState('');
   const [hostInput, setHostInput] = useState('');
   const [mapMode, setMapMode] = useState<'dark' | 'light' | 'satellite' | 'custom'>('satellite');
@@ -132,23 +115,17 @@ const App: React.FC = () => {
       else if (type === 'success') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   }, []);
 
-  // --- NOTIFICATIONS TACTIQUES ---
   const triggerTacticalNotification = async (title: string, body: string) => {
       if (AppState.currentState !== 'background' || settings.disableBackgroundNotifications) return;
       await Notifications.dismissAllNotificationsAsync();
       await Notifications.scheduleNotificationAsync({
-          content: { 
-              title, body, sound: true, priority: Notifications.AndroidNotificationPriority.HIGH 
-          },
+          content: { title, body, sound: true, priority: Notifications.AndroidNotificationPriority.HIGH },
           trigger: null, 
       });
   };
 
-  // --- INITIALISATION APP ---
   useEffect(() => {
     let mounted = true;
-    
-    // 1. Initialisation Configuration
     const initApp = async () => {
         try {
             const s = await configService.init();
@@ -165,13 +142,11 @@ const App: React.FC = () => {
             }
         } catch(e) { console.log("Config Error:", e); }
         
-        // 2. Permissions via le service dédié
         try {
            const permResult = await permissionService.requestAllPermissions();
            if (!permResult.location) setGpsStatus('ERROR');
         } catch (e) { console.log("Perm Error:", e); }
 
-        // 3. Batterie
         try {
             const level = await Battery.getBatteryLevelAsync();
             if(mounted && level) setUser(u => ({ ...u, bat: Math.round(level * 100) }));
@@ -184,7 +159,6 @@ const App: React.FC = () => {
     };
     initApp();
 
-    // 4. Listeners Système
     const battSub = Battery.addBatteryLevelListener(({ batteryLevel }) => {
         const newLevel = Math.round(batteryLevel * 100);
         if (Math.abs(newLevel - userRef.current.bat) > 2 || newLevel < 20) {
@@ -202,36 +176,29 @@ const App: React.FC = () => {
       }
     });
 
-    // 5. Abonnement Service Connectivité
     const connSub = connectivityService.subscribe((event) => {
         handleConnectivityEvent(event);
     });
     
-    // 6. Abonnement Service Localisation (CRUCIAL MILSPEC)
-    // C'est lui qui alimente la position, qu'on soit foreground ou background
+    // GPS : Met à jour Lat/Lng UNIQUEMENT
     const locSub = locationService.subscribe((loc) => {
         setGpsStatus('OK');
-        const currentHead = userRef.current.head;
-        const gpsHead = (loc.speed && loc.speed > 1 && loc.heading !== null) ? loc.heading : currentHead;
-        
-        // Mise à jour locale
-        setUser(prev => ({ ...prev, lat: loc.latitude, lng: loc.longitude, head: gpsHead }));
-        
-        // Envoi au réseau (automatique via le service de connectivité)
-        connectivityService.updateUserPosition(loc.latitude, loc.longitude, gpsHead);
+        setUser(prev => ({ ...prev, lat: loc.latitude, lng: loc.longitude }));
+        // On envoie la position et le dernier cap connu du magnétomètre
+        connectivityService.updateUserPosition(loc.latitude, loc.longitude, userRef.current.head);
     });
     
     return () => { 
         mounted = false; connSub(); locSub(); battSub.remove(); appStateSub.remove();
         locationService.stopTracking(); 
+        if (magSubscription.current) magSubscription.current.remove();
     };
   }, []);
 
-  // --- GESTION TRACKING GPS ---
-  // On démarre/arrête le tracking en fonction de la vue (Map/Ops = ON, Menu = OFF)
+  // --- GESTION DU MAGNÉTOMÈTRE (BOUSSOLE) ---
   useEffect(() => {
       if (view === 'map' || view === 'ops') { 
-          // Mode Haute Précision + Foreground Service (Notification Persistante)
+          // Active le GPS
           locationService.updateOptions({ 
               timeInterval: settings.gpsUpdateInterval,
               foregroundService: {
@@ -241,18 +208,39 @@ const App: React.FC = () => {
               }
           });
           locationService.startTracking();
+
+          // Active la Boussole
+          if (magSubscription.current) magSubscription.current.remove();
+          Magnetometer.setUpdateInterval(100); // 10Hz pour fluidité
+          magSubscription.current = Magnetometer.addListener(data => {
+              const { x, y } = data;
+              // Calcul de l'angle 0-360
+              let angle = Math.atan2(y, x) * (180 / Math.PI);
+              angle = angle - 90; // Compensation
+              if (angle < 0) angle = angle + 360;
+              const heading = Math.floor(angle);
+
+              // Mise à jour locale fluide (toujours)
+              setUser(prev => ({ ...prev, head: heading }));
+
+              // Envoi réseau (Throttled: seulement si changement > 5°)
+              if (Math.abs(heading - lastSentHead.current) > 5) {
+                  lastSentHead.current = heading;
+                  connectivityService.updateUserPosition(userRef.current.lat, userRef.current.lng, heading);
+              }
+          });
+
       } else {
-          // On ne coupe pas brutalement si on est en session, on laisse tourner
-          // Sauf si on est vraiment revenu au login/menu déconnecté
           if (!hostId) locationService.stopTracking();
+          if (magSubscription.current) magSubscription.current.remove();
       }
+      return () => { if (magSubscription.current) magSubscription.current.remove(); }
   }, [view, settings.gpsUpdateInterval, hostId]);
 
 
   const handleConnectivityEvent = (event: ConnectivityEvent) => {
       switch (event.type) {
           case 'PEER_OPEN': 
-              // ID Persistant confirmé par le service
               setUser(prev => ({ ...prev, id: event.id })); 
               if (userRef.current.role === OperatorRole.HOST) {
                   setHostId(event.id);
@@ -260,7 +248,6 @@ const App: React.FC = () => {
               }
               break;
           case 'PEERS_UPDATED': 
-              // Le service s'occupe de la réception, ici on met juste à jour l'état
               setPeers(event.peers);
               break;
           case 'HOST_CONNECTED': 
@@ -320,7 +307,6 @@ const App: React.FC = () => {
           const prevStatus = peersRef.current[u.id]?.status;
           const prevMsg = peersRef.current[u.id]?.lastMsg;
 
-          // CORRECTION: Mise à jour immédiate de la carte pour les données live (Lat/Lng/Head)
           setPeers(prev => ({
               ...prev,
               [u.id]: { ...(prev[u.id] || {}), ...u }
@@ -357,7 +343,8 @@ const App: React.FC = () => {
 
   const finishLogout = useCallback(() => {
       connectivityService.cleanup();
-      locationService.stopTracking(); // Arrêt du GPS background
+      locationService.stopTracking(); 
+      if (magSubscription.current) magSubscription.current.remove();
       setPeers({}); setPings([]); setLogs([]); setHostId(''); setView('login'); 
       setUser(prev => ({...prev, id: '', role: OperatorRole.OPR, status: OperatorStatus.CLEAR }));
   }, []);
@@ -368,12 +355,9 @@ const App: React.FC = () => {
       
       const role = OperatorRole.OPR;
       const now = Date.now();
-      
-      // On met à jour l'état local
       setUser(prev => ({ ...prev, role: role, paxColor: settings.userArrowColor, joinedAt: now }));
       
       try {
-          // init gère maintenant la persistance de l'ID automatiquement
           await connectivityService.init({ ...user, role, paxColor: settings.userArrowColor, joinedAt: now }, role, finalId);
           setHostId(finalId);
           setView('map'); 
@@ -388,7 +372,6 @@ const App: React.FC = () => {
       const role = OperatorRole.HOST;
       const now = Date.now();
       setUser(prev => ({ ...prev, role: role, paxColor: settings.userArrowColor, joinedAt: now }));
-      
       try {
           await connectivityService.init({ ...user, role, paxColor: settings.userArrowColor, joinedAt: now }, role);
           setView('map'); 
@@ -725,7 +708,6 @@ const App: React.FC = () => {
                 setUser(u => ({...u, paxColor: s.userArrowColor})); 
                 connectivityService.updateUser({paxColor: s.userArrowColor}); 
                 if(s.gpsUpdateInterval !== settings.gpsUpdateInterval) {
-                   // Mise à jour live du tracking
                    locationService.updateOptions({ timeInterval: s.gpsUpdateInterval });
                 }
             }} 
