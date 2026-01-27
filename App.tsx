@@ -3,7 +3,7 @@ import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { 
   StyleSheet, View, Text, TextInput, TouchableOpacity, 
   SafeAreaView, Platform, Modal, StatusBar as RNStatusBar, Alert, ScrollView, ActivityIndicator,
-  KeyboardAvoidingView, AppState, Image
+  KeyboardAvoidingView, AppState, Image, FlatList // <-- FlatList est bien importé ici
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import QRCode from 'react-native-qrcode-svg';
@@ -26,8 +26,8 @@ import { UserData, OperatorStatus, OperatorRole, ViewType, PingData, AppSettings
 import { CONFIG, STATUS_COLORS } from './constants';
 import { configService } from './services/configService';
 import { connectivityService, ConnectivityEvent } from './services/connectivityService'; 
-import { locationService } from './services/locationService'; // AJOUT IMPORTANT
-import { permissionService } from './services/permissionService'; // AJOUT IMPORTANT
+import { locationService } from './services/locationService'; 
+import { permissionService } from './services/permissionService'; 
 
 // Components
 import OperatorCard from './components/OperatorCard';
