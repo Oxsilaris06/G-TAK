@@ -35,9 +35,9 @@ class LocationService {
         
         // Options Android
         foregroundService: {
-            notificationTitle: "G-TAK Actif",
+            notificationTitle: "Praxis Actif",
             notificationBody: "Position et lien tactique maintenus",
-            notificationColor: "#ef4444"
+            notificationColor: "#000000"
         }
     };
 
