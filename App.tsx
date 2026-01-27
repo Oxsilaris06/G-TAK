@@ -3,32 +3,33 @@ import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { 
   StyleSheet, View, Text, TextInput, TouchableOpacity, 
   SafeAreaView, Platform, Modal, StatusBar as RNStatusBar, Alert, ScrollView, ActivityIndicator,
-  PermissionsAndroid, FlatList, KeyboardAvoidingView, AppState, Image
+  KeyboardAvoidingView, AppState, Image
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import QRCode from 'react-native-qrcode-svg';
 
-// --- CORRECTION ICI ---
-// CameraView est maintenant exporté directement depuis 'expo-camera' dans le SDK 51
-// On importe "Camera" pour les permissions (Legacy) et "CameraView" pour le scanner (Nouveau)
+// Camera & Scanner
 import { Camera, CameraView } from 'expo-camera'; 
 
+// Services & Utils
 import * as Notifications from 'expo-notifications';
-import * as Location from 'expo-location';
 import { useKeepAwake } from 'expo-keep-awake';
 import * as Clipboard from 'expo-clipboard';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Magnetometer } from 'expo-sensors';
 import * as SplashScreen from 'expo-splash-screen';
 import * as Battery from 'expo-battery';
 
+// Core Business Logic
 import { UserData, OperatorStatus, OperatorRole, ViewType, PingData, AppSettings, DEFAULT_SETTINGS, PingType, HostileDetails, LogEntry } from './types';
 import { CONFIG, STATUS_COLORS } from './constants';
 import { configService } from './services/configService';
 import { connectivityService, ConnectivityEvent } from './services/connectivityService'; 
+import { locationService } from './services/locationService'; // AJOUT IMPORTANT
+import { permissionService } from './services/permissionService'; // AJOUT IMPORTANT
 
+// Components
 import OperatorCard from './components/OperatorCard';
 import TacticalMap from './components/TacticalMap';
 import SettingsView from './components/SettingsView';
@@ -37,47 +38,34 @@ import MainCouranteView from './components/MainCouranteView';
 import PrivacyConsentModal from './components/PrivacyConsentModal';
 import { NotificationToast } from './components/NotificationToast';
 import ComposantOrdreInitial from './components/ComposantOrdreInitial'; 
-// Remplacement du composant lourd 3D par une version native optimisée
 import TacticalBackground from './components/TacticalBackground';
 
 try { SplashScreen.preventAutoHideAsync().catch(() => {}); } catch (e) {}
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowAlert: false, 
-    shouldPlaySound: false,
-    shouldSetBadge: false,
+    shouldShowAlert: false, shouldPlaySound: false, shouldSetBadge: false,
   }),
 });
 
 const App: React.FC = () => {
-  useKeepAwake();
+  useKeepAwake(); // Garde l'écran allumé (utile mais pas suffisant pour le background)
   
   const [isAppReady, setIsAppReady] = useState(false);
   const [activeNotif, setActiveNotif] = useState<{ id: string, msg: string, type: 'alert' | 'info' | 'success' | 'warning' } | null>(null);
   
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   
-  // Initialisation de l'utilisateur avec un ID temporaire si nécessaire, mais on attendra l'event PEER_OPEN pour le confirmer
+  // L'ID est maintenant géré par connectivityService (persistance), on laisse vide au départ
   const [user, setUser] = useState<UserData>({ 
-      id: '', // Sera remplacé par l'ID PeerJS réel
-      callsign: '', 
-      role: OperatorRole.OPR, 
-      status: OperatorStatus.CLEAR, 
-      joinedAt: Date.now(), 
-      bat: 100, 
-      head: 0, 
-      lat: 0, 
-      lng: 0, 
-      lastMsg: '' 
+      id: '', callsign: '', role: OperatorRole.OPR, status: OperatorStatus.CLEAR, 
+      joinedAt: Date.now(), bat: 100, head: 0, lat: 0, lng: 0, lastMsg: '' 
   });
 
   const [view, setView] = useState<ViewType | 'oi'>('login'); 
   const [lastView, setLastView] = useState<ViewType>('menu'); 
   const [lastOpsView, setLastOpsView] = useState<ViewType>('map');
   const [mapState, setMapState] = useState<{lat: number, lng: number, zoom: number} | undefined>(undefined);
-  
-  // NOUVEAU : État pour gérer l'affichage des paramètres sans démonter la vue principale
   const [showSettings, setShowSettings] = useState(false);
 
   const [peers, setPeers] = useState<Record<string, UserData>>({});
@@ -85,6 +73,7 @@ const App: React.FC = () => {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [hostId, setHostId] = useState<string>('');
   
+  // Refs pour accès synchrone dans les callbacks
   const pingsRef = useRef(pings);
   const logsRef = useRef(logs);
   const peersRef = useRef(peers);
@@ -95,6 +84,7 @@ const App: React.FC = () => {
   useEffect(() => { peersRef.current = peers; }, [peers]);
   useEffect(() => { userRef.current = user; }, [user]);
 
+  // UI States
   const [loginInput, setLoginInput] = useState('');
   const [hostInput, setHostInput] = useState('');
   const [mapMode, setMapMode] = useState<'dark' | 'light' | 'satellite' | 'custom'>('satellite');
@@ -106,7 +96,6 @@ const App: React.FC = () => {
   
   const [showQRModal, setShowQRModal] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
-  const [hasCameraPermission, setHasCameraPermission] = useState(false);
   const [showQuickMsgModal, setShowQuickMsgModal] = useState(false);
   const [showPingMenu, setShowPingMenu] = useState(false);
   const [showPingForm, setShowPingForm] = useState(false);
@@ -122,12 +111,7 @@ const App: React.FC = () => {
   const [selectedOperatorId, setSelectedOperatorId] = useState<string | null>(null);
   const [navTargetId, setNavTargetId] = useState<string | null>(null);
   const [navInfo, setNavInfo] = useState<{dist: string, time: string} | null>(null);
-
-  const [isServicesReady, setIsServicesReady] = useState(false);
   const [gpsStatus, setGpsStatus] = useState<'WAITING' | 'OK' | 'ERROR'>('WAITING');
-  const lastLocationRef = useRef<any>(null);
-  const gpsSubscription = useRef<Location.LocationSubscription | null>(null);
-  const magSubscription = useRef<any>(null);
 
   const showToast = useCallback((msg: string, type: 'info' | 'error' | 'success' | 'warning' = 'info') => {
       setActiveNotif({ id: Date.now().toString(), msg, type });
@@ -135,199 +119,165 @@ const App: React.FC = () => {
       else if (type === 'success') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   }, []);
 
-  const bootstrapPermissionsAsync = async () => {
-    try {
-        if (Platform.OS === 'android') {
-            await PermissionsAndroid.requestMultiple([
-                PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-                PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION,
-                PermissionsAndroid.PERMISSIONS.ACCESS_BACKGROUND_LOCATION,
-                PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
-                PermissionsAndroid.PERMISSIONS.CAMERA
-            ]).catch(() => {});
-        }
-        
-        const { status } = await Location.getForegroundPermissionsAsync();
-        if (status === 'granted') {
-            await Location.requestBackgroundPermissionsAsync().catch(() => {});
-            setGpsStatus('OK');
-        } else {
-            setGpsStatus('ERROR');
-        }
-
-        const camStatus = await Camera.requestCameraPermissionsAsync();
-        setHasCameraPermission(camStatus.status === 'granted');
-    } catch (e) {
-        console.log("Erreur permissions:", e);
-    }
-  };
-
+  // --- NOTIFICATIONS TACTIQUES ---
   const triggerTacticalNotification = async (title: string, body: string) => {
       if (AppState.currentState !== 'background' || settings.disableBackgroundNotifications) return;
       await Notifications.dismissAllNotificationsAsync();
       await Notifications.scheduleNotificationAsync({
           content: { 
-              title, 
-              body, 
-              sound: true, 
-              priority: Notifications.AndroidNotificationPriority.HIGH 
+              title, body, sound: true, priority: Notifications.AndroidNotificationPriority.HIGH 
           },
           trigger: null, 
       });
   };
 
+  // --- INITIALISATION APP ---
   useEffect(() => {
-    const subscription = AppState.addEventListener('change', async nextAppState => {
+    let mounted = true;
+    
+    // 1. Initialisation Configuration
+    const initApp = async () => {
+        try {
+            const s = await configService.init();
+            if (mounted) {
+                setSettings(s);
+                if (s.username) { 
+                    setUser(prev => ({...prev, callsign: s.username, paxColor: s.userArrowColor})); 
+                    setLoginInput(s.username); 
+                } else {
+                    setUser(prev => ({...prev, paxColor: s.userArrowColor}));
+                }
+                setQuickMessagesList(s.quickMessages || DEFAULT_SETTINGS.quickMessages);
+                if (s.customMapUrl) setMapMode('custom');
+            }
+        } catch(e) { console.log("Config Error:", e); }
+        
+        // 2. Permissions via le service dédié
+        try {
+           const permResult = await permissionService.requestAllPermissions();
+           if (!permResult.location) setGpsStatus('ERROR');
+        } catch (e) { console.log("Perm Error:", e); }
+
+        // 3. Batterie
+        try {
+            const level = await Battery.getBatteryLevelAsync();
+            if(mounted && level) setUser(u => ({ ...u, bat: Math.round(level * 100) }));
+        } catch(e) {}
+        
+        if (mounted) { 
+            setIsAppReady(true); 
+            setTimeout(() => SplashScreen.hideAsync().catch(() => {}), 500); 
+        }
+    };
+    initApp();
+
+    // 4. Listeners Système
+    const battSub = Battery.addBatteryLevelListener(({ batteryLevel }) => {
+        const newLevel = Math.round(batteryLevel * 100);
+        if (Math.abs(newLevel - userRef.current.bat) > 2 || newLevel < 20) {
+            setUser(u => ({ ...u, bat: newLevel }));
+            connectivityService.updateUser({ bat: newLevel });
+        }
+    });
+
+    const appStateSub = AppState.addEventListener('change', async nextAppState => {
       if (nextAppState === 'active') {
         connectivityService.handleAppStateChange('active');
         await Notifications.dismissAllNotificationsAsync();
-        startGpsTracking(settings.gpsUpdateInterval);
       } else if (nextAppState === 'background') {
         connectivityService.handleAppStateChange('background');
       }
     });
-    return () => subscription.remove();
-  }, [settings.gpsUpdateInterval]);
 
-  useEffect(() => {
-      let mounted = true;
-      const initApp = async () => {
-          try {
-              const s = await configService.init();
-              if (mounted) {
-                  setSettings(s);
-                  if (s.username) { 
-                      setUser(prev => ({...prev, callsign: s.username, paxColor: s.userArrowColor})); 
-                      setLoginInput(s.username); 
-                  } else {
-                      setUser(prev => ({...prev, paxColor: s.userArrowColor}));
-                  }
-                  
-                  setQuickMessagesList(s.quickMessages || DEFAULT_SETTINGS.quickMessages);
-                  if (s.customMapUrl) setMapMode('custom');
-              }
-          } catch(e) {
-              console.log("Erreur Config Init:", e);
-          }
-          
-          try {
-             await bootstrapPermissionsAsync();
-          } catch (e) {
-             console.log("Erreur Bootstrap:", e);
-          }
-
-          try {
-              const level = await Battery.getBatteryLevelAsync();
-              if(mounted && level) setUser(u => ({ ...u, bat: Math.round(level * 100) }));
-          } catch(e) {}
-          
-          if (mounted) { 
-              setIsAppReady(true); 
-              setTimeout(async () => { await SplashScreen.hideAsync().catch(() => {}); }, 500); 
-          }
-      };
-      initApp();
-
-      const battSub = Battery.addBatteryLevelListener(({ batteryLevel }) => {
-          const newLevel = Math.round(batteryLevel * 100);
-          if (Math.abs(newLevel - userRef.current.bat) > 2 || newLevel < 20) {
-              setUser(u => ({ ...u, bat: newLevel }));
-              connectivityService.updateUser({ bat: newLevel });
-          }
-      });
-
-      const unsubConn = connectivityService.subscribe((event) => {
-          handleConnectivityEvent(event);
-      });
-      
-      return () => { mounted = false; unsubConn(); battSub.remove(); if(magSubscription.current) magSubscription.current.remove(); };
+    // 5. Abonnement Service Connectivité
+    const connSub = connectivityService.subscribe((event) => {
+        handleConnectivityEvent(event);
+    });
+    
+    // 6. Abonnement Service Localisation (CRUCIAL MILSPEC)
+    // C'est lui qui alimente la position, qu'on soit foreground ou background
+    const locSub = locationService.subscribe((loc) => {
+        setGpsStatus('OK');
+        const currentHead = userRef.current.head;
+        const gpsHead = (loc.speed && loc.speed > 1 && loc.heading !== null) ? loc.heading : currentHead;
+        
+        // Mise à jour locale
+        setUser(prev => ({ ...prev, lat: loc.latitude, lng: loc.longitude, head: gpsHead }));
+        
+        // Envoi au réseau (automatique via le service de connectivité)
+        connectivityService.updateUserPosition(loc.latitude, loc.longitude, gpsHead);
+    });
+    
+    return () => { 
+        mounted = false; connSub(); locSub(); battSub.remove(); appStateSub.remove();
+        locationService.stopTracking(); 
+    };
   }, []);
 
+  // --- GESTION TRACKING GPS ---
+  // On démarre/arrête le tracking en fonction de la vue (Map/Ops = ON, Menu = OFF)
   useEffect(() => {
       if (view === 'map' || view === 'ops') { 
-          startGpsTracking(settings.gpsUpdateInterval);
-          _toggleMagnetometer(); 
+          // Mode Haute Précision + Foreground Service (Notification Persistante)
+          locationService.updateOptions({ 
+              timeInterval: settings.gpsUpdateInterval,
+              foregroundService: {
+                  notificationTitle: "PRAXIS ACTIF",
+                  notificationBody: "Lien Tactique Maintenu",
+                  notificationColor: "#2563eb"
+              }
+          });
+          locationService.startTracking();
+      } else {
+          // On ne coupe pas brutalement si on est en session, on laisse tourner
+          // Sauf si on est vraiment revenu au login/menu déconnecté
+          if (!hostId) locationService.stopTracking();
       }
-      return () => { if(magSubscription.current) magSubscription.current.remove(); }
-  }, [view, settings.gpsUpdateInterval, settings.orientationUpdateInterval]);
+  }, [view, settings.gpsUpdateInterval, hostId]);
 
-  const _toggleMagnetometer = async () => {
-      if (magSubscription.current) magSubscription.current.remove();
-      Magnetometer.setUpdateInterval(settings.orientationUpdateInterval || 500);
-      magSubscription.current = Magnetometer.addListener(data => {
-          const { x, y } = data;
-          let angle = Math.atan2(y, x) * (180 / Math.PI);
-          angle = angle - 90;
-          if (angle < 0) angle = angle + 360;
-          const heading = Math.floor(angle);
-          if (Math.abs(heading - userRef.current.head) > 5) {
-              setUser(prev => ({ ...prev, head: heading }));
-              connectivityService.updateUserPosition(userRef.current.lat, userRef.current.lng, heading);
-          }
-      });
-  };
-
-  const startGpsTracking = useCallback(async (interval: number) => {
-      if (gpsSubscription.current) gpsSubscription.current.remove();
-      try {
-        const { status } = await Location.getForegroundPermissionsAsync();
-        if (status !== 'granted') { setGpsStatus('ERROR'); return; }
-        
-        gpsSubscription.current = await Location.watchPositionAsync({ 
-            accuracy: Location.Accuracy.High, 
-            timeInterval: interval, 
-            distanceInterval: 2 
-        }, (loc) => {
-            const { latitude, longitude, heading, speed } = loc.coords;
-            setGpsStatus('OK');
-            const currentHead = userRef.current.head;
-            const gpsHead = (speed && speed > 1 && heading !== null) ? heading : currentHead;
-            setUser(prev => {
-                if (!lastLocationRef.current || Math.abs(latitude - lastLocationRef.current.lat) > 0.0001 || Math.abs(longitude - lastLocationRef.current.lng) > 0.0001) {
-                    connectivityService.updateUserPosition(latitude, longitude, gpsHead);
-                    lastLocationRef.current = { lat: latitude, lng: longitude };
-                }
-                return { ...prev, lat: latitude, lng: longitude, head: gpsHead };
-            });
-        });
-      } catch(e) { setGpsStatus('ERROR'); }
-  }, []);
 
   const handleConnectivityEvent = (event: ConnectivityEvent) => {
       switch (event.type) {
           case 'PEER_OPEN': 
-              setUser(prev => ({ ...prev, id: event.id })); setIsServicesReady(true); 
-              // Si nous sommes l'hôte, nous définissons notre propre ID comme hostID
+              // ID Persistant confirmé par le service
+              setUser(prev => ({ ...prev, id: event.id })); 
               if (userRef.current.role === OperatorRole.HOST) {
                   setHostId(event.id);
-                  showToast(`Session créée: ${event.id}`, "success");
+                  showToast(`Session: ${event.id}`, "success");
               }
               break;
           case 'PEERS_UPDATED': 
-              setPeers(prev => {
-                  const incoming = event.peers;
-                  const candidates = Object.values({ ...prev, ...incoming });
-                  const byCallsign: Record<string, UserData[]> = {};
-                  candidates.forEach(p => {
-                      if (!byCallsign[p.callsign]) byCallsign[p.callsign] = [];
-                      byCallsign[p.callsign].push(p);
-                  });
-                  const cleanPeers: Record<string, UserData> = {};
-                  Object.keys(byCallsign).forEach(sign => {
-                      if (sign === userRef.current.callsign) return;
-                      const group = byCallsign[sign];
-                      // CORRECTION: Le tri fonctionne maintenant car joinedAt est mis à jour à la connexion
-                      group.sort((a, b) => b.joinedAt - a.joinedAt);
-                      cleanPeers[group[0].id] = group[0];
-                  });
-                  return cleanPeers;
-              });
+              // Le service s'occupe de la réception, ici on met juste à jour l'état
+              setPeers(event.peers);
               break;
-          case 'HOST_CONNECTED': setHostId(event.hostId); showToast("Lien Hôte établi", "success"); break;
-          case 'TOAST': showToast(event.msg, event.level as any); break;
-          case 'DATA_RECEIVED': handleProtocolData(event.data, event.from); break;
-          case 'DISCONNECTED': if (event.reason === 'KICKED') { Alert.alert("Session Terminée", "Exclu de la session."); finishLogout(); } else if (event.reason === 'NO_HOST') { showToast("Recherche Hôte...", "warning"); } break;
-          case 'NEW_HOST_PROMOTED': setHostId(event.hostId); if (event.hostId === userRef.current.id) { setUser(p => ({...p, role: OperatorRole.HOST})); Alert.alert("Promotion", "Vous êtes le nouveau Chef de Session."); } break;
+          case 'HOST_CONNECTED': 
+              setHostId(event.hostId); 
+              showToast("Lien Hôte établi", "success"); 
+              break;
+          case 'TOAST': 
+              showToast(event.msg, event.level as any); 
+              break;
+          case 'DATA_RECEIVED': 
+              handleProtocolData(event.data, event.from); 
+              break;
+          case 'DISCONNECTED': 
+              if (event.reason === 'KICKED') { 
+                  Alert.alert("Fin de Mission", "Vous avez été exclu de la session."); 
+                  finishLogout(); 
+              } else if (event.reason === 'NO_HOST') { 
+                  showToast("Liaison Hôte Perdue...", "warning"); 
+              } 
+              break;
+          case 'RECONNECTING':
+               showToast(`Reconnexion réseau (${event.attempt})...`, "warning");
+               break;
+          case 'NEW_HOST_PROMOTED': 
+              setHostId(event.hostId); 
+              if (event.hostId === userRef.current.id) { 
+                  setUser(p => ({...p, role: OperatorRole.HOST})); 
+                  Alert.alert("Promotion", "Vous êtes le nouveau Chef de Session."); 
+              } 
+              break;
       }
   };
 
@@ -346,56 +296,15 @@ const App: React.FC = () => {
             showToast(`${senderName}: ${data.ping.msg}`, isHostile ? 'alert' : 'info');
             
             if (isHostile) {
-                triggerTacticalNotification(
-                    `${senderName} - Contact`, 
-                    `Position GPS: ${data.ping.lat.toFixed(5)}, ${data.ping.lng.toFixed(5)}`
-                );
+                triggerTacticalNotification(`${senderName} - Contact`, `Alerte Ennemi signalée`);
             } else {
-                 triggerTacticalNotification(`${senderName} - Marqueur`, `${data.ping.msg}`);
+                 triggerTacticalNotification(`${senderName} - Info`, `${data.ping.msg}`);
             }
       }
-      
+      // ... (Reste de la logique protocolaire identique)
       else if (data.type === 'LOG_UPDATE' && Array.isArray(data.logs)) {
-          const oldLogs = logsRef.current;
-          const newEntries = data.logs.filter((l: LogEntry) => !oldLogs.find(ol => ol.id === l.id));
-          const hostileEntry = newEntries.find((l: LogEntry) => l.pax.toUpperCase().includes("HOSTILE") || l.paxColor === '#be1b09');
-          
-          if (hostileEntry) {
-              triggerTacticalNotification(
-                  "Hote - (PCTAC) : Hostile", 
-                  `Lieu: ${hostileEntry.lieu || 'N/C'} - Action: ${hostileEntry.action || 'N/C'} - Rem: ${hostileEntry.remarques || 'RAS'}`
-              );
-          }
           setLogs(data.logs);
       }
-      
-      else if ((data.type === 'UPDATE_USER' || data.type === 'UPDATE') && data.user) {
-          const u = data.user as UserData;
-          const prevStatus = peersRef.current[u.id]?.status;
-          const prevMsg = peersRef.current[u.id]?.lastMsg;
-
-          if (u.status === 'CONTACT' && prevStatus !== 'CONTACT') {
-              showToast(`${u.callsign} : CONTACT !`, 'alert');
-              triggerTacticalNotification(
-                  `${u.callsign} - CONTACT`, 
-                  `Position GPS: ${u.lat?.toFixed(5) || 'N/A'}, ${u.lng?.toFixed(5) || 'N/A'}`
-              );
-          }
-
-          if (u.status !== OperatorStatus.CLEAR && u.status !== OperatorStatus.PROGRESSION) {
-              if (u.status === OperatorStatus.BUSY && prevStatus !== OperatorStatus.BUSY) {
-                  showToast(`${u.callsign} : OCCUPÉ`, 'warning');
-              }
-          }
-
-          if (u.lastMsg && u.lastMsg !== prevMsg) {
-             if(u.lastMsg !== 'RAS / Effacer' && u.lastMsg !== '') {
-                 showToast(`${u.callsign}: ${u.lastMsg}`, 'info');
-                 triggerTacticalNotification(`${u.callsign} - Message`, u.lastMsg);
-             }
-          }
-      }
-      
       else if (data.type === 'SYNC_PINGS') setPings(data.pings);
       else if (data.type === 'SYNC_LOGS') setLogs(data.logs);
       else if (data.type === 'PING_MOVE') setPings(prev => prev.map(p => p.id === data.id ? { ...p, lat: data.lat, lng: data.lng } : p));
@@ -405,7 +314,8 @@ const App: React.FC = () => {
 
   const finishLogout = useCallback(() => {
       connectivityService.cleanup();
-      setPeers({}); setPings([]); setLogs([]); setHostId(''); setView('login'); setIsServicesReady(false);
+      locationService.stopTracking(); // Arrêt du GPS background
+      setPeers({}); setPings([]); setLogs([]); setHostId(''); setView('login'); 
       setUser(prev => ({...prev, id: '', role: OperatorRole.OPR, status: OperatorStatus.CLEAR }));
   }, []);
 
@@ -413,23 +323,16 @@ const App: React.FC = () => {
       const finalId = id || hostInput.toUpperCase();
       if (!finalId) return;
       
-      // FIX PERSISTANCE: On génère un timestamp frais lors de la connexion
+      const role = OperatorRole.OPR;
       const now = Date.now();
       
-      // On ne set PAS setHostId tout de suite pour l'UI, on attend la confirmation de connexion
-      // On prépare l'utilisateur avec un ID temporaire ou vide, PeerJS donnera le vrai
-      const role = OperatorRole.OPR;
-      
-      // On met à jour l'état local pour le rôle ET le timestamp
+      // On met à jour l'état local
       setUser(prev => ({ ...prev, role: role, paxColor: settings.userArrowColor, joinedAt: now }));
       
-      // On initialise la connexion. 
-      // L'ID utilisateur final sera mis à jour via l'événement PEER_OPEN
       try {
-          // IMPORTANT: On passe le "now" explicite à l'init pour éviter d'envoyer le vieux state
+          // init gère maintenant la persistance de l'ID automatiquement
           await connectivityService.init({ ...user, role, paxColor: settings.userArrowColor, joinedAt: now }, role, finalId);
-          // On change de vue seulement après l'init réussi (au moins le démarrage)
-          setHostId(finalId); // Pour l'affichage UI "en attente"
+          setHostId(finalId);
           setView('map'); 
           setLastOpsView('map');
       } catch (error) {
@@ -439,55 +342,43 @@ const App: React.FC = () => {
   };
 
   const createSession = async () => {
-      // FIX PERSISTANCE: On génère un timestamp frais lors de la création
-      const now = Date.now();
       const role = OperatorRole.HOST;
-      
+      const now = Date.now();
       setUser(prev => ({ ...prev, role: role, paxColor: settings.userArrowColor, joinedAt: now }));
       
       try {
-          // On initialise en tant qu'hôte (pas de hostId cible)
-          // IMPORTANT: On passe le "now" explicite
           await connectivityService.init({ ...user, role, paxColor: settings.userArrowColor, joinedAt: now }, role);
-          // Le hostId sera défini dans handleConnectivityEvent lors du PEER_OPEN
           setView('map'); 
           setLastOpsView('map');
       } catch (error) {
-          console.error("Erreur création session:", error);
           showToast("Erreur création session", "alert");
       }
   };
 
   const handleLogout = async () => {
-      // On envoie le message de départ ET on attend un court instant avant de couper
-      if (user.role === OperatorRole.HOST) {
-          connectivityService.broadcast({ type: 'CLIENT_LEAVING', id: user.id });
-      } else {
-          connectivityService.broadcast({ type: 'CLIENT_LEAVING', id: user.id, callsign: user.callsign });
-      }
-      
-      // Petit délai pour laisser le temps au message de partir sur le réseau
-      setTimeout(() => {
-          finishLogout();
-      }, 500); 
+      connectivityService.broadcast({ type: 'CLIENT_LEAVING', id: user.id });
+      setTimeout(finishLogout, 500); 
   };
 
+  // --- ACTIONS OPÉRATEUR ---
   const handleOperatorActionNavigate = (targetId: string) => { 
-      setNavTargetId(targetId); 
-      setView('map'); 
-      setLastOpsView('map'); 
-      showToast("Ralliement activé");
+      setNavTargetId(targetId); setView('map'); setLastOpsView('map'); showToast("Ralliement activé");
       connectivityService.sendTo(targetId, { type: 'RALLY_REQ', sender: user.callsign });
   };
 
   const handleOperatorActionKick = (targetId: string) => {
       connectivityService.kickUser(targetId);
       const newPeers = { ...peers }; delete newPeers[targetId]; setPeers(newPeers);
-      showToast("Exclu");
+      showToast("Opérateur Exclu");
   };
 
-  const handleSendQuickMessage = (msg: string) => { setUser(prev => ({ ...prev, lastMsg: msg })); connectivityService.updateUser({ lastMsg: msg }); setShowQuickMsgModal(false); setFreeMsgInput(''); showToast("Message envoyé"); };
+  const handleSendQuickMessage = (msg: string) => { 
+      setUser(prev => ({ ...prev, lastMsg: msg })); 
+      connectivityService.updateUser({ lastMsg: msg }); 
+      setShowQuickMsgModal(false); setFreeMsgInput(''); showToast("Message transmis"); 
+  };
   
+  // --- GESTION DES PINGS/MARQUEURS ---
   const submitPing = () => {
       if (!tempPingLoc) return;
       const newPing: PingData = {
@@ -544,19 +435,15 @@ const App: React.FC = () => {
   };
 
   const handleScannerBarCodeScanned = ({ data }: any) => {
-    setShowScanner(false);
-    setHostInput(data);
-    setTimeout(() => joinSession(data), 500);
+    setShowScanner(false); setHostInput(data); setTimeout(() => joinSession(data), 500);
   };
   
   const requestCamera = async () => {
       const { status } = await Camera.requestCameraPermissionsAsync();
-      setHasCameraPermission(status === 'granted');
   };
 
   const copyToClipboard = async () => { 
-      await Clipboard.setStringAsync(hostId || user.id || ''); 
-      showToast("ID Copié", "success"); 
+      await Clipboard.setStringAsync(hostId || user.id || ''); showToast("ID Copié", "success"); 
   };
 
   const handleBackPress = () => {
@@ -566,6 +453,7 @@ const App: React.FC = () => {
       } else { setView('login'); }
   };
 
+  // --- RENDER HEADER & NAVIGATION ---
   useEffect(() => {
       if (navTargetId && peers[navTargetId] && user.lat && peers[navTargetId].lat) {
           const target = peers[navTargetId];
@@ -578,11 +466,8 @@ const App: React.FC = () => {
           const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
           const distM = R * c;
           
-          // ARRÊT AUTOMATIQUE DE NAVIGATION SI < 10m
           if (distM < 10) {
-              setNavTargetId(null);
-              showToast("Arrivé à destination", "success");
-              return;
+              setNavTargetId(null); showToast("Arrivé à destination", "success"); return;
           }
 
           const speed = 1.4; 
@@ -593,12 +478,9 @@ const App: React.FC = () => {
               dist: distM > 1000 ? `${(distM/1000).toFixed(1)} km` : `${Math.round(distM)} m`,
               time: min > 60 ? `${Math.floor(min/60)}h ${min%60}min` : `${min} min`
           });
-      } else {
-          setNavInfo(null);
-      }
+      } else { setNavInfo(null); }
   }, [navTargetId, user.lat, user.lng, peers]);
 
-  // Nouvelle fonction pour gérer le header avec navigation intégrée
   const renderHeader = () => {
       if (navTargetId && navInfo) {
           return (
@@ -636,25 +518,19 @@ const App: React.FC = () => {
   };
 
   const renderContent = () => {
-    // Note: settings view n'est plus gérée ici pour éviter le démontage
     if (view === 'oi') {
       return <ComposantOrdreInitial onClose={() => setView('login')} />;
     } else if (view === 'login') {
       return (
         <View style={styles.centerContainer}>
-          {/* VERSION OPTIMISÉE SANS SHADER 3D LOURD */}
           <TacticalBackground />
-
           <TextInput style={styles.input} placeholder="TRIGRAMME" placeholderTextColor="#52525b" maxLength={6} value={loginInput} onChangeText={setLoginInput} autoCapitalize="characters" />
-          
-          {/* BOUTON PRAXIS STANDARDISÉ ET CENTRÉ */}
           <View style={{ marginTop: 50, width: '100%', alignItems: 'center' }}>
-            <TouchableOpacity
-              onPress={() => {
+            <TouchableOpacity onPress={() => {
                 if (loginInput.length < 2) return;
                 try { AsyncStorage.setItem(CONFIG.TRIGRAM_STORAGE_KEY, loginInput.toUpperCase()); } catch (e) {}
                 if (loginInput.toUpperCase() !== settings.username) configService.update({ username: loginInput.toUpperCase() });
-                setUser(prev => ({ ...prev, callsign: loginInput.toUpperCase(), joinedAt: Date.now() }));
+                setUser(prev => ({ ...prev, callsign: loginInput.toUpperCase() }));
                 setView('menu');
               }}
               style={[styles.strategicaBtn, { backgroundColor: 'rgba(0,0,0,0.5)', width: '100%', alignItems: 'center' }]} 
@@ -662,17 +538,11 @@ const App: React.FC = () => {
               <Text style={styles.strategicaBtnText}>Praxis</Text>
             </TouchableOpacity>
           </View>
-          
-          {/* BOUTON STRATEGICA STANDARDISÉ ET CENTRÉ */}
           <View style={{ marginTop: 20, width: '100%', alignItems: 'center' }}>
-            <TouchableOpacity 
-              onPress={() => setView('oi')}
-              style={[styles.strategicaBtn, { width: '100%', alignItems: 'center' }]}
-            >
+            <TouchableOpacity onPress={() => setView('oi')} style={[styles.strategicaBtn, { width: '100%', alignItems: 'center' }]}>
               <Text style={styles.strategicaBtnText}>Stratégica</Text>
             </TouchableOpacity>
           </View>
-
           <PrivacyConsentModal onConsentGiven={() => {}} />
         </View>
       );
@@ -752,7 +622,6 @@ const App: React.FC = () => {
                           const p = pings.find(ping => ping.id === id);
                           if (!p) return;
                           if (p.type === 'HOSTILE') {
-                              // Afficher le caneva en lecture (ou pré-rempli pour modification si c'est le sien)
                               setEditingPing(p);
                               setPingMsgInput(p.msg);
                               if (p.details) setHostileDetails(p.details);
@@ -767,7 +636,6 @@ const App: React.FC = () => {
                           if (!p) return;
                           if (user.role === OperatorRole.HOST || p.sender === user.callsign) {
                              setEditingPing(p); setPingMsgInput(p.msg); if(p.details) setHostileDetails(p.details);
-                             // Ici on ouvre la petite modale d'actions (Edit/Delete)
                           }
                       }}
                       onNavStop={() => setNavTargetId(null)} 
@@ -806,7 +674,6 @@ const App: React.FC = () => {
       <StatusBar style="light" backgroundColor="#050505" />
       {renderContent()}
 
-      {/* Modal pour les paramètres - Ne démonte pas le reste de l'app */}
       <Modal visible={showSettings} animationType="slide" onRequestClose={() => setShowSettings(false)}>
          <SettingsView 
             onClose={() => setShowSettings(false)} 
@@ -814,8 +681,10 @@ const App: React.FC = () => {
                 setSettings(s); 
                 setUser(u => ({...u, paxColor: s.userArrowColor})); 
                 connectivityService.updateUser({paxColor: s.userArrowColor}); 
-                if(s.gpsUpdateInterval !== settings.gpsUpdateInterval) startGpsTracking(s.gpsUpdateInterval);
-                if(s.orientationUpdateInterval !== settings.orientationUpdateInterval) _toggleMagnetometer();
+                if(s.gpsUpdateInterval !== settings.gpsUpdateInterval) {
+                   // Mise à jour live du tracking
+                   locationService.updateOptions({ timeInterval: s.gpsUpdateInterval });
+                }
             }} 
          />
       </Modal>
@@ -836,42 +705,16 @@ const App: React.FC = () => {
   );
 };
 
+// Styles inchangés, compactés pour la lisibilité
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#050505' },
   centerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 30 },
   title: { fontSize: 32, fontWeight: '900', color: 'white', letterSpacing: 5, marginBottom: 50 },
-  input: { 
-    width: '100%', 
-    borderBottomWidth: 2, 
-    borderBottomColor: '#3b82f6', // Bleu pour l'encadré
-    borderWidth: 2, // Bordure un peu plus large
-    borderColor: '#3b82f6', // Bleu pour l'encadré
-    fontSize: 30, 
-    color: 'white', 
-    textAlign: 'center', 
-    padding: 10,
-    backgroundColor: 'transparent' // Fond transparent
-  },
+  input: { width: '100%', borderBottomWidth: 2, borderBottomColor: '#3b82f6', borderWidth: 2, borderColor: '#3b82f6', fontSize: 30, color: 'white', textAlign: 'center', padding: 10, backgroundColor: 'transparent' },
   loginBtn: { marginTop: 50, width: '100%', backgroundColor: '#2563eb', padding: 20, borderRadius: 16, alignItems: 'center' },
   loginBtnText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
-  
-  // Style pour le bouton Stratégica classique (utilisé aussi pour Praxis)
-  strategicaBtn: {
-    padding: 10,
-    marginTop: 20,
-    borderWidth: 1,
-    borderColor: '#3b82f6',
-    borderRadius: 8,
-    backgroundColor: 'transparent',
-  },
-  strategicaBtnText: {
-    color: '#3b82f6',
-    fontSize: 16,
-    fontWeight: 'bold',
-    letterSpacing: 2,
-    textTransform: 'uppercase',
-  },
-
+  strategicaBtn: { padding: 10, marginTop: 20, borderWidth: 1, borderColor: '#3b82f6', borderRadius: 8, backgroundColor: 'transparent' },
+  strategicaBtnText: { color: '#3b82f6', fontSize: 16, fontWeight: 'bold', letterSpacing: 2, textTransform: 'uppercase' },
   safeArea: { flex: 1, backgroundColor: '#050505', paddingTop: Platform.OS === 'android' ? RNStatusBar.currentHeight : 0 },
   menuContainer: { flex: 1, padding: 24 },
   sectionTitle: { color: '#71717a', fontSize: 12, fontWeight: 'bold', letterSpacing: 1, marginBottom: 15 },
@@ -911,11 +754,6 @@ const styles = StyleSheet.create({
   iconBtnSecondary: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#52525b', justifyContent: 'center', alignItems: 'center', elevation: 5 },
   iconBtnSuccess: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#22c55e', justifyContent: 'center', alignItems: 'center', elevation: 5 },
   nightOpsOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(127, 29, 29, 0.2)', zIndex: 99999, pointerEvents: 'none' },
-  navModal: { position: 'absolute', top: 80, left: 20, right: 20, backgroundColor: 'rgba(24, 24, 27, 0.95)', borderRadius: 12, padding: 15, borderWidth: 1, borderColor: '#06b6d4', zIndex: 2000 },
-  navTitle: { color: '#06b6d4', fontWeight: '900', fontSize: 14 },
-  navSubtitle: { color: '#71717a', fontSize: 12 },
-  navStat: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  navValue: { color: 'white', fontWeight: 'bold', fontSize: 16 }
 });
 
 export default App;
