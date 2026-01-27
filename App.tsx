@@ -3,7 +3,7 @@ import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { 
   StyleSheet, View, Text, TextInput, TouchableOpacity, 
   SafeAreaView, Platform, Modal, StatusBar as RNStatusBar, Alert, ScrollView, ActivityIndicator,
-  FlatList, KeyboardAvoidingView, AppState, Image
+  PermissionsAndroid, FlatList, KeyboardAvoidingView, AppState, Image
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import QRCode from 'react-native-qrcode-svg';
@@ -14,7 +14,7 @@ import QRCode from 'react-native-qrcode-svg';
 import { Camera, CameraView } from 'expo-camera'; 
 
 import * as Notifications from 'expo-notifications';
-// import * as Location from 'expo-location'; // Remplacé par locationService
+import * as Location from 'expo-location';
 import { useKeepAwake } from 'expo-keep-awake';
 import * as Clipboard from 'expo-clipboard';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -28,8 +28,6 @@ import { UserData, OperatorStatus, OperatorRole, ViewType, PingData, AppSettings
 import { CONFIG, STATUS_COLORS } from './constants';
 import { configService } from './services/configService';
 import { connectivityService, ConnectivityEvent } from './services/connectivityService'; 
-import { locationService } from './services/locationService';
-import { permissionService } from './services/permissionService';
 
 import OperatorCard from './components/OperatorCard';
 import TacticalMap from './components/TacticalMap';
@@ -128,7 +126,7 @@ const App: React.FC = () => {
   const [isServicesReady, setIsServicesReady] = useState(false);
   const [gpsStatus, setGpsStatus] = useState<'WAITING' | 'OK' | 'ERROR'>('WAITING');
   const lastLocationRef = useRef<any>(null);
-  // Ref pour GPS Subscription supprimée car gérée par locationService
+  const gpsSubscription = useRef<Location.LocationSubscription | null>(null);
   const magSubscription = useRef<any>(null);
 
   const showToast = useCallback((msg: string, type: 'info' | 'error' | 'success' | 'warning' = 'info') => {
@@ -136,6 +134,33 @@ const App: React.FC = () => {
       if (type === 'alert' || type === 'warning') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       else if (type === 'success') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   }, []);
+
+  const bootstrapPermissionsAsync = async () => {
+    try {
+        if (Platform.OS === 'android') {
+            await PermissionsAndroid.requestMultiple([
+                PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+                PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION,
+                PermissionsAndroid.PERMISSIONS.ACCESS_BACKGROUND_LOCATION,
+                PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
+                PermissionsAndroid.PERMISSIONS.CAMERA
+            ]).catch(() => {});
+        }
+        
+        const { status } = await Location.getForegroundPermissionsAsync();
+        if (status === 'granted') {
+            await Location.requestBackgroundPermissionsAsync().catch(() => {});
+            setGpsStatus('OK');
+        } else {
+            setGpsStatus('ERROR');
+        }
+
+        const camStatus = await Camera.requestCameraPermissionsAsync();
+        setHasCameraPermission(camStatus.status === 'granted');
+    } catch (e) {
+        console.log("Erreur permissions:", e);
+    }
+  };
 
   const triggerTacticalNotification = async (title: string, body: string) => {
       if (AppState.currentState !== 'background' || settings.disableBackgroundNotifications) return;
@@ -156,41 +181,13 @@ const App: React.FC = () => {
       if (nextAppState === 'active') {
         connectivityService.handleAppStateChange('active');
         await Notifications.dismissAllNotificationsAsync();
-        // Si nous sommes en vue opérationnelle, on s'assure que le tracking est actif
-        if (view === 'map' || view === 'ops') {
-             locationService.startTracking();
-        }
+        startGpsTracking(settings.gpsUpdateInterval);
       } else if (nextAppState === 'background') {
         connectivityService.handleAppStateChange('background');
       }
     });
     return () => subscription.remove();
-  }, [view]); // Ajout de view aux dépendances pour redémarrer correctement
-
-  // --- ABONNEMENT CENTRALISÉ AU SERVICE DE LOCALISATION ---
-  useEffect(() => {
-    const unsubLocation = locationService.subscribe((loc) => {
-        const { latitude, longitude, heading, speed } = loc;
-        setGpsStatus('OK');
-        
-        const currentHead = userRef.current.head;
-        // Si la vitesse est > 1m/s, le heading GPS est fiable, sinon on garde le dernier connu (ou compas)
-        const gpsHead = (speed && speed > 1 && heading !== null) ? heading : currentHead;
-        
-        setUser(prev => {
-            // Mise à jour réseau uniquement si déplacement significatif (> ~10m) pour économiser la bande passante
-            if (!lastLocationRef.current || Math.abs(latitude - lastLocationRef.current.lat) > 0.0001 || Math.abs(longitude - lastLocationRef.current.lng) > 0.0001) {
-                connectivityService.updateUserPosition(latitude, longitude, gpsHead as number);
-                lastLocationRef.current = { lat: latitude, lng: longitude };
-            }
-            return { ...prev, lat: latitude, lng: longitude, head: gpsHead as number };
-        });
-    });
-
-    return () => {
-        unsubLocation();
-    };
-  }, []);
+  }, [settings.gpsUpdateInterval]);
 
   useEffect(() => {
       let mounted = true;
@@ -214,14 +211,7 @@ const App: React.FC = () => {
           }
           
           try {
-             // Utilisation du PermissionService pour la séquence d'initialisation
-             const allPermsGranted = await permissionService.checkAndRequestAllPermissions();
-             setHasCameraPermission(allPermsGranted); // Simplification: si tout est ok, caméra aussi
-             if (allPermsGranted) {
-                 setGpsStatus('OK');
-             } else {
-                 setGpsStatus('ERROR');
-             }
+             await bootstrapPermissionsAsync();
           } catch (e) {
              console.log("Erreur Bootstrap:", e);
           }
@@ -255,15 +245,9 @@ const App: React.FC = () => {
 
   useEffect(() => {
       if (view === 'map' || view === 'ops') { 
-          // Utilisation du LocationService
-          locationService.updateOptions({ timeInterval: settings.gpsUpdateInterval });
-          locationService.startTracking();
+          startGpsTracking(settings.gpsUpdateInterval);
           _toggleMagnetometer(); 
       }
-      // Note: On n'arrête pas le tracking explicitement ici pour permettre 
-      // un fonctionnement en arrière-plan (mode tactique) même si on change de vue
-      // Sauf si on logout (géré dans finishLogout)
-      
       return () => { if(magSubscription.current) magSubscription.current.remove(); }
   }, [view, settings.gpsUpdateInterval, settings.orientationUpdateInterval]);
 
@@ -282,6 +266,32 @@ const App: React.FC = () => {
           }
       });
   };
+
+  const startGpsTracking = useCallback(async (interval: number) => {
+      if (gpsSubscription.current) gpsSubscription.current.remove();
+      try {
+        const { status } = await Location.getForegroundPermissionsAsync();
+        if (status !== 'granted') { setGpsStatus('ERROR'); return; }
+        
+        gpsSubscription.current = await Location.watchPositionAsync({ 
+            accuracy: Location.Accuracy.High, 
+            timeInterval: interval, 
+            distanceInterval: 2 
+        }, (loc) => {
+            const { latitude, longitude, heading, speed } = loc.coords;
+            setGpsStatus('OK');
+            const currentHead = userRef.current.head;
+            const gpsHead = (speed && speed > 1 && heading !== null) ? heading : currentHead;
+            setUser(prev => {
+                if (!lastLocationRef.current || Math.abs(latitude - lastLocationRef.current.lat) > 0.0001 || Math.abs(longitude - lastLocationRef.current.lng) > 0.0001) {
+                    connectivityService.updateUserPosition(latitude, longitude, gpsHead);
+                    lastLocationRef.current = { lat: latitude, lng: longitude };
+                }
+                return { ...prev, lat: latitude, lng: longitude, head: gpsHead };
+            });
+        });
+      } catch(e) { setGpsStatus('ERROR'); }
+  }, []);
 
   const handleConnectivityEvent = (event: ConnectivityEvent) => {
       switch (event.type) {
@@ -385,9 +395,6 @@ const App: React.FC = () => {
 
   const finishLogout = useCallback(() => {
       connectivityService.cleanup();
-      // Arrêt du tracking GPS background pour économiser la batterie
-      locationService.stopTracking();
-      
       setPeers({}); setPings([]); setLogs([]); setHostId(''); setView('login'); setIsServicesReady(false);
       setUser(prev => ({...prev, id: '', role: OperatorRole.OPR, status: OperatorStatus.CLEAR }));
   }, []);
@@ -527,8 +534,6 @@ const App: React.FC = () => {
   };
   
   const requestCamera = async () => {
-      // Pour le bouton spécifique, on garde l'appel direct, mais via la caméra directement pour éviter de redemander tout le package
-      // Cependant, permissionService a normalement déjà tout validé au démarrage.
       const { status } = await Camera.requestCameraPermissionsAsync();
       setHasCameraPermission(status === 'granted');
   };
@@ -793,7 +798,7 @@ const App: React.FC = () => {
                 setSettings(s); 
                 setUser(u => ({...u, paxColor: s.userArrowColor})); 
                 connectivityService.updateUser({paxColor: s.userArrowColor}); 
-                if(s.gpsUpdateInterval !== settings.gpsUpdateInterval) locationService.updateOptions({timeInterval: s.gpsUpdateInterval});
+                if(s.gpsUpdateInterval !== settings.gpsUpdateInterval) startGpsTracking(s.gpsUpdateInterval);
                 if(s.orientationUpdateInterval !== settings.orientationUpdateInterval) _toggleMagnetometer();
             }} 
          />
