@@ -1,9 +1,22 @@
 import './polyfills';
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { 
-  StyleSheet, View, Text, TextInput, TouchableOpacity, 
-  SafeAreaView, Platform, Modal, StatusBar as RNStatusBar, Alert, ScrollView, ActivityIndicator,
-  KeyboardAvoidingView, AppState, Image, FlatList // <-- FlatList est bien importé ici
+  StyleSheet, 
+  View, 
+  Text, 
+  TextInput, 
+  TouchableOpacity, 
+  SafeAreaView, 
+  Platform, 
+  Modal, 
+  StatusBar as RNStatusBar, 
+  Alert, 
+  ScrollView, 
+  ActivityIndicator,
+  KeyboardAvoidingView, 
+  AppState, 
+  Image, 
+  FlatList // Vérification: Import explicite
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import QRCode from 'react-native-qrcode-svg';
