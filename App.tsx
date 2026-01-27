@@ -314,7 +314,37 @@ const App: React.FC = () => {
                  triggerTacticalNotification(`${senderName} - Info`, `${data.ping.msg}`);
             }
       }
-      // ... (Reste de la logique protocolaire identique)
+      
+      else if ((data.type === 'UPDATE_USER' || data.type === 'UPDATE') && data.user) {
+          const u = data.user as UserData;
+          const prevStatus = peersRef.current[u.id]?.status;
+          const prevMsg = peersRef.current[u.id]?.lastMsg;
+
+          // CORRECTION: Mise à jour immédiate de la carte pour les données live (Lat/Lng/Head)
+          setPeers(prev => ({
+              ...prev,
+              [u.id]: { ...(prev[u.id] || {}), ...u }
+          }));
+
+          if (u.status === 'CONTACT' && prevStatus !== 'CONTACT') {
+              showToast(`${u.callsign} : CONTACT !`, 'alert');
+              triggerTacticalNotification(`${u.callsign} - CONTACT`, `Position GPS: ${u.lat?.toFixed(5) || 'N/A'}`);
+          }
+
+          if (u.status !== OperatorStatus.CLEAR && u.status !== OperatorStatus.PROGRESSION) {
+              if (u.status === OperatorStatus.BUSY && prevStatus !== OperatorStatus.BUSY) {
+                  showToast(`${u.callsign} : OCCUPÉ`, 'warning');
+              }
+          }
+
+          if (u.lastMsg && u.lastMsg !== prevMsg) {
+             if(u.lastMsg !== 'RAS / Effacer' && u.lastMsg !== '') {
+                 showToast(`${u.callsign}: ${u.lastMsg}`, 'info');
+                 triggerTacticalNotification(`${u.callsign} - Message`, u.lastMsg);
+             }
+          }
+      }
+      
       else if (data.type === 'LOG_UPDATE' && Array.isArray(data.logs)) {
           setLogs(data.logs);
       }
