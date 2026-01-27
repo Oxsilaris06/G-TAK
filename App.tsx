@@ -304,13 +304,23 @@ const App: React.FC = () => {
               }
               break;
           case 'PEERS_UPDATED': 
-              // --- CORRECTION MAJEURE ICI ---
-              // On remplace COMPLÈTEMENT la liste locale par celle du service.
-              // Le service est la source de vérité.
               setPeers(prev => {
-                  const incoming = event.peers; // C'est la map complète et à jour du service
-                  // On ne fait PLUS de merge { ...prev, ...incoming } pour éviter de garder les "morts"
-                  return { ...incoming };
+                  const incoming = event.peers;
+                  const candidates = Object.values({ ...prev, ...incoming });
+                  const byCallsign: Record<string, UserData[]> = {};
+                  candidates.forEach(p => {
+                      if (!byCallsign[p.callsign]) byCallsign[p.callsign] = [];
+                      byCallsign[p.callsign].push(p);
+                  });
+                  const cleanPeers: Record<string, UserData> = {};
+                  Object.keys(byCallsign).forEach(sign => {
+                      if (sign === userRef.current.callsign) return;
+                      const group = byCallsign[sign];
+                      // CORRECTION: Le tri fonctionne maintenant car joinedAt est mis à jour à la connexion
+                      group.sort((a, b) => b.joinedAt - a.joinedAt);
+                      cleanPeers[group[0].id] = group[0];
+                  });
+                  return cleanPeers;
               });
               break;
           case 'HOST_CONNECTED': setHostId(event.hostId); showToast("Lien Hôte établi", "success"); break;
@@ -403,20 +413,22 @@ const App: React.FC = () => {
       const finalId = id || hostInput.toUpperCase();
       if (!finalId) return;
       
+      // FIX PERSISTANCE: On génère un timestamp frais lors de la connexion
+      const now = Date.now();
+      
       // On ne set PAS setHostId tout de suite pour l'UI, on attend la confirmation de connexion
       // On prépare l'utilisateur avec un ID temporaire ou vide, PeerJS donnera le vrai
       const role = OperatorRole.OPR;
       
-      // On met à jour l'état local pour le rôle
-      setUser(prev => ({ ...prev, role: role, paxColor: settings.userArrowColor }));
+      // On met à jour l'état local pour le rôle ET le timestamp
+      setUser(prev => ({ ...prev, role: role, paxColor: settings.userArrowColor, joinedAt: now }));
       
       // On initialise la connexion. 
       // L'ID utilisateur final sera mis à jour via l'événement PEER_OPEN
       try {
-          await connectivityService.init({ ...user, role, paxColor: settings.userArrowColor }, role, finalId);
+          // IMPORTANT: On passe le "now" explicite à l'init pour éviter d'envoyer le vieux state
+          await connectivityService.init({ ...user, role, paxColor: settings.userArrowColor, joinedAt: now }, role, finalId);
           // On change de vue seulement après l'init réussi (au moins le démarrage)
-          // Mais idéalement on devrait attendre PEER_OPEN ou HOST_CONNECTED pour être sûr
-          // Pour l'instant on fait comme avant mais avec le await qui garantit que l'init a commencé
           setHostId(finalId); // Pour l'affichage UI "en attente"
           setView('map'); 
           setLastOpsView('map');
@@ -427,12 +439,16 @@ const App: React.FC = () => {
   };
 
   const createSession = async () => {
+      // FIX PERSISTANCE: On génère un timestamp frais lors de la création
+      const now = Date.now();
       const role = OperatorRole.HOST;
-      setUser(prev => ({ ...prev, role: role, paxColor: settings.userArrowColor }));
+      
+      setUser(prev => ({ ...prev, role: role, paxColor: settings.userArrowColor, joinedAt: now }));
       
       try {
           // On initialise en tant qu'hôte (pas de hostId cible)
-          await connectivityService.init({ ...user, role, paxColor: settings.userArrowColor }, role);
+          // IMPORTANT: On passe le "now" explicite
+          await connectivityService.init({ ...user, role, paxColor: settings.userArrowColor, joinedAt: now }, role);
           // Le hostId sera défini dans handleConnectivityEvent lors du PEER_OPEN
           setView('map'); 
           setLastOpsView('map');
@@ -590,8 +606,8 @@ const App: React.FC = () => {
                   <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
                       <MaterialIcons name="navigation" size={24} color="#06b6d4" />
                       <View>
-                         <Text style={{color:'#06b6d4', fontWeight:'bold', fontSize: 16}}>RALLIEMENT</Text>
-                         <Text style={{color:'white', fontSize: 12}}>{peers[navTargetId]?.callsign} - {navInfo.dist} - {navInfo.time}</Text>
+                          <Text style={{color:'#06b6d4', fontWeight:'bold', fontSize: 16}}>RALLIEMENT</Text>
+                          <Text style={{color:'white', fontSize: 12}}>{peers[navTargetId]?.callsign} - {navInfo.dist} - {navInfo.time}</Text>
                       </View>
                   </View>
                   <TouchableOpacity onPress={() => setNavTargetId(null)} style={{padding: 8}}>
@@ -729,8 +745,8 @@ const App: React.FC = () => {
                       initialCenter={mapState} 
                       onPing={(loc) => { setTempPingLoc(loc); setShowPingMenu(true); }}
                       onPingMove={(p) => { 
-                         setPings(prev => prev.map(pi => pi.id === p.id ? p : pi));
-                         connectivityService.broadcast({ type: 'PING_MOVE', id: p.id, lat: p.lat, lng: p.lng });
+                          setPings(prev => prev.map(pi => pi.id === p.id ? p : pi));
+                          connectivityService.broadcast({ type: 'PING_MOVE', id: p.id, lat: p.lat, lng: p.lng });
                       }}
                       onPingClick={(id) => { 
                           const p = pings.find(ping => ping.id === id);
