@@ -20,7 +20,7 @@ export type ConnectivityEvent =
 
 type Listener = (event: ConnectivityEvent) => void;
 
-const RECONNECT_INTERVAL = 3000;
+const RECONNECT_INTERVAL = 5000; // Augmenté pour éviter le spam
 const HEALTH_CHECK_INTERVAL = 10000;
 const PEER_CREATION_TIMEOUT = 10000;
 
@@ -34,6 +34,7 @@ class ConnectivityService {
   private targetHostId: string = '';
   
   private isConnecting = false;
+  private isRefreshing = false; // Verrou pour éviter la boucle
   private isDestroyed = false;
   private reconnectAttempts = 0;
   
@@ -82,16 +83,18 @@ class ConnectivityService {
   }
 
   private connectToPeerServer(forceId: string) {
-      if (this.peer) { this.peer.destroy(); }
+      if (this.peer) { 
+          try { this.peer.destroy(); } catch(e) {}
+      }
 
-      console.log(`[Conn] Tentative connexion PeerJS avec ID: ${forceId}`);
+      console.log(`[Conn] Init PeerJS ID: ${forceId}`);
 
       try {
           this.peer = new Peer(forceId, CONFIG.PEER_CONFIG);
 
           this.creationTimeout = setTimeout(() => {
               if (this.peer && !this.peer.open) {
-                  console.warn("[Conn] Timeout création Peer - Relance");
+                  console.warn("[Conn] Timeout - Relance");
                   this.handleConnectionError(new Error("Timeout Creation"));
               }
           }, PEER_CREATION_TIMEOUT);
@@ -99,8 +102,9 @@ class ConnectivityService {
           this.peer.on('open', (id) => {
               clearTimeout(this.creationTimeout);
               this.isConnecting = false;
+              this.isRefreshing = false;
               this.reconnectAttempts = 0;
-              console.log(`[Conn] Peer Ouvert: ${id}`);
+              console.log(`[Conn] OK: ${id}`);
               this.notify({ type: 'PEER_OPEN', id });
               
               if (this.role === OperatorRole.OPR && this.targetHostId) {
@@ -114,28 +118,21 @@ class ConnectivityService {
 
           this.peer.on('error', (err: any) => {
               clearTimeout(this.creationTimeout);
-              console.error(`[Conn] Erreur Peer: ${err.type}`, err);
+              // Ignore l'erreur "Lost connection" si on est déjà en train de refresh
+              if (this.isRefreshing) return;
+
+              console.error(`[Conn] Erreur: ${err.type}`);
               
               if (err.type === 'unavailable-id') {
-                  console.warn("[Conn] ID déjà pris (Zombie). Nouvelle tentative...");
-                  setTimeout(() => this.connectToPeerServer(forceId), 2000);
+                  console.warn("[Conn] ID pris. Attente...");
+                  setTimeout(() => this.connectToPeerServer(forceId), 3000);
               } else if (err.type === 'peer-unavailable') {
                   this.notify({ type: 'DISCONNECTED', reason: 'NO_HOST' });
+              } else if (err.type === 'network' || err.type === 'disconnected') {
+                  // On ne fait rien ici, le healthcheck ou le network monitor gérera
               } else {
                   this.handleConnectionError(err);
               }
-          });
-
-          this.peer.on('disconnected', () => {
-              console.warn("[Conn] Peer déconnecté (Instance active)");
-              if (!this.isDestroyed && this.peer) {
-                  // On ne reconnecte pas immédiatement ici pour éviter les boucles, le healthcheck s'en charge
-              }
-          });
-
-          this.peer.on('close', () => {
-              console.warn("[Conn] Peer fermé");
-              if (!this.isDestroyed) this.handleConnectionError(new Error("Peer Closed"));
           });
 
       } catch (e) {
@@ -144,8 +141,12 @@ class ConnectivityService {
   }
 
   private connectToHost(hostId: string) {
-      if (!this.peer || this.peer.destroyed) return;
-      console.log(`[Link] Connexion vers Hôte: ${hostId}`);
+      if (!this.peer || this.peer.destroyed || !this.peer.open) return;
+      
+      // Évite les doublons de connexion
+      if (this.connections[hostId] && this.connections[hostId].open) return;
+
+      console.log(`[Link] Connexion vers Hôte...`);
       try {
           const conn = this.peer.connect(hostId, {
               reliable: true,
@@ -153,7 +154,7 @@ class ConnectivityService {
           });
           this.setupConnectionEvents(conn, true);
       } catch (e) {
-          console.error("[Link] Echec connexion hôte", e);
+          console.error("[Link] Echec", e);
       }
   }
 
@@ -180,9 +181,9 @@ class ConnectivityService {
 
       conn.on('close', () => {
           delete this.connections[conn.peer];
-          if (isOutgoingToHost && !this.isDestroyed) {
+          if (isOutgoingToHost && !this.isDestroyed && !this.isRefreshing) {
               this.notify({ type: 'DISCONNECTED', reason: 'NETWORK_ERROR' });
-              this.scheduleReconnect(); 
+              this.connectToHost(conn.peer); // Tentative immédiate de reconnexion au tunnel
           }
       });
       
@@ -201,49 +202,62 @@ class ConnectivityService {
       }
   }
 
-  // --- ROBUSTESSE RÉSEAU ---
+  // --- ROBUSTESSE RÉSEAU (ANTI-BOUCLE) ---
   private setupNetworkMonitor() {
       if (this.netInfoUnsubscribe) this.netInfoUnsubscribe();
       
       this.netInfoUnsubscribe = NetInfo.addEventListener(state => {
           const currentType = state.type;
-          if (this.lastNetworkType && this.lastNetworkType !== currentType && state.isConnected) {
-              console.log(`[Net] Changement interface: ${this.lastNetworkType} -> ${currentType}`);
+          
+          // On ignore si pas de réseau
+          if (!state.isConnected) return;
+
+          // Détection changement interface (Wifi <-> 4G)
+          if (this.lastNetworkType && this.lastNetworkType !== currentType) {
+              console.log(`[Net] Switch: ${this.lastNetworkType} -> ${currentType}`);
+              
               if (this.networkSwitchTimeout) clearTimeout(this.networkSwitchTimeout);
-              this.networkSwitchTimeout = setTimeout(() => this.refreshConnection(), 1000);
+              
+              // On attend 2s pour être sûr que l'IP est stable avant de refresh
+              // C'est ce délai qui empêche la boucle infinie
+              this.networkSwitchTimeout = setTimeout(() => this.refreshConnection(), 2000);
           }
           this.lastNetworkType = currentType;
       });
   }
   
-  // CORRECTION BUG RECONNECT
   public refreshConnection() {
-      console.log("[Net] Refresh Connexion...");
+      if (this.isRefreshing || this.isDestroyed) return;
+      
+      console.log("[Net] Refresh Sécurisé...");
+      this.isRefreshing = true;
+
       if (this.peer) {
-          // On tente de déconnecter proprement d'abord
-          if (!this.peer.disconnected) {
-              this.peer.disconnect();
-          }
+          // On coupe tout proprement
+          this.peer.disconnect();
           
           setTimeout(() => {
               if (this.peer && !this.peer.destroyed) {
-                  // Bloc try/catch CRITIQUE pour éviter le crash Hermes
                   try {
-                      // Si PeerJS pense être toujours connecté, reconnect() throw une erreur.
-                      // Mais ici on veut forcer le rétablissement du socket.
                       this.peer.reconnect();
+                      // On relâche le verrou après 5s pour laisser le temps à la reco de finir
+                      setTimeout(() => { this.isRefreshing = false; }, 5000);
                   } catch (e) {
-                      console.warn("[Net] Echec Soft Reconnect, passage en Hard Reset:", e);
-                      // Si le soft reconnect échoue, on redémarre tout le service proprement
-                      this.handleConnectionError(new Error("Force Refresh Failed"));
+                      // Si échec fatal, reset complet
+                      this.isRefreshing = false;
+                      this.handleConnectionError(new Error("Refresh Failed"));
                   }
+              } else {
+                  this.isRefreshing = false;
               }
-          }, 1000);
+          }, 1500);
+      } else {
+          this.isRefreshing = false;
       }
   }
 
   private handleConnectionError(error: any) {
-      if (this.isDestroyed) return;
+      if (this.isDestroyed || this.isRefreshing) return;
       this.scheduleReconnect();
   }
 
@@ -258,6 +272,7 @@ class ConnectivityService {
       }, RECONNECT_INTERVAL);
   }
 
+  // --- API PUBLIQUE ---
   public sendTo(targetId: string, data: any) {
       const conn = this.connections[targetId];
       if (conn && conn.open) conn.send(data);
@@ -278,6 +293,7 @@ class ConnectivityService {
   public updateUserPosition(lat: number, lng: number, head: number) {
       if (!this.user) return;
       this.user = { ...this.user, lat, lng, head };
+      // Broadcast optimisé : UDP-like (pas de garantie d'ordre critique)
       this.broadcast({ type: 'UPDATE', user: { id: this.user.id, lat, lng, head, callsign: this.user.callsign, status: this.user.status } });
   }
 
@@ -292,17 +308,21 @@ class ConnectivityService {
 
   public handleAppStateChange(status: AppStateStatus) {
       if (status === 'active') {
-          if (this.peer && this.peer.disconnected) this.peer.reconnect();
+          if (this.peer && this.peer.disconnected && !this.peer.destroyed) {
+              try { this.peer.reconnect(); } catch(e) {}
+          }
       }
   }
 
   private startHealthCheck() {
       if (this.healthCheckInterval) clearInterval(this.healthCheckInterval);
       this.healthCheckInterval = setInterval(() => {
-          if (this.isDestroyed) return;
+          if (this.isDestroyed || this.isRefreshing) return;
+          
           if (this.peer && this.peer.disconnected && !this.peer.destroyed) {
-              this.peer.reconnect();
+              try { this.peer.reconnect(); } catch(e) {}
           }
+          
           if (this.role === OperatorRole.OPR && this.targetHostId) {
              const hostConn = this.connections[this.targetHostId];
              if (!hostConn || !hostConn.open) {
@@ -315,6 +335,7 @@ class ConnectivityService {
   public cleanup(full = true) {
       this.isDestroyed = full;
       this.isConnecting = false;
+      this.isRefreshing = false;
       if (this.retryTimeout) clearTimeout(this.retryTimeout);
       if (this.creationTimeout) clearTimeout(this.creationTimeout);
       if (this.healthCheckInterval) clearInterval(this.healthCheckInterval);
@@ -325,11 +346,11 @@ class ConnectivityService {
           this.netInfoUnsubscribe = null;
       }
       
-      Object.values(this.connections).forEach(c => c.close());
+      Object.values(this.connections).forEach(c => { try { c.close(); } catch(e) {} });
       this.connections = {};
       
       if (this.peer) {
-          this.peer.destroy();
+          try { this.peer.destroy(); } catch(e) {}
           this.peer = null;
       }
   }
