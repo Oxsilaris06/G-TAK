@@ -115,14 +115,20 @@ const App: React.FC = () => {
       else if (type === 'success') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   }, []);
 
-  const triggerTacticalNotification = async (title: string, body: string) => {
-      if (AppState.currentState !== 'background' || settings.disableBackgroundNotifications) return;
-      await Notifications.dismissAllNotificationsAsync();
-      await Notifications.scheduleNotificationAsync({
-          content: { title, body, sound: true, priority: Notifications.AndroidNotificationPriority.HIGH },
-          trigger: null, 
-      });
-  };
+const triggerTacticalNotification = async (title: string, body: string) => {
+    if (AppState.currentState !== 'background' || settings.disableBackgroundNotifications) return;
+    await Notifications.dismissAllNotificationsAsync();
+    await Notifications.scheduleNotificationAsync({
+        content: { 
+            title, 
+            body, 
+            sound: true, 
+            priority: Notifications.AndroidNotificationPriority.HIGH,
+            color: "#000000" // Couleur de la notification passée en noir
+        },
+        trigger: null, 
+    });
+};
 
   useEffect(() => {
     let mounted = true;
@@ -289,18 +295,44 @@ const App: React.FC = () => {
           connectivityService.sendTo(fromId, { type: 'SYNC_LOGS', logs: logsRef.current });
       }
 
-      if (data.type === 'PING') {
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            setPings(prev => [...prev, data.ping]);
-            const isHostile = data.ping.type === 'HOSTILE';
-            showToast(`${senderName}: ${data.ping.msg}`, isHostile ? 'alert' : 'info');
+     if (data.type === 'PING') {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        setPings(prev => [...prev, data.ping]);
+        const isHostile = data.ping.type === 'HOSTILE';
+        
+        if (isHostile) {
+            // Notification avec position GPS pour les pings adversaires
+            const gpsCoords = `${data.ping.lat.toFixed(5)}, ${data.ping.lng.toFixed(5)}`;
+            triggerTacticalNotification(
+                `ALERTE PING HOSTILE - ${data.ping.sender}`, 
+                `Position: ${gpsCoords} | ${data.ping.msg}`
+            );
+            showToast(`ENNEMI: ${data.ping.msg} (${gpsCoords})`, 'alert');
+        } else {
+            showToast(`${senderName}: ${data.ping.msg}`, 'info');
+            triggerTacticalNotification(`${senderName} - Info`, `${data.ping.msg}`);
+        }
+    }
+       else if (data.type === 'LOG_UPDATE' && Array.isArray(data.logs)) {
+        const oldLogs = logsRef.current;
+        const newLogs = data.logs;
+
+        // Détecter si un nouveau log a été ajouté
+        if (newLogs.length > oldLogs.length) {
+            const latestLog = newLogs[newLogs.length - 1]; // C'est un objet de type LogEntry
             
-            if (isHostile) {
-                triggerTacticalNotification(`${senderName} - Contact`, `Alerte Ennemi signalée`);
-            } else {
-                 triggerTacticalNotification(`${senderName} - Info`, `${data.ping.msg}`);
+            // CORRECTION ICI : Utilisation de 'pax' au lieu de 'category'
+            // Et vérification stricte sur le label "HOSTILE" défini dans MainCouranteView.tsx
+            if (latestLog.pax === 'HOSTILE') {
+                
+                // CORRECTION ICI : Utilisation de 'lieu', 'action', 'remarques'
+                const logBody = `${latestLog.lieu || 'Non spécifié'} - ${latestLog.action} / ${latestLog.remarques || 'RAS'}`;
+                
+                triggerTacticalNotification(`MAIN COURANTE - HOSTILE`, logBody);
             }
-      }
+        }
+        setLogs(newLogs);
+    }
       
       else if ((data.type === 'UPDATE_USER' || data.type === 'UPDATE') && data.user) {
           const u = data.user as UserData;
