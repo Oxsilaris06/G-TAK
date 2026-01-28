@@ -18,9 +18,6 @@ import * as SplashScreen from 'expo-splash-screen';
 import * as Battery from 'expo-battery';
 // IMPORT MAGNÉTOMÈTRE POUR L'ORIENTATION
 import { Magnetometer } from 'expo-sensors';
-// IMPORT IMAGE PICKER ET MANIPULATOR POUR L'INTEL
-import * as ImagePicker from 'expo-image-picker';
-import * as ImageManipulator from 'expo-image-manipulator';
 
 import { UserData, OperatorStatus, OperatorRole, ViewType, PingData, AppSettings, DEFAULT_SETTINGS, PingType, HostileDetails, LogEntry } from './types';
 import { CONFIG, STATUS_COLORS } from './constants';
@@ -105,16 +102,15 @@ const App: React.FC = () => {
   const [currentPingType, setCurrentPingType] = useState<PingType>('FRIEND');
   const [pingMsgInput, setPingMsgInput] = useState('');
   const [hostileDetails, setHostileDetails] = useState<HostileDetails>({ position: '', nature: '', attitude: '', volume: '', armes: '', substances: '' });
-  const [pingImage, setPingImage] = useState<string | null>(null);
-
+  
   const [editingPing, setEditingPing] = useState<PingData | null>(null);
-  const [viewingPing, setViewingPing] = useState<PingData | null>(null); // Lecture seule des pings hostiles
-  const [viewingImage, setViewingImage] = useState<string | null>(null); // Pour afficher l'image RENS
+  const [viewingPing, setViewingPing] = useState<PingData | null>(null); // Pour la lecture seule
 
   const [selectedOperatorId, setSelectedOperatorId] = useState<string | null>(null);
   const [navTargetId, setNavTargetId] = useState<string | null>(null);
   const [navInfo, setNavInfo] = useState<{dist: string, time: string} | null>(null);
-  const [navMode, setNavMode] = useState<'pedestrian' | 'vehicle'>('pedestrian'); // Mode ralliement
+  const [navMode, setNavMode] = useState<'pedestrian' | 'vehicle'>('pedestrian'); // Mode Ralliement
+
   const [gpsStatus, setGpsStatus] = useState<'WAITING' | 'OK' | 'ERROR'>('WAITING');
 
   const showToast = useCallback((msg: string, type: 'info' | 'error' | 'success' | 'warning' = 'info') => {
@@ -132,7 +128,7 @@ const triggerTacticalNotification = async (title: string, body: string) => {
             body, 
             sound: true, 
             priority: Notifications.AndroidNotificationPriority.HIGH,
-            color: "#000000" 
+            color: "#000000" // Couleur de la notification passée en noir
         },
         trigger: null, 
     });
@@ -328,8 +324,14 @@ const triggerTacticalNotification = async (title: string, body: string) => {
         // Détecter si un nouveau log a été ajouté
         if (newLogs.length > oldLogs.length) {
             const latestLog = newLogs[newLogs.length - 1]; // C'est un objet de type LogEntry
+            
+            // CORRECTION ICI : Utilisation de 'pax' au lieu de 'category'
+            // Et vérification stricte sur le label "HOSTILE" défini dans MainCouranteView.tsx
             if (latestLog.pax === 'HOSTILE') {
+                
+                // CORRECTION ICI : Utilisation de 'lieu', 'action', 'remarques'
                 const logBody = `${latestLog.lieu || 'Non spécifié'} - ${latestLog.action} / ${latestLog.remarques || 'RAS'}`;
+                
                 triggerTacticalNotification(`MAIN COURANTE - HOSTILE`, logBody);
             }
         }
@@ -442,65 +444,22 @@ const triggerTacticalNotification = async (title: string, body: string) => {
       setShowQuickMsgModal(false); setFreeMsgInput(''); showToast("Message transmis"); 
   };
   
-  // --- GESTION DE L'IMAGE PING RENS ---
-  const pickImage = async () => {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
-          Alert.alert('Permission refusée', 'Nous avons besoin de la permission pour accéder à vos photos.');
-          return;
-      }
-
-      let result = await ImagePicker.launchImageLibraryAsync({
-          mediaTypes: ImagePicker.MediaTypeOptions.Images,
-          allowsEditing: true,
-          quality: 1, // On prend la meilleure qualité au départ
-      });
-
-      if (!result.canceled && result.assets && result.assets.length > 0) {
-          const sourceUri = result.assets[0].uri;
-          try {
-              // Compression à 0.85
-              const manipResult = await ImageManipulator.manipulateAsync(
-                  sourceUri,
-                  [],
-                  { compress: 0.85, format: ImageManipulator.SaveFormat.JPEG, base64: true }
-              );
-              
-              if (manipResult.base64) {
-                  setPingImage(`data:image/jpeg;base64,${manipResult.base64}`);
-                  showToast("Image compressée et ajoutée", "success");
-              }
-          } catch (error) {
-              console.log("Erreur compression:", error);
-              showToast("Erreur traitement image", "error");
-          }
-      }
-  };
-
   // --- GESTION DES PINGS/MARQUEURS ---
   const submitPing = () => {
       if (!tempPingLoc) return;
-      const newPing: any = {
+      const newPing: PingData = {
           id: Math.random().toString(36).substr(2, 9), lat: tempPingLoc.lat, lng: tempPingLoc.lng,
           msg: pingMsgInput || (currentPingType === 'HOSTILE' ? 'ENNEMI' : currentPingType === 'FRIEND' ? 'AMI' : 'OBS'),
           type: currentPingType, sender: user.callsign, timestamp: Date.now(),
-          details: currentPingType === 'HOSTILE' ? hostileDetails : undefined,
-          image: (currentPingType === 'INTEL' && pingImage) ? pingImage : undefined // Ajout de l'image
+          details: currentPingType === 'HOSTILE' ? hostileDetails : undefined
       };
       setPings(prev => [...prev, newPing]);
       connectivityService.broadcast({ type: 'PING', ping: newPing });
-      
-      // Reset form
-      setShowPingForm(false); 
-      setTempPingLoc(null); 
-      setIsPingMode(false);
-      setPingImage(null);
+      setShowPingForm(false); setTempPingLoc(null); setIsPingMode(false);
   };
 
   const handlePingMove = (updatedPing: PingData) => {
-      // MISE A JOUR LOCALE IMMEDIATE
       setPings(prev => prev.map(p => p.id === updatedPing.id ? updatedPing : p));
-      // DIFFUSION RESEAU
       connectivityService.broadcast({ type: 'PING_MOVE', id: updatedPing.id, lat: updatedPing.lat, lng: updatedPing.lng });
   };
 
@@ -730,14 +689,15 @@ const triggerTacticalNotification = async (title: string, body: string) => {
                       nightOpsMode={nightOpsMode} 
                       initialCenter={mapState} 
                       onPing={(loc) => { setTempPingLoc(loc); setShowPingMenu(true); }}
-                      onPingMove={(p) => handlePingMove(p)}
+                      onPingMove={(p) => { 
+                          setPings(prev => prev.map(pi => pi.id === p.id ? p : pi));
+                          connectivityService.broadcast({ type: 'PING_MOVE', id: p.id, lat: p.lat, lng: p.lng });
+                      }}
                       onPingClick={(id) => { 
-                          const p: any = pings.find(ping => ping.id === id);
+                          const p = pings.find(ping => ping.id === id);
                           if (!p) return;
-                          
-                          if (p.type === 'INTEL' && p.image) {
-                              setViewingImage(p.image); // Affichage image RENS
-                          } else if (p.type === 'HOSTILE') {
+                          if (p.type === 'HOSTILE') {
+                              // Click simple sur Hostile : Voir les détails en lecture seule
                               setViewingPing(p);
                           } else {
                               showToast(`Ping de ${p.sender}`, 'info');
@@ -751,6 +711,7 @@ const triggerTacticalNotification = async (title: string, body: string) => {
                              setEditingPing(p); 
                              setPingMsgInput(p.msg); 
                              if(p.details) setHostileDetails(p.details);
+                             // Pas de showPingForm(true) ici car on utilise la modale editingPing
                           }
                       }}
                       onNavStop={() => setNavTargetId(null)} 
@@ -809,7 +770,7 @@ const triggerTacticalNotification = async (title: string, body: string) => {
       <Modal visible={showPingMenu} transparent animationType="fade"><View style={styles.modalOverlay}><View style={styles.pingMenuContainer}><Text style={styles.modalTitle}>TYPE DE MARQUEUR</Text><View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 15, justifyContent: 'center'}}><TouchableOpacity onPress={() => { setCurrentPingType('HOSTILE'); setShowPingMenu(false); setPingMsgInput(''); setHostileDetails({position: tempPingLoc ? `${tempPingLoc.lat.toFixed(5)}, ${tempPingLoc.lng.toFixed(5)}` : '', nature: '', attitude: '', volume: '', armes: '', substances: ''}); setShowPingForm(true); }} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(239, 68, 68, 0.2)', borderColor: '#ef4444'}]}><MaterialIcons name="warning" size={30} color="#ef4444" /><Text style={{color: '#ef4444', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>ADVERSAIRE</Text></TouchableOpacity><TouchableOpacity onPress={() => { setCurrentPingType('FRIEND'); setShowPingMenu(false); setPingMsgInput(''); setShowPingForm(true); }} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(34, 197, 94, 0.2)', borderColor: '#22c55e'}]}><MaterialIcons name="shield" size={30} color="#22c55e" /><Text style={{color: '#22c55e', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>AMI</Text></TouchableOpacity><TouchableOpacity onPress={() => { setCurrentPingType('INTEL'); setShowPingMenu(false); setPingMsgInput(''); setShowPingForm(true); }} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(234, 179, 8, 0.2)', borderColor: '#eab308'}]}><MaterialIcons name="visibility" size={30} color="#eab308" /><Text style={{color: '#eab308', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>RENS</Text></TouchableOpacity></View><TouchableOpacity onPress={() => setShowPingMenu(false)} style={[styles.closeBtn, {marginTop: 20, backgroundColor: '#27272a'}]}><Text style={{color:'white'}}>ANNULER</Text></TouchableOpacity></View></View></Modal>
       
       {/* MODALE CRÉATION PING */}
-      <Modal visible={showPingForm} transparent animationType="slide"><KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}><View style={[styles.modalContent, {width: '90%', maxHeight: '80%'}]}><Text style={[styles.modalTitle, {color: currentPingType === 'HOSTILE' ? '#ef4444' : currentPingType === 'FRIEND' ? '#22c55e' : '#eab308'}]}>{currentPingType === 'HOSTILE' ? 'ADVERSAIRE' : currentPingType === 'FRIEND' ? 'AMI' : 'RENS'}</Text><Text style={styles.label}>Message</Text><TextInput style={styles.pingInput} placeholder="Titre / Info" placeholderTextColor="#52525b" value={pingMsgInput} onChangeText={setPingMsgInput} autoFocus={currentPingType !== 'HOSTILE'} />{currentPingType === 'HOSTILE' && (<ScrollView style={{width: '100%', maxHeight: 300, marginBottom: 10}}><Text style={[styles.label, {color: '#ef4444', marginTop: 10}]}>Détails Tactiques (Caneva)</Text><TextInput style={styles.detailInput} placeholder="Position" placeholderTextColor="#52525b" value={hostileDetails.position} onChangeText={t => setHostileDetails({...hostileDetails, position: t})} /><TextInput style={styles.detailInput} placeholder="Nature" placeholderTextColor="#52525b" value={hostileDetails.nature} onChangeText={t => setHostileDetails({...hostileDetails, nature: t})} /><TextInput style={styles.detailInput} placeholder="Attitude" placeholderTextColor="#52525b" value={hostileDetails.attitude} onChangeText={t => setHostileDetails({...hostileDetails, attitude: t})} /><TextInput style={styles.detailInput} placeholder="Volume" placeholderTextColor="#52525b" value={hostileDetails.volume} onChangeText={t => setHostileDetails({...hostileDetails, volume: t})} /><TextInput style={styles.detailInput} placeholder="Armement" placeholderTextColor="#52525b" value={hostileDetails.armes} onChangeText={t => setHostileDetails({...hostileDetails, armes: t})} /><TextInput style={styles.detailInput} placeholder="Substances / Tenue" placeholderTextColor="#52525b" value={hostileDetails.substances} onChangeText={t => setHostileDetails({...hostileDetails, substances: t})} /></ScrollView>)}{currentPingType === 'INTEL' && (<View style={{width: '100%', alignItems: 'center', marginVertical: 10}}><TouchableOpacity onPress={pickImage} style={[styles.modalBtn, {backgroundColor: pingImage ? '#22c55e' : '#eab308', width: '100%', flexDirection:'row', justifyContent:'center', gap: 10}]}><MaterialIcons name={pingImage ? "check-circle" : "add-a-photo"} size={20} color="black" /><Text style={{color: 'black', fontWeight: 'bold'}}>{pingImage ? "PHOTO AJOUTÉE" : "AJOUTER PHOTO"}</Text></TouchableOpacity></View>)}<View style={{flexDirection: 'row', gap: 10, marginTop: 10}}><TouchableOpacity onPress={() => setShowPingForm(false)} style={[styles.modalBtn, {backgroundColor: '#27272a'}]}><Text style={{color: 'white'}}>ANNULER</Text></TouchableOpacity><TouchableOpacity onPress={submitPing} style={[styles.modalBtn, {backgroundColor: '#3b82f6'}]}><Text style={{color: 'white', fontWeight: 'bold'}}>VALIDER</Text></TouchableOpacity></View></View></KeyboardAvoidingView></Modal>
+      <Modal visible={showPingForm} transparent animationType="slide"><KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}><View style={[styles.modalContent, {width: '90%', maxHeight: '80%'}]}><Text style={[styles.modalTitle, {color: currentPingType === 'HOSTILE' ? '#ef4444' : currentPingType === 'FRIEND' ? '#22c55e' : '#eab308'}]}>{currentPingType === 'HOSTILE' ? 'ADVERSAIRE' : currentPingType === 'FRIEND' ? 'AMI' : 'RENS'}</Text><Text style={styles.label}>Message</Text><TextInput style={styles.pingInput} placeholder="Titre / Info" placeholderTextColor="#52525b" value={pingMsgInput} onChangeText={setPingMsgInput} autoFocus={currentPingType !== 'HOSTILE'} />{currentPingType === 'HOSTILE' && (<ScrollView style={{width: '100%', maxHeight: 300, marginBottom: 10}}><Text style={[styles.label, {color: '#ef4444', marginTop: 10}]}>Détails Tactiques (Caneva)</Text><TextInput style={styles.detailInput} placeholder="Position" placeholderTextColor="#52525b" value={hostileDetails.position} onChangeText={t => setHostileDetails({...hostileDetails, position: t})} /><TextInput style={styles.detailInput} placeholder="Nature" placeholderTextColor="#52525b" value={hostileDetails.nature} onChangeText={t => setHostileDetails({...hostileDetails, nature: t})} /><TextInput style={styles.detailInput} placeholder="Attitude" placeholderTextColor="#52525b" value={hostileDetails.attitude} onChangeText={t => setHostileDetails({...hostileDetails, attitude: t})} /><TextInput style={styles.detailInput} placeholder="Volume" placeholderTextColor="#52525b" value={hostileDetails.volume} onChangeText={t => setHostileDetails({...hostileDetails, volume: t})} /><TextInput style={styles.detailInput} placeholder="Armement" placeholderTextColor="#52525b" value={hostileDetails.armes} onChangeText={t => setHostileDetails({...hostileDetails, armes: t})} /><TextInput style={styles.detailInput} placeholder="Substances / Tenue" placeholderTextColor="#52525b" value={hostileDetails.substances} onChangeText={t => setHostileDetails({...hostileDetails, substances: t})} /></ScrollView>)}<View style={{flexDirection: 'row', gap: 10, marginTop: 10}}><TouchableOpacity onPress={() => setShowPingForm(false)} style={[styles.modalBtn, {backgroundColor: '#27272a'}]}><Text style={{color: 'white'}}>ANNULER</Text></TouchableOpacity><TouchableOpacity onPress={submitPing} style={[styles.modalBtn, {backgroundColor: '#3b82f6'}]}><Text style={{color: 'white', fontWeight: 'bold'}}>VALIDER</Text></TouchableOpacity></View></View></KeyboardAvoidingView></Modal>
       
       {/* MODALE ÉDITION PING (HOSTILE) */}
       <Modal visible={!!editingPing && !showPingForm} transparent animationType="slide"><View style={styles.modalOverlay}><View style={[styles.modalContent, {width: '90%'}]}><Text style={styles.modalTitle}>MODIFICATION</Text><TextInput style={styles.pingInput} value={pingMsgInput} onChangeText={setPingMsgInput} />{editingPing?.type === 'HOSTILE' && (<ScrollView style={{width: '100%', maxHeight: 200, marginBottom: 15}}><TextInput style={styles.detailInput} placeholder="Position" value={hostileDetails.position} onChangeText={t => setHostileDetails({...hostileDetails, position: t})} /><TextInput style={styles.detailInput} placeholder="Nature" value={hostileDetails.nature} onChangeText={t => setHostileDetails({...hostileDetails, nature: t})} /><TextInput style={styles.detailInput} placeholder="Attitude" value={hostileDetails.attitude} onChangeText={t => setHostileDetails({...hostileDetails, attitude: t})} /><TextInput style={styles.detailInput} placeholder="Volume" value={hostileDetails.volume} onChangeText={t => setHostileDetails({...hostileDetails, volume: t})} /><TextInput style={styles.detailInput} placeholder="Armement" value={hostileDetails.armes} onChangeText={t => setHostileDetails({...hostileDetails, armes: t})} /><TextInput style={styles.detailInput} placeholder="Substances" value={hostileDetails.substances} onChangeText={t => setHostileDetails({...hostileDetails, substances: t})} /></ScrollView>)}<View style={{flexDirection: 'row', justifyContent: 'space-around', width: '100%', marginTop: 20}}><TouchableOpacity onPress={deletePing} style={styles.iconBtnDanger}><MaterialIcons name="delete" size={28} color="white" /></TouchableOpacity><TouchableOpacity onPress={() => setEditingPing(null)} style={styles.iconBtnSecondary}><MaterialIcons name="close" size={28} color="white" /></TouchableOpacity><TouchableOpacity onPress={savePingEdit} style={styles.iconBtnSuccess}><MaterialIcons name="check" size={28} color="white" /></TouchableOpacity></View></View></View></Modal>
@@ -836,18 +797,6 @@ const triggerTacticalNotification = async (title: string, body: string) => {
                       <Text style={{color: 'white'}}>FERMER</Text>
                   </TouchableOpacity>
               </View>
-          </View>
-      </Modal>
-
-      {/* MODALE VISUALISATION IMAGE RENS */}
-      <Modal visible={!!viewingImage} transparent animationType="fade">
-          <View style={[styles.modalOverlay, {padding: 10}]}>
-             <View style={{flex: 1, width: '100%', justifyContent:'center', alignItems:'center'}}>
-                 {viewingImage && <Image source={{uri: viewingImage}} style={{width: '100%', height: '80%', resizeMode: 'contain', borderRadius: 10}} />}
-                 <TouchableOpacity onPress={() => setViewingImage(null)} style={[styles.closeBtn, {backgroundColor: '#eab308', marginTop: 20}]}>
-                      <Text style={{color: 'black', fontWeight: 'bold'}}>FERMER L'IMAGE</Text>
-                 </TouchableOpacity>
-             </View>
           </View>
       </Modal>
 
