@@ -20,7 +20,7 @@ interface TacticalMapProps {
   onPing: (loc: { lat: number; lng: number }) => void;
   onPingMove: (ping: PingData) => void;
   onPingClick: (id: string) => void; 
-  onPingLongPress: (id: string) => void; // Nouveau callback
+  onPingLongPress: (id: string) => void; 
   onNavStop: () => void;
   onMapMoveEnd?: (center: {lat: number, lng: number}, zoom: number) => void;
 }
@@ -125,14 +125,14 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
             sendToApp({ type: 'MAP_MOVE_END', center: {lat: center.lat, lng: center.lng}, zoom: map.getZoom() });
         });
 
-        // Gestion Single Click (Navigation mode Ping)
+        // Gestion Single Click
         map.on('click', (e) => {
             if (pingMode) {
                 sendToApp({ type: 'MAP_CLICK', lat: e.latlng.lat, lng: e.latlng.lng });
             }
         });
 
-        // Gestion Double Click (Ouverture modale Ping)
+        // Gestion Double Click
         map.on('dblclick', (e) => {
              sendToApp({ type: 'MAP_DBLCLICK', lat: e.latlng.lat, lng: e.latlng.lng });
         });
@@ -265,9 +265,10 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
              if (target && target.lat) {
                  navLine = L.polyline([[me.lat, me.lng], [target.lat, target.lng]], {
                      color: '#06b6d4',
-                     weight: 3,
-                     dashArray: '10, 10',
-                     opacity: 0.8
+                     weight: 4,
+                     dashArray: '5, 10',
+                     opacity: 0.9,
+                     lineCap: 'round'
                  }).addTo(map);
              }
         }
@@ -289,10 +290,16 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                 if (pings[p.id]) {
                     pings[p.id].setLatLng([p.lat, p.lng]);
                     if(pings[p.id]._icon) pings[p.id]._icon.innerHTML = html;
+                    
+                    // Force update draggable status
+                    if (canDrag) { pings[p.id].dragging.enable(); } else { pings[p.id].dragging.disable(); }
                 } else {
                     const icon = L.divIcon({ className: 'custom-div-icon', html: html, iconSize: [100, 60], iconAnchor: [50, 50] });
-                    const m = L.marker([p.lat, p.lng], { icon: icon, draggable: canDrag, pane: 'pingPane' });
+                    // On initialise draggable: true, mais on contrôle ensuite
+                    const m = L.marker([p.lat, p.lng], { icon: icon, draggable: true, pane: 'pingPane' });
                     
+                    if (!canDrag) m.dragging.disable();
+
                     m.on('click', () => sendToApp({ type: 'PING_CLICK', id: p.id }));
                     m.on('contextmenu', () => sendToApp({ type: 'PING_LONG_PRESS', id: p.id }));
                     m.on('dragend', (e) => sendToApp({ type: 'PING_MOVE', id: p.id, lat: e.target.getLatLng().lat, lng: e.target.getLatLng().lng }));
