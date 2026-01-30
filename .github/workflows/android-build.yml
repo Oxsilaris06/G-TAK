@@ -30,9 +30,6 @@ jobs:
       - name: Installation des dépendances
         run: |
           npm install --legacy-peer-deps
-          # On installe TOUT ce qui pourrait manquer pour le bundle
-          npx expo install expo-camera expo-document-picker expo-image-picker expo-print expo-sharing -- --legacy-peer-deps
-          # Fix global
           npx expo install --fix -- --legacy-peer-deps
 
       - name: Expo Prebuild
@@ -50,36 +47,37 @@ jobs:
             echo "Fichier non trouvé: $FILE"
           fi
 
-      # NOTE: L'étape "Force Bundle JS" a été retirée.
-      # La commande assembleRelease ci-dessous gère automatiquement le bundling JS + Assets.
-
+      # BUILD RELEASE
       - name: Build Android APK (Release)
         run: |
           cd android
           chmod +x gradlew
-          # assembleRelease est nécessaire pour activer expo-updates (OTA)
-          # Si pas de signature configurée, cela générera un 'app-release-unsigned.apk'
           ./gradlew assembleRelease --no-daemon --warning-mode all -Dorg.gradle.jvmargs="-Xmx4608m -XX:MaxMetaspaceSize=512m"
 
-      - name: Renommer et Publier
+      # --- ETAPE DE SIGNATURE AJOUTÉE (CRUCIAL) ---
+      - name: Signer l'APK (Clé Temporaire)
         run: |
-          # On cherche l'APK généré dans le dossier release (peu importe son nom exact)
-          APK_PATH=$(find android/app/build/outputs/apk/release -name "*.apk" | head -n 1)
-
-          if [ -z "$APK_PATH" ]; then
-            echo "Erreur critique: Aucun APK trouvé dans android/app/build/outputs/apk/release/"
+          # 1. Trouver l'APK non signé
+          UNSIGNED_APK=$(find android/app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          
+          if [ -z "$UNSIGNED_APK" ]; then
+            echo "Erreur: Aucun APK trouvé."
             exit 1
           fi
 
-          echo "APK trouvé à: $APK_PATH"
-          mv "$APK_PATH" Praxis-V4.apk
+          # 2. Créer une clé temporaire
+          keytool -genkey -v -keystore release.keystore -alias androidreleasekey -keyalg RSA -keysize 2048 -validity 10000 -storepass android -keypass android -dname "CN=PraxisTemp,O=Praxis,C=FR"
+
+          # 3. Signer
+          $ANDROID_HOME/build-tools/34.0.0/apksigner sign --ks release.keystore --ks-pass pass:android --key-pass pass:android --out Praxis-V4-Signed.apk "$UNSIGNED_APK"
+          
+          echo "APK signé avec succès: Praxis-V4-Signed.apk"
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          # On ajoute un suffixe -ota pour bien distinguer cette version
           tag_name: v4.0.6-ota-${{ github.run_number }}
           name: "Praxis Release OTA Ready #${{ github.run_number }}"
-          files: Praxis-V4.apk
+          files: Praxis-V4-Signed.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
