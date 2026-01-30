@@ -6,18 +6,23 @@ export default {
     orientation: "default",
     icon: "./assets/icon.png",
     userInterfaceStyle: "dark",
-    // Configuration EAS Update
+    
+    // CONFIGURATION EAS UPDATE CRITIQUE
     runtimeVersion: {
       policy: "appVersion"
     },
     updates: {
-      url: "https://u.expo.dev/f55fd8e2-57c6-4432-a64c-fae41bb16a3e"
+      url: "https://u.expo.dev/f55fd8e2-57c6-4432-a64c-fae41bb16a3e", // Votre ID inséré
+      requestHeaders: {
+        "expo-channel-name": "production" // <--- FORCE L'ECOUTE DU CANAL PRODUCTION
+      }
     },
     extra: {
       eas: {
         projectId: "f55fd8e2-57c6-4432-a64c-fae41bb16a3e"
       }
     },
+
     splash: {
       image: "./assets/icon2.png",
       resizeMode: "contain",
@@ -36,7 +41,7 @@ export default {
         "FOREGROUND_SERVICE_LOCATION",
         "INTERNET",
         "WAKE_LOCK",
-        "CAMERA" // Réactivé pour le QR Scan
+        "CAMERA"
       ]
     },
     plugins: [
@@ -49,7 +54,6 @@ export default {
             targetSdkVersion: 34,
             buildToolsVersion: "34.0.0",
             newArchEnabled: false,
-            // AUGMENTATION DE LA MÉMOIRE JVM POUR GRADLE (FIX HEAP SPACE)
             gradleProperties: [
               { key: 'org.gradle.jvmargs', value: '-Xmx4608m -XX:MaxMetaspaceSize=512m' }
             ]
@@ -60,14 +64,13 @@ export default {
         "expo-camera",
         {
           "cameraPermission": "Nécessaire pour scanner les QR Codes de session.",
-          "microphonePermission": false, // On garde le micro désactivé pour la Data
+          "microphonePermission": false,
           "recordAudioAndroid": false
         }
       ],
       [
         "@config-plugins/react-native-webrtc",
         {
-          // On laisse WebRTC sans caméra/micro, c'est expo-camera qui gère le scan
           cameraPermission: false, 
           microphonePermission: false
         }
