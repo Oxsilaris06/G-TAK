@@ -1,4 +1,4 @@
-name: Build & Release Praxis (OTA Ready)
+name: Build & Release Praxis (DEBUG & VERIFY)
 
 on:
   workflow_dispatch:
@@ -14,6 +14,23 @@ jobs:
     steps:
       - name: Checkout du code
         uses: actions/checkout@v4
+
+      # --- ETAPE DE VÉRIFICATION AJOUTÉE ---
+      - name: 🔍 VÉRIFICATION DU FICHIER CONFIG (Preuve)
+        run: |
+          echo "====================================================="
+          echo "CONTENU DE app.config.js SUR LE SERVEUR DE BUILD :"
+          echo "====================================================="
+          cat app.config.js
+          echo "====================================================="
+          
+          # On vérifie spécifiquement la présence de l'espace avec grep
+          if grep -q "57c6 -4432" app.config.js; then
+            echo "❌ ERREUR CRITIQUE DÉTECTÉE : L'espace est PRÉSENT dans le fichier !"
+            exit 1
+          else
+            echo "✅ SUCCÈS : Aucun espace détecté dans l'ID du fichier."
+          fi
 
       - name: Configuration de Node.js (v20)
         uses: actions/setup-node@v4
@@ -35,7 +52,6 @@ jobs:
       - name: Expo Prebuild
         run: npx expo prebuild --platform android --clean
 
-      # PATCH WEBRTC
       - name: Patch WebRTC
         run: |
           FILE="node_modules/react-native-webrtc/android/build.gradle"
@@ -43,14 +59,12 @@ jobs:
             sed -i 's/implementation.*com.github.jiangdongguo.*libausbc.*/\/\/ Dependency removed/g' $FILE
           fi
 
-      # BUILD RELEASE
       - name: Build Android APK (Release)
         run: |
           cd android
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon --warning-mode all -Dorg.gradle.jvmargs="-Xmx4608m -XX:MaxMetaspaceSize=512m"
 
-      # SIGNATURE AUTOMATIQUE
       - name: Signer l'APK
         run: |
           UNSIGNED_APK=$(find android/app/build/outputs/apk/release -name "*.apk" | head -n 1)
@@ -61,13 +75,13 @@ jobs:
           
           keytool -genkey -v -keystore release.keystore -alias androidreleasekey -keyalg RSA -keysize 2048 -validity 10000 -storepass android -keypass android -dname "CN=PraxisTemp,O=Praxis,C=FR"
           
-          $ANDROID_HOME/build-tools/34.0.0/apksigner sign --ks release.keystore --ks-pass pass:android --key-pass pass:android --out Praxis-V4.1.0-Signed.apk "$UNSIGNED_APK"
+          $ANDROID_HOME/build-tools/34.0.0/apksigner sign --ks release.keystore --ks-pass pass:android --key-pass pass:android --out Praxis-DEBUG-Signed.apk "$UNSIGNED_APK"
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v4.1.0-clean-${{ github.run_number }}
-          name: "Praxis v4.1.0 (Clean Build)"
-          files: Praxis-V4.1.0-Signed.apk
+          tag_name: v4.1.0-debug-${{ github.run_number }}
+          name: "Praxis DEBUG VERIFY #${{ github.run_number }}"
+          files: Praxis-DEBUG-Signed.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
