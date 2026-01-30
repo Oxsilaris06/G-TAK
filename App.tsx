@@ -806,6 +806,9 @@ const triggerTacticalNotification = async (title: string, body: string) => {
 
       {activeNotif && <NotificationToast message={activeNotif.msg} type={activeNotif.type} isNightOps={nightOpsMode} onDismiss={() => setActiveNotif(null)} />}
       
+      {/* COMPOSANT DE MISE A JOUR AJOUTÉ ICI POUR S'AFFICHER PAR DESSUS TOUT LE RESTE */}
+      <UpdateNotifier />
+
       {nightOpsMode && <View style={styles.nightOpsOverlay} pointerEvents="none" />}
     </View>
   );
