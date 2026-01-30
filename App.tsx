@@ -619,6 +619,10 @@ const triggerTacticalNotification = async (title: string, body: string) => {
               <Text style={styles.strategicaBtnText}>Stratégica</Text>
             </TouchableOpacity>
           </View>
+
+          {/* AJOUTÉ ICI : Le notificateur s'affiche uniquement sur l'écran de Login */}
+          <UpdateNotifier />
+          
           <PrivacyConsentModal onConsentGiven={() => {}} />
         </View>
       );
@@ -806,8 +810,7 @@ const triggerTacticalNotification = async (title: string, body: string) => {
 
       {activeNotif && <NotificationToast message={activeNotif.msg} type={activeNotif.type} isNightOps={nightOpsMode} onDismiss={() => setActiveNotif(null)} />}
       
-      {/* COMPOSANT DE MISE A JOUR AJOUTÉ ICI POUR S'AFFICHER PAR DESSUS TOUT LE RESTE */}
-      <UpdateNotifier />
+      {/* --- FIN DES COMPOSANTS --- */}
 
       {nightOpsMode && <View style={styles.nightOpsOverlay} pointerEvents="none" />}
     </View>
