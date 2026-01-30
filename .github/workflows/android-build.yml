@@ -67,7 +67,7 @@ jobs:
           cd android
           chmod +x gradlew
           # Ajout de l'argument JVM args pour éviter le OutOfMemoryError
-          ./gradlew assembleDebug --no-daemon --warning-mode all -Dorg.gradle.jvmargs="-Xmx4608m -XX:MaxMetaspaceSize=512m"
+          ./gradlew assembleRelease --no-daemon --warning-mode all -Dorg.gradle.jvmargs="-Xmx4608m -XX:MaxMetaspaceSize=512m"
 
       - name: Renommer et Publier
         run: |
