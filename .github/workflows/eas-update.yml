@@ -36,6 +36,7 @@ jobs:
       - name: 🏗 Configuration de EAS
         uses: expo/expo-github-action@v8
         with:
+          eas-version: latest
           token: ${{ secrets.EXPO_PRAXIS_SECRET }}
           packager: npm
 
