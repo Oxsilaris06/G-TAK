@@ -6,6 +6,18 @@ export default {
     orientation: "default",
     icon: "./assets/icon.png",
     userInterfaceStyle: "dark",
+    // Configuration EAS Update
+    runtimeVersion: {
+      policy: "appVersion"
+    },
+    updates: {
+      url: "https://u.expo.dev/REMPLACER_PAR_VOTRE_PROJECT_ID"
+    },
+    extra: {
+      eas: {
+        projectId: "REMPLACER_PAR_VOTRE_PROJECT_ID"
+      }
+    },
     splash: {
       image: "./assets/icon2.png",
       resizeMode: "contain",
