@@ -11,11 +11,11 @@ export default {
       policy: "appVersion"
     },
     updates: {
-      url: "https://u.expo.dev/REMPLACER_PAR_VOTRE_PROJECT_ID"
+      url: "https://u.expo.dev/f55fd8e2-57c6-4432-a64c-fae41bb16a3e"
     },
     extra: {
       eas: {
-        projectId: "REMPLACER_PAR_VOTRE_PROJECT_ID"
+        projectId: "f55fd8e2-57c6-4432-a64c-fae41bb16a3e"
       }
     },
     splash: {
