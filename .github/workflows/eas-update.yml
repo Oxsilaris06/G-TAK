@@ -1,0 +1,49 @@
+name: Publish EAS Update
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branche EAS (Cible)'
+        required: true
+        default: 'preview'
+        type: choice
+        options:
+          - preview
+          - production
+      message:
+        description: 'Message de description pour la mise à jour'
+        required: true
+        default: 'Correction mineure'
+
+jobs:
+  publish-update:
+    name: EAS Update (${{ inputs.branch }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: 🏗 Checkout du code
+        uses: actions/checkout@v4
+
+      - name: 🏗 Configuration de Node.js (v20)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: 🏗 Configuration de EAS
+        uses: expo/expo-github-action@v8
+        with:
+          token: ${{ secrets.EXPO_TOKEN }}
+          packager: npm
+
+      - name: 📦 Installation des dépendances
+        run: |
+          npm install --legacy-peer-deps
+          # On s'assure que les versions sont alignées, comme dans le build natif
+          npx expo install --fix -- --legacy-peer-deps
+
+      - name: 🚀 Publier la mise à jour (EAS Update)
+        run: |
+          eas update --branch ${{ inputs.branch }} --message "${{ inputs.message }}"
