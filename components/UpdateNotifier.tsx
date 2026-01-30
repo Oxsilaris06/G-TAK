@@ -74,6 +74,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 99999,
+    elevation: 50, // <--- CRUCIAL POUR ANDROID (Force l'affichage au-dessus de la map)
     borderWidth: 1,
     borderColor: '#333'
   },
