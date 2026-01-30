@@ -7,12 +7,11 @@ export default {
     icon: "./assets/icon.png",
     userInterfaceStyle: "dark",
     
-    // --- MODIFICATION CRITIQUE ICI ---
-    // On remplace la "policy" par une valeur explicite pour éviter tout conflit.
-    // L'APK et le serveur EAS Update DOIVENT avoir exactement cette chaîne.
+    // VERSION FIGÉE (NE PAS TOUCHER)
     runtimeVersion: "4.0.0", 
     
     updates: {
+      // CORRECTION : SUPPRESSION DE L'ESPACE INTRUS DANS L'URL
       url: "https://u.expo.dev/f55fd8e2-57c6-4432-a64c-fae41bb16a3e",
       requestHeaders: {
         "expo-channel-name": "production"
