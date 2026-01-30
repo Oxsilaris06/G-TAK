@@ -1,4 +1,4 @@
-name: Build & Release Praxis (All Mods)
+name: Build & Release Praxis (Release Mode)
 
 on:
   workflow_dispatch:
@@ -50,34 +50,36 @@ jobs:
             echo "Fichier non trouvé: $FILE"
           fi
 
-      # FORCE BUNDLE JS
-      - name: Force Bundle JS
-        run: |
-          mkdir -p android/app/src/main/assets
-          npx react-native bundle \
-            --platform android \
-            --dev false \
-            --entry-file index.js \
-            --bundle-output android/app/src/main/assets/index.android.bundle \
-            --assets-dest android/app/src/main/res \
-            --reset-cache
+      # NOTE: L'étape "Force Bundle JS" a été retirée.
+      # La commande assembleRelease ci-dessous gère automatiquement le bundling JS + Assets.
 
-      - name: Build Android APK
+      - name: Build Android APK (Release)
         run: |
           cd android
           chmod +x gradlew
-          # Ajout de l'argument JVM args pour éviter le OutOfMemoryError
+          # assembleRelease est nécessaire pour activer expo-updates (OTA)
+          # Si pas de signature configurée, cela générera un 'app-release-unsigned.apk'
           ./gradlew assembleRelease --no-daemon --warning-mode all -Dorg.gradle.jvmargs="-Xmx4608m -XX:MaxMetaspaceSize=512m"
 
       - name: Renommer et Publier
         run: |
-          mv android/app/build/outputs/apk/debug/app-debug.apk Praxis-V4.apk
+          # On cherche l'APK généré dans le dossier release (peu importe son nom exact)
+          APK_PATH=$(find android/app/build/outputs/apk/release -name "*.apk" | head -n 1)
+
+          if [ -z "$APK_PATH" ]; then
+            echo "Erreur critique: Aucun APK trouvé dans android/app/build/outputs/apk/release/"
+            exit 1
+          fi
+
+          echo "APK trouvé à: $APK_PATH"
+          mv "$APK_PATH" Praxis-V4.apk
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v4.0.5-final-${{ github.run_number }}
-          name: "Praxis Release #${{ github.run_number }}"
+          # On ajoute un suffixe -ota pour bien distinguer cette version
+          tag_name: v4.0.6-ota-${{ github.run_number }}
+          name: "Praxis Release OTA Ready #${{ github.run_number }}"
           files: Praxis-V4.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
