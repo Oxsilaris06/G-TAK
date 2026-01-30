@@ -26,6 +26,7 @@ import { connectivityService, ConnectivityEvent } from './services/connectivityS
 import { locationService } from './services/locationService'; 
 import { permissionService } from './services/permissionService'; 
 
+import UpdateNotifier from './components/UpdateNotifier'; 
 import OperatorCard from './components/OperatorCard';
 import TacticalMap from './components/TacticalMap';
 import SettingsView from './components/SettingsView';
