@@ -1,17 +1,18 @@
 export default {
   expo: {
-    name: "Praxis",
+    // CHANGEMENT DE NOM POUR PREUVE VISUELLE
+    name: "Praxis DEBUG", 
     slug: "praxis",
     version: "4.1.0",
     orientation: "default",
     icon: "./assets/icon.png",
     userInterfaceStyle: "dark",
     
-    // NOUVELLE VERSION FIGÉE
+    // Version figée
     runtimeVersion: "4.1.0", 
     
     updates: {
-      // URL VÉRIFIÉE - SANS ESPACE
+      // URL (Vérifiez qu'elle est propre ici)
       url: "https://u.expo.dev/f55fd8e2-57c6-4432-a64c-fae41bb16a3e",
       requestHeaders: {
         "expo-channel-name": "production"
@@ -20,11 +21,13 @@ export default {
       checkAutomatically: "ON_LOAD",
       fallbackToCacheTimeout: 0
     },
+
     extra: {
       eas: {
         projectId: "f55fd8e2-57c6-4432-a64c-fae41bb16a3e"
       }
     },
+    // ... reste identique (splash, android, plugins) ...
     splash: {
       image: "./assets/icon2.png",
       resizeMode: "contain",
