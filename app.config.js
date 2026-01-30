@@ -7,21 +7,30 @@ export default {
     icon: "./assets/icon.png",
     userInterfaceStyle: "dark",
     
-    // VERSION FIGÉE (NE PAS TOUCHER)
+    // 1. VERSION D'EXÉCUTION FIGÉE
+    // L'APK et le serveur EAS Update doivent avoir cette valeur exacte.
     runtimeVersion: "4.0.0", 
     
+    // 2. CONFIGURATION DES MISES À JOUR
     updates: {
-      // CORRECTION : SUPPRESSION DE L'ESPACE INTRUS DANS L'URL
+      // URL vérifiée sans espace
       url: "https://u.expo.dev/f55fd8e2-57c6-4432-a64c-fae41bb16a3e",
+      // On force le canal production
       requestHeaders: {
         "expo-channel-name": "production"
-      }
+      },
+      // Important pour le redémarrage automatique
+      enabled: true,
+      checkAutomatically: "ON_LOAD",
+      fallbackToCacheTimeout: 0
     },
+
     extra: {
       eas: {
         projectId: "f55fd8e2-57c6-4432-a64c-fae41bb16a3e"
       }
     },
+
     splash: {
       image: "./assets/icon2.png",
       resizeMode: "contain",
@@ -33,6 +42,7 @@ export default {
         foregroundImage: "./assets/adaptive-icon.png",
         backgroundColor: "#000000"
       },
+      // Permissions complètes
       permissions: [
         "ACCESS_FINE_LOCATION",
         "ACCESS_BACKGROUND_LOCATION",
@@ -40,7 +50,9 @@ export default {
         "FOREGROUND_SERVICE_LOCATION",
         "INTERNET",
         "WAKE_LOCK",
-        "CAMERA"
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE"
       ]
     },
     plugins: [
