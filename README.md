@@ -40,7 +40,7 @@ Statuts opérationnels (CLEAR, CONTACT, PROGRESSION, BUSY).
 
 Système de Pings & Alertes :
 
-🔴 Hostile : Caneva SALTA complet (Position, Nature, Volume, Attitude, Armement).
+🔴 Hostile : Caneva PNAVAS complet (Position, Nature, Volume, Attitude, Armement).
 
 🟢 Ami : Points de ralliement, positions alliées.
 
