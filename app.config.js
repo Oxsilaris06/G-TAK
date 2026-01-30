@@ -7,14 +7,15 @@ export default {
     icon: "./assets/icon.png",
     userInterfaceStyle: "dark",
     
-    // CONFIGURATION EAS UPDATE CRITIQUE
-    runtimeVersion: {
-      policy: "appVersion"
-    },
+    // --- MODIFICATION CRITIQUE ICI ---
+    // On remplace la "policy" par une valeur explicite pour éviter tout conflit.
+    // L'APK et le serveur EAS Update DOIVENT avoir exactement cette chaîne.
+    runtimeVersion: "4.0.0", 
+    
     updates: {
-      url: "https://u.expo.dev/f55fd8e2-57c6-4432-a64c-fae41bb16a3e", // Votre ID inséré
+      url: "https://u.expo.dev/f55fd8e2-57c6-4432-a64c-fae41bb16a3e",
       requestHeaders: {
-        "expo-channel-name": "production" // <--- FORCE L'ECOUTE DU CANAL PRODUCTION
+        "expo-channel-name": "production"
       }
     },
     extra: {
@@ -22,7 +23,6 @@ export default {
         projectId: "f55fd8e2-57c6-4432-a64c-fae41bb16a3e"
       }
     },
-
     splash: {
       image: "./assets/icon2.png",
       resizeMode: "contain",
