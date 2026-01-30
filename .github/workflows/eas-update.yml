@@ -30,7 +30,8 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
+          # Ligne cache retirée car package-lock.json est absent
+          # cache: 'npm' 
 
       - name: 🏗 Configuration de EAS
         uses: expo/expo-github-action@v8
