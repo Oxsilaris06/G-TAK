@@ -1,4 +1,4 @@
-name: Build & Release Praxis (Release Mode)
+name: Build & Release Praxis (OTA Ready)
 
 on:
   workflow_dispatch:
@@ -36,15 +36,11 @@ jobs:
         run: npx expo prebuild --platform android --clean
 
       # PATCH WEBRTC
-      - name: Patch WebRTC (Remove USB Camera Dep)
+      - name: Patch WebRTC
         run: |
-          echo "Patching react-native-webrtc build.gradle..."
           FILE="node_modules/react-native-webrtc/android/build.gradle"
           if [ -f "$FILE" ]; then
-            sed -i 's/implementation.*com.github.jiangdongguo.*libausbc.*/\/\/ Dependency removed by CI patch/g' $FILE
-            echo "Patch appliqué."
-          else
-            echo "Fichier non trouvé: $FILE"
+            sed -i 's/implementation.*com.github.jiangdongguo.*libausbc.*/\/\/ Dependency removed/g' $FILE
           fi
 
       # BUILD RELEASE
@@ -54,30 +50,24 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon --warning-mode all -Dorg.gradle.jvmargs="-Xmx4608m -XX:MaxMetaspaceSize=512m"
 
-      # --- ETAPE DE SIGNATURE AJOUTÉE (CRUCIAL) ---
-      - name: Signer l'APK (Clé Temporaire)
+      # SIGNATURE AUTOMATIQUE
+      - name: Signer l'APK
         run: |
-          # 1. Trouver l'APK non signé
           UNSIGNED_APK=$(find android/app/build/outputs/apk/release -name "*.apk" | head -n 1)
-          
           if [ -z "$UNSIGNED_APK" ]; then
             echo "Erreur: Aucun APK trouvé."
             exit 1
           fi
-
-          # 2. Créer une clé temporaire
-          keytool -genkey -v -keystore release.keystore -alias androidreleasekey -keyalg RSA -keysize 2048 -validity 10000 -storepass android -keypass android -dname "CN=PraxisTemp,O=Praxis,C=FR"
-
-          # 3. Signer
-          $ANDROID_HOME/build-tools/34.0.0/apksigner sign --ks release.keystore --ks-pass pass:android --key-pass pass:android --out Praxis-V4-Signed.apk "$UNSIGNED_APK"
           
-          echo "APK signé avec succès: Praxis-V4-Signed.apk"
+          keytool -genkey -v -keystore release.keystore -alias androidreleasekey -keyalg RSA -keysize 2048 -validity 10000 -storepass android -keypass android -dname "CN=PraxisTemp,O=Praxis,C=FR"
+          
+          $ANDROID_HOME/build-tools/34.0.0/apksigner sign --ks release.keystore --ks-pass pass:android --key-pass pass:android --out Praxis-V4.1.0-Signed.apk "$UNSIGNED_APK"
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v4.0.6-ota-${{ github.run_number }}
-          name: "Praxis Release OTA Ready #${{ github.run_number }}"
-          files: Praxis-V4-Signed.apk
+          tag_name: v4.1.0-clean-${{ github.run_number }}
+          name: "Praxis v4.1.0 (Clean Build)"
+          files: Praxis-V4.1.0-Signed.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
