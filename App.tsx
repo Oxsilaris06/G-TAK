@@ -610,7 +610,7 @@ const triggerTacticalNotification = async (title: string, body: string) => {
               }}
               style={[styles.strategicaBtn, { backgroundColor: 'rgba(0,0,0,0.5)', width: '100%', alignItems: 'center' }]} 
             >
-              <Text style={styles.strategicaBtnText}>Praxis (OTA)</Text>
+              <Text style={styles.strategicaBtnText}>Praxis</Text>
             </TouchableOpacity>
           </View>
           <View style={{ marginTop: 20, width: '100%', alignItems: 'center' }}>
