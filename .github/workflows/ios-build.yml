@@ -52,6 +52,17 @@ jobs:
           npm install --legacy-peer-deps
           npx expo install --fix -- --legacy-peer-deps
 
+      # --- PATCH EXPO-DEVICE (FIX CRITIQUE) ---
+      # Fix pour l'erreur "cannot find 'TARGET_OS_SIMULATOR' in scope" avec Xcode 15+
+      - name: 🚑 Patch expo-device (TARGET_OS_SIMULATOR)
+        run: |
+          echo "Patching expo-device for Xcode 15 compatibility..."
+          # On remplace la vérification dynamique par 'false' car on compile pour un DEVICE physique (Release)
+          # Cela corrige l'erreur de compilation immédiate.
+          # Le fichier est généralement dans node_modules/expo-device/ios/UIDevice.swift
+          find node_modules/expo-device/ios -name "UIDevice.swift" -exec sed -i '' 's/return TARGET_OS_SIMULATOR != 0/return false/g' {} +
+          echo "✅ Patch appliqué sur UIDevice.swift"
+
       # Prebuild génère les dossiers natifs (/ios)
       - name: ⚙️ Expo Prebuild
         run: npx expo prebuild --platform ios --clean --no-install
