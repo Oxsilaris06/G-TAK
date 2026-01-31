@@ -3,14 +3,35 @@ name: Build iOS (Unsigned IPA for SideStore)
 on:
   workflow_dispatch: # Déclenchement manuel via l'interface GitHub
 
+permissions:
+  contents: write
+
 jobs:
   build-ios:
     name: Build iOS IPA
     runs-on: macos-latest # Obligatoire pour compiler pour iOS
+    timeout-minutes: 60
 
     steps:
       - name: 🏗 Setup Repository
         uses: actions/checkout@v4
+
+      # --- ETAPE DE VÉRIFICATION AJOUTÉE ---
+      - name: 🔍 VÉRIFICATION DU FICHIER CONFIG (Preuve)
+        run: |
+          echo "====================================================="
+          echo "CONTENU DE app.config.js SUR LE SERVEUR DE BUILD :"
+          echo "====================================================="
+          cat app.config.js
+          echo "====================================================="
+          
+          # On vérifie spécifiquement la présence de l'espace avec grep
+          if grep -q "57c6 -4432" app.config.js; then
+            echo "❌ ERREUR CRITIQUE DÉTECTÉE : L'espace est PRÉSENT dans le fichier !"
+            exit 1
+          else
+            echo "✅ SUCCÈS : Aucun espace détecté dans l'ID du fichier."
+          fi
 
       - name: 🏗 Setup Node
         uses: actions/setup-node@v4
@@ -25,11 +46,13 @@ jobs:
           java-version: '17'
 
       - name: 📦 Install Dependencies
-        run: npm ci
+        run: |
+          npm install --legacy-peer-deps
+          npx expo install --fix -- --legacy-peer-deps
 
       # Cela génère le dossier /ios basé sur app.config.js
       - name: ⚙️ Expo Prebuild
-        run: npx expo prebuild --platform ios --no-install
+        run: npx expo prebuild --platform ios --clean --no-install
 
       - name: 🔧 Install Pods
         cd ios
@@ -74,9 +97,13 @@ jobs:
           # On zippe le dossier Payload pour créer l'IPA
           zip -r GTAK-unsigned.ipa Payload
 
-      - name: 📤 Upload Artifact
-        uses: actions/upload-artifact@v4
+      - name: 📤 Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
-          name: ios-unsigned-ipa
-          path: ios/GTAK-unsigned.ipa
-          retention-days: 14
+          tag_name: ios-v${{ github.run_number }}
+          name: "G-TAK iOS Unsigned #${{ github.run_number }}"
+          files: ios/GTAK-unsigned.ipa
+          draft: false
+          prerelease: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
