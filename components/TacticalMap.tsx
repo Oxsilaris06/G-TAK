@@ -81,11 +81,8 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
       </style>
 
       <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-      <!-- Ajout Leaflet Offline & EdgeBuffer -->
       <script src="https://unpkg.com/leaflet.offline@2.0.0/dist/leaflet.offline.min.js"></script>
       <script src="https://unpkg.com/leaflet-edgebuffer@1.0.6/src/leaflet.edgebuffer.js"></script>
-      
-      <!-- Script PouchDB pour la persistance locale dans la WebView -->
       <script src="https://unpkg.com/pouchdb@7.3.0/dist/pouchdb.min.js"></script>
       <script src="https://unpkg.com/leaflet.tilelayer.pouchdb@latest/Leaflet.TileLayer.PouchDB.js"></script>
     </head>
@@ -97,35 +94,43 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         // Init Map
         const map = L.map('map', { zoomControl: false, attributionControl: false, doubleClickZoom: false }).setView([${startLat}, ${startLng}], ${startZoom});
         
-        // Configuration des couches avec mise en cache PouchDB automatique
-        // useCache: true active la mise en cache locale via PouchDB/IndexedDB
-        // crossOrigin: true est nécessaire pour charger des images externes dans le canvas/DB
         const commonOptions = {
             maxZoom: 19,
             useCache: true, 
             crossOrigin: true,
-            edgeBufferTiles: 2 // Préchargement
+            edgeBufferTiles: 2
         };
 
+        function getLayer(url, options) {
+            if (L.tileLayer.pouchDbcached) {
+                return L.tileLayer.pouchDbcached(url, options);
+            }
+            return L.tileLayer(url, options);
+        }
+
         const layers = {
-            // Utilisation de L.tileLayer.pouchDbcached si le script est chargé, sinon fallback standard
-            dark: (L.tileLayer.pouchDbcached ? L.tileLayer.pouchDbcached : L.tileLayer)('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { ...commonOptions, subdomains:'abcd' }),
-            light: (L.tileLayer.pouchDbcached ? L.tileLayer.pouchDbcached : L.tileLayer)('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { ...commonOptions, subdomains:'abcd' }),
-            satellite: (L.tileLayer.pouchDbcached ? L.tileLayer.pouchDbcached : L.tileLayer)('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { ...commonOptions }),
+            dark: getLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { ...commonOptions, subdomains:'abcd' }),
+            light: getLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { ...commonOptions, subdomains:'abcd' }),
+            satellite: getLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { ...commonOptions }),
             custom: null
         };
         
         let currentLayer = layers.dark; 
         currentLayer.addTo(map);
 
-        map.createPane('userPane'); map.getPane('userPane').style.zIndex = 600;
-        map.createPane('pingPane'); map.getPane('pingPane').style.zIndex = 800;
+        // --- Z-INDEX FIX ---
+        // Augmentation des z-index pour garantir la visibilité au-dessus des tuiles (tilePane est ~200)
         map.createPane('trailPane'); map.getPane('trailPane').style.zIndex = 400;
+        map.createPane('userPane'); map.getPane('userPane').style.zIndex = 600;
+        map.createPane('pingPane'); map.getPane('pingPane').style.zIndex = 800; // Très haut pour être toujours visible
 
         const markers = {};
         const trails = {}; 
         const trailPolylines = {}; 
-        const pingLayer = L.layerGroup().addTo(map);
+        
+        // --- PING LAYER ---
+        // Création du groupe de calque pour les pings
+        const pingLayer = L.layerGroup({ pane: 'pingPane' }).addTo(map);
         let navLine = null;
         
         let pings = {};
@@ -149,12 +154,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         map.on('moveend', () => {
             const center = map.getCenter();
             sendToApp({ type: 'MAP_MOVE_END', center: {lat: center.lat, lng: center.lng}, zoom: map.getZoom() });
-            
-            // Sauvegarde automatique des tuiles visibles dans le cache PouchDB
-            if (currentLayer && currentLayer.seed) {
-                // Seed la vue courante (télécharge et stocke les tuiles de la vue actuelle)
-                // currentLayer.seed(map.getBounds(), map.getZoom(), map.getZoom());
-            }
         });
 
         map.on('click', (e) => {
@@ -180,7 +179,10 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                 
                 updateMapMode(data.mode, data.customMapUrl);
                 updateMarkers(data.me, data.peers, data.showTrails);
+                
+                // On passe bien les arguments
                 updatePings(data.pings, data.showPings, data.isHost, data.me.callsign);
+                
                 updateNavigation(data.me, data.navTargetId, data.peers);
 
                 if(data.me && typeof data.me.head === 'number') {
@@ -201,15 +203,13 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                 if (!layers.custom || layers.custom._url !== customUrl) {
                     if(layers.custom) map.removeLayer(layers.custom);
                     
-                    // Si c'est un fichier local (file://), pas besoin de PouchDB cache (c'est déjà local)
-                    // Si c'est une URL HTTP, on utilise le cache
                     const isLocalFile = customUrl.startsWith('file://') || customUrl.startsWith('content://');
                     const LayerClass = (!isLocalFile && L.tileLayer.pouchDbcached) ? L.tileLayer.pouchDbcached : L.tileLayer;
                     
                     layers.custom = LayerClass(customUrl, {
                         maxZoom: 20,
                         edgeBufferTiles: 2,
-                        useCache: !isLocalFile, // Cache seulement si c'est une URL distante
+                        useCache: !isLocalFile, 
                         crossOrigin: true
                     });
                 }
@@ -317,11 +317,27 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         }
 
         function updatePings(serverPings, showPings, isHost, myCallsign) {
-            if (!showPings) { pingLayer.clearLayers(); pings = {}; return; }
-            if (!map.hasLayer(pingLayer)) map.addLayer(pingLayer);
+            // Nettoyage si on doit cacher
+            if (!showPings) { 
+                pingLayer.clearLayers(); 
+                pings = {}; 
+                return; 
+            }
+            
+            // Assure que le layer est sur la map
+            if (!map.hasLayer(pingLayer)) {
+                pingLayer.addTo(map);
+            }
             
             const currentIds = serverPings.map(p => p.id);
-            Object.keys(pings).forEach(id => { if(!currentIds.includes(id)) { pingLayer.removeLayer(pings[id]); delete pings[id]; } });
+            
+            // Supprimer les anciens pings
+            Object.keys(pings).forEach(id => { 
+                if(!currentIds.includes(id)) { 
+                    pingLayer.removeLayer(pings[id]); 
+                    delete pings[id]; 
+                } 
+            });
             
             serverPings.forEach(p => {
                 const canDrag = isHost || (p.sender === myCallsign);
@@ -331,12 +347,21 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                 const html = \`<div id="ping-\${p.id}" class="ping-marker-box"><div class="ping-label" style="border-color: \${color}">\${p.msg}</div><div class="ping-icon">\${iconChar}</div></div>\`;
 
                 if (pings[p.id]) {
+                    // Update existant
                     pings[p.id].setLatLng([p.lat, p.lng]);
                     if(pings[p.id]._icon) pings[p.id]._icon.innerHTML = html;
+                    
                     if (canDrag) { pings[p.id].dragging.enable(); } else { pings[p.id].dragging.disable(); }
                 } else {
-                    const icon = L.divIcon({ className: 'custom-div-icon', html: iconHtml, iconSize: [100, 60], iconAnchor: [50, 50] });
-                    const m = L.marker([p.lat, p.lng], { icon: icon, draggable: true, pane: 'pingPane' });
+                    // Création nouveau
+                    const icon = L.divIcon({ className: 'custom-div-icon', html: html, iconSize: [100, 60], iconAnchor: [50, 50] });
+                    
+                    // Important: spécifier le pane 'pingPane' ici
+                    const m = L.marker([p.lat, p.lng], { 
+                        icon: icon, 
+                        draggable: true, 
+                        pane: 'pingPane' // Force le Z-Index via le pane
+                    });
                     
                     if (!canDrag) m.dragging.disable();
 
