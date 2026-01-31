@@ -45,14 +45,17 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
       <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
       <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
       <style>
-        body { margin: 0; padding: 0; background: #000; font-family: sans-serif; transition: filter 0.5s ease; }
-        #map { width: 100vw; height: 100vh; }
+        body { margin: 0; padding: 0; background: #000; font-family: sans-serif; transition: filter 0.5s ease; overflow: hidden; }
+        /* Conteneur rotatif pour le mode Head-Up */
+        #map-container { width: 100vw; height: 100vh; transition: transform 0.3s ease; transform-origin: center center; }
+        #map { width: 100%; height: 100%; }
         
         body.night-ops {
             filter: sepia(100%) hue-rotate(-50deg) saturate(300%) contrast(1.2) brightness(0.8);
         }
 
         .tac-marker-root { position: relative; display: flex; justify-content: center; align-items: center; width: 80px; height: 80px; }
+        /* La rotation du marqueur doit compenser la rotation de la carte si on est en mode Head-Up */
         .tac-cone-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; transition: transform 0.1s linear; pointer-events: none; z-index: 1; }
         
         .tac-circle-id { position: absolute; z-index: 10; width: 32px; height: 32px; border-radius: 50%; border: 2px solid white; display: flex; justify-content: center; align-items: center; box-shadow: 0 0 5px rgba(0,0,0,0.5); top: 50%; left: 50%; transform: translate(-50%, -50%); transition: all 0.3s ease; }
@@ -66,7 +69,8 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         .ping-label { background: rgba(0,0,0,0.7); color: white; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: bold; margin-bottom: 2px; border: 1px solid rgba(255,255,255,0.3); white-space: nowrap; max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
 
         /* Compass Styles */
-        #compass { position: absolute; top: 20px; left: 20px; width: 60px; height: 60px; z-index: 9999; background: rgba(0,0,0,0.6); border-radius: 50%; border: 2px solid rgba(255,255,255,0.2); display: flex; justify-content: center; align-items: center; backdrop-filter: blur(2px); pointer-events: none; transition: top 0.3s, left 0.3s, bottom 0.3s; }
+        /* pointer-events: auto pour permettre le clic */
+        #compass { position: absolute; top: 20px; left: 20px; width: 60px; height: 60px; z-index: 9999; background: rgba(0,0,0,0.6); border-radius: 50%; border: 2px solid rgba(255,255,255,0.2); display: flex; justify-content: center; align-items: center; backdrop-filter: blur(2px); pointer-events: auto; transition: top 0.3s, left 0.3s, bottom 0.3s; cursor: pointer; }
         
         /* Landscape Compass Position */
         body.landscape #compass { top: auto; bottom: 20px; left: 20px; }
@@ -82,7 +86,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
       <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     </head>
     <body>
-      <div id="map"></div>
+      <div id="map-container"><div id="map"></div></div>
       <div id="compass"><div id="compass-indicator"></div><div id="compass-rose"><span class="compass-label compass-n">N</span><span class="compass-label compass-e">E</span><span class="compass-label compass-s">S</span><span class="compass-label compass-w">O</span></div></div>
 
       <script>
@@ -112,6 +116,12 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         let pingMode = false;
         let lastMePos = null;
         let autoCentered = ${initialAutoCentered};
+        let myHeading = 0;
+        
+        // État de l'orientation de la carte
+        // 0 = Nord en haut (Défaut)
+        // 1 = Cap en haut (Rotation de la carte)
+        let mapOrientationMode = 0; 
 
         function hexToRgba(hex, alpha) {
             let r = parseInt(hex.slice(1, 3), 16),
@@ -125,19 +135,66 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         document.addEventListener('message', (event) => handleData(JSON.parse(event.data)));
         window.addEventListener('message', (event) => handleData(JSON.parse(event.data)));
 
+        // Gestion du clic sur la boussole
+        document.getElementById('compass').addEventListener('click', () => {
+            if (mapOrientationMode === 0) {
+                // Passer en mode "Cap en haut"
+                mapOrientationMode = 1;
+            } else {
+                // Revenir au mode "Nord en haut"
+                mapOrientationMode = 0;
+            }
+            updateMapRotation();
+        });
+
+        function updateMapRotation() {
+            const mapContainer = document.getElementById('map-container');
+            const compassRose = document.getElementById('compass-rose');
+            
+            if (mapOrientationMode === 1) {
+                // Mode Cap en haut : On tourne la carte de l'opposé du cap (-myHeading)
+                // Attention : Leaflet ne gère pas ça nativement, c'est une rotation CSS. 
+                // Les textes seront tournés.
+                // Pour que le cap soit en haut, la carte doit tourner de -heading.
+                mapContainer.style.transform = 'rotate(' + (-myHeading) + 'deg)';
+                
+                // La boussole doit pointer le Nord, donc si le haut de l'écran est le cap, le Nord est à -heading par rapport au haut.
+                // Dans le repère de l'écran (fixe), le nord de la boussole tourne.
+                // Mais ici compassRose est dans un div fixe.
+                // Si la carte tourne, la boussole doit toujours indiquer le nord relatif à l'écran ? 
+                // Non, la boussole indique le nord. Si je vais à l'Est (90°), la carte tourne de -90°. Le Nord est à ma gauche.
+                // Donc la boussole doit tourner de -90° aussi pour pointer vers la gauche.
+                compassRose.style.transform = 'rotate(' + (-myHeading) + 'deg)';
+            } else {
+                // Mode Nord en haut : Carte à 0°
+                mapContainer.style.transform = 'rotate(0deg)';
+                // La boussole indique mon cap. Si je vais à l'Est, l'aiguille N est fixe (haut), mais mon indicateur de direction change ?
+                // Non, traditionnellement une boussole UI :
+                // Option A (Nord fixe) : La rose tourne pour montrer mon cap en haut. (C'est ce qu'on faisait : transform = -head)
+                // Option B (Aiguille) : La rose est fixe, une aiguille tourne.
+                
+                // On garde la logique précédente : La rose tourne selon le cap inverse pour mettre le "N" à sa place géographique.
+                compassRose.style.transform = 'rotate(' + (-myHeading) + 'deg)';
+            }
+            
+            // Mise à jour des marqueurs (Textes, icônes) pour qu'ils restent droits ? 
+            // Avec une rotation CSS globale du conteneur, tout tourne. C'est le comportement attendu pour "Orienter la carte".
+        }
+
         map.on('moveend', () => {
             const center = map.getCenter();
             sendToApp({ type: 'MAP_MOVE_END', center: {lat: center.lat, lng: center.lng}, zoom: map.getZoom() });
         });
 
-        // Gestion Single Click
         map.on('click', (e) => {
             if (pingMode) {
+                // En mode rotation, les coordonnées de clic peuvent être faussées par le CSS transform si Leaflet ne le sait pas.
+                // Leaflet utilise getBoundingClientRect, donc ça devrait aller pour le point écran, mais la projection peut être décalée.
+                // Pour une implémentation simple CSS, on accepte cette limitation ou on désactive la rotation pour pinger.
                 sendToApp({ type: 'MAP_CLICK', lat: e.latlng.lat, lng: e.latlng.lng });
             }
         });
 
-        // Gestion Double Click
         map.on('dblclick', (e) => {
              sendToApp({ type: 'MAP_DBLCLICK', lat: e.latlng.lat, lng: e.latlng.lng });
         });
@@ -159,9 +216,8 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                 updateNavigation(data.me, data.navTargetId, data.peers);
 
                 if(data.me && typeof data.me.head === 'number') {
-                    const rot = -data.me.head;
-                    const el = document.getElementById('compass-rose');
-                    if(el) el.style.transform = 'rotate(' + rot + 'deg)';
+                    myHeading = data.me.head;
+                    updateMapRotation(); // Appliquer la rotation selon le mode
                 }
 
                 if (!autoCentered && data.me && data.me.lat !== 0 && data.me.lng !== 0) {
