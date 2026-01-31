@@ -57,19 +57,22 @@ jobs:
       - name: 🔧 Patch Podfile for iOS Version
         run: |
           cd ios
-          # On ajoute un bloc post_install pour forcer iOS 13.0 min sur tous les pods
-          cat <<EOF >> Podfile
+          # Au lieu d'ajouter un 2ème hook post_install (ce qui est interdit), 
+          # on insère nos modifications DANS le hook existant généré par Expo.
+          # On cherche la ligne "post_install do |installer|" et on ajoute nos règles juste après.
           
-          post_install do |installer|
-            installer.pods_project.targets.each do |target|
-              target.build_configurations.each do |config|
-                config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
-                config.build_settings['GCC_WARN_INHIBIT_ALL_WARNINGS'] = "YES"
-              end
-            end
-          end
-          EOF
-          echo "✅ Podfile patché pour forcer iOS 13.0"
+          sed -i '' '/post_install do |installer|/a\
+            installer.pods_project.targets.each do |target|\
+              target.build_configurations.each do |config|\
+                config.build_settings["IPHONEOS_DEPLOYMENT_TARGET"] = "13.4"\
+                config.build_settings["GCC_WARN_INHIBIT_ALL_WARNINGS"] = "YES"\
+              end\
+            end\
+          ' Podfile
+          
+          echo "✅ Podfile patché : Injection de la config iOS 13.4 dans le hook existant."
+          # Debug: Vérifier le contenu du fichier
+          head -n 50 Podfile
 
       - name: 🔧 Install Pods
         run: |
