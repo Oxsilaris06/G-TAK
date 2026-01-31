@@ -1002,7 +1002,7 @@ const triggerTacticalNotification = async (title: string, body: string) => {
       {/* MODALE QR CODE - REFONDUE POUR PAYSAGE */}
       <Modal visible={showQRModal} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
-            <View style={[styles.modalContent, isLandscape && { width: '80%', padding: 20 }]}>
+            <View style={[styles.modalContent, isLandscape ? { width: '100%', height: '100%', justifyContent: 'space-between', padding: 20, borderRadius: 0 } : {}]}>
                 {/* Titre en haut à gauche en paysage */}
                 <Text style={[styles.modalTitle, isLandscape && { alignSelf: 'flex-start', marginBottom: 10 }]}>MON IDENTITY TAG</Text>
                 
@@ -1010,9 +1010,10 @@ const triggerTacticalNotification = async (title: string, body: string) => {
                 <View style={{
                     flexDirection: isLandscape ? 'row' : 'column', 
                     alignItems: 'center', 
-                    justifyContent: isLandscape ? 'space-around' : 'center',
+                    justifyContent: isLandscape ? 'center' : 'center',
                     width: '100%',
-                    flex: isLandscape ? 1 : 0
+                    flex: isLandscape ? 1 : 0,
+                    gap: isLandscape ? 40 : 0 // Espace entre QR et ID en paysage
                 }}>
                     {/* QR Code à gauche */}
                     <View style={{padding: 20, backgroundColor: 'white', borderRadius: 10, marginVertical: 20}}>
@@ -1022,7 +1023,7 @@ const triggerTacticalNotification = async (title: string, body: string) => {
                     {/* ID à droite (en paysage) ou dessous (en portrait) */}
                     <TouchableOpacity onPress={copyToClipboard} style={{
                         flexDirection:'row', alignItems:'center', backgroundColor: '#f4f4f5', padding: 10, borderRadius: 8,
-                        marginLeft: isLandscape ? 20 : 0
+                        marginLeft: isLandscape ? 0 : 0
                     }}>
                         <Text style={[styles.qrId, {marginTop: 0, marginRight: 10, color:'black'}]}>{hostId || user.id}</Text>
                         <MaterialIcons name="content-copy" size={20} color="#3b82f6" />
@@ -1114,4 +1115,5 @@ const styles = StyleSheet.create({
   readOnlyLabel: { width: 50, color: '#71717a', fontWeight: 'bold', fontSize: 12 },
   readOnlyVal: { flex: 1, color: 'white', fontSize: 12 }
 });
+
 export default App;
