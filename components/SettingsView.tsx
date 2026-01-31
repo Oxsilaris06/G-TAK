@@ -121,11 +121,11 @@ const SettingsView: React.FC<Props> = ({ onClose, onUpdate }) => {
                         </View>
                     </View>
                     
-                    {/* --- AJOUT CONFIGURATION TRAILS --- */}
+                    {/* CONFIG TRAILS */}
                     <View style={styles.row}>
                         <View>
                              <Text style={styles.label}>Historique Trails</Text>
-                             <Text style={styles.subLabel}>Max points par opérateur ({settings.maxTrailsPerUser})</Text>
+                             <Text style={styles.subLabel}>Max points : {settings.maxTrailsPerUser}</Text>
                         </View>
                         <View style={{flexDirection: 'row', alignItems: 'center'}}>
                             <TouchableOpacity onPress={() => setSettings(s => ({...s, maxTrailsPerUser: Math.max(50, (s.maxTrailsPerUser || 500) - 50)}))} style={styles.miniBtn}><Text style={styles.miniBtnText}>-</Text></TouchableOpacity>
