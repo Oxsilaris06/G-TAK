@@ -1,4 +1,4 @@
-name: 🕵️ DIAGNOSTIC SERVEUR EAS (CORRIGÉ)
+name: 🕵️ DIAGNOSTIC SERVEUR EAS (FINAL)
 
 on:
   workflow_dispatch:
@@ -14,10 +14,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
+          # cache: 'npm' <--- LIGNE SUPPRIMÉE POUR ÉVITER L'ERREUR
 
-      # --- ETAPE MANQUANTE AJOUTÉE ---
-      - name: 📦 Installation des dépendances (CRUCIAL)
+      - name: 📦 Installation des dépendances
         run: npm install --legacy-peer-deps
 
       - name: 🏗 Installation EAS CLI
@@ -42,5 +41,7 @@ jobs:
       - name: 🔍 TEST 3 - LECTURE CONFIG LOCALE
         run: |
           echo "Vérification de la configuration locale :"
+          # On vérifie que l'URL n'a pas d'espace
           grep "url:" app.config.js
+          # On vérifie la version figée
           grep "runtimeVersion:" app.config.js
