@@ -217,7 +217,7 @@ const triggerTacticalNotification = async (title: string, body: string) => {
               foregroundService: {
                   notificationTitle: "PRAXIS ACTIF",
                   notificationBody: "Lien Tactique Maintenu",
-                  notificationColor: "#2563eb"
+                  notificationColor: "#000000"
               }
           });
           locationService.startTracking();
