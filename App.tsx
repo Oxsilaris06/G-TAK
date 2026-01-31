@@ -631,7 +631,7 @@ const triggerTacticalNotification = async (title: string, body: string) => {
         <SafeAreaView style={styles.safeArea}>
           <View style={styles.menuContainer}>
             <View style={{flexDirection: 'row', justifyContent:'space-between', marginBottom: 20}}>
-                <Text style={styles.sectionTitle}>MENU PRINCIPAL</Text>
+                <Text style={styles.sectionTitle}>Praxis</Text>
                 <TouchableOpacity onPress={() => setShowSettings(true)}><MaterialIcons name="settings" size={24} color="white" /></TouchableOpacity>
             </View>
             {hostId ? (
@@ -655,7 +655,7 @@ const triggerTacticalNotification = async (title: string, body: string) => {
                     <TextInput style={styles.inputBox} placeholder="ID GROUPE..." placeholderTextColor="#52525b" value={hostInput} onChangeText={setHostInput} autoCapitalize="characters" />
                     <TouchableOpacity onPress={() => joinSession()} style={styles.joinBtn}><Text style={styles.joinBtnText}>REJOINDRE</Text></TouchableOpacity>
                     <TouchableOpacity onPress={() => { requestCamera().then(() => setShowScanner(true)); }} style={[styles.joinBtn, {marginTop: 10, backgroundColor: '#18181b', borderWidth: 1, borderColor: '#333'}]}>
-                        <Text style={{color: '#71717a'}}>SCANNER QR</Text>
+                        <Text style={{color: '#71717a'}}>SCANNER QR CODE</Text>
                     </TouchableOpacity>
                 </>
             )}
