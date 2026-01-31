@@ -3,7 +3,7 @@ import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { 
   StyleSheet, View, Text, TextInput, TouchableOpacity, 
   SafeAreaView, Platform, Modal, StatusBar as RNStatusBar, Alert, ScrollView, ActivityIndicator,
-  KeyboardAvoidingView, AppState, FlatList, useWindowDimensions, AppStateStatus
+  KeyboardAvoidingView, AppState, FlatList, useWindowDimensions, Dimensions
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import QRCode from 'react-native-qrcode-svg';
@@ -49,10 +49,6 @@ const App: React.FC = () => {
   useKeepAwake();
   const { width, height } = useWindowDimensions();
   const isLandscape = width > height;
-  
-  // REF CRITIQUE : Permet de lire l'orientation dans le listener Magnétomètre sans le redémarrer
-  const isLandscapeRef = useRef(isLandscape);
-  useEffect(() => { isLandscapeRef.current = isLandscape; }, [isLandscape]);
 
   const [isAppReady, setIsAppReady] = useState(false);
   const [activeNotif, setActiveNotif] = useState<{ id: string, msg: string, type: 'alert' | 'info' | 'success' | 'warning' } | null>(null);
@@ -79,17 +75,9 @@ const App: React.FC = () => {
   const peersRef = useRef(peers);
   const userRef = useRef(user);
   
-  // Refs pour la gestion des capteurs
+  // Ref pour le magnétomètre
   const magSubscription = useRef<any>(null);
   const lastSentHead = useRef<number>(0);
-  const lastLocalHeadUpdate = useRef<number>(0); 
-  
-  // FILTRE PASSE-BAS POUR LA BOUSSOLE (Anti-Tremblement)
-  const smoothX = useRef(0);
-  const smoothY = useRef(0);
-  const ALPHA = 0.5; // Facteur de lissage (0.0 à 1.0). 0.5 = équilibre réactivité/stabilité.
-
-  const appState = useRef<AppStateStatus>(AppState.currentState);
 
   useEffect(() => { pingsRef.current = pings; }, [pings]);
   useEffect(() => { logsRef.current = logs; }, [logs]);
@@ -119,16 +107,14 @@ const App: React.FC = () => {
   const [hostileDetails, setHostileDetails] = useState<HostileDetails>({ position: '', nature: '', attitude: '', volume: '', armes: '', substances: '' });
   
   const [editingPing, setEditingPing] = useState<PingData | null>(null);
-  const [viewingPing, setViewingPing] = useState<PingData | null>(null);
+  const [viewingPing, setViewingPing] = useState<PingData | null>(null); // Pour la lecture seule
 
   const [selectedOperatorId, setSelectedOperatorId] = useState<string | null>(null);
   const [navTargetId, setNavTargetId] = useState<string | null>(null);
   const [navInfo, setNavInfo] = useState<{dist: string, time: string} | null>(null);
-  const [navMode, setNavMode] = useState<'pedestrian' | 'vehicle'>('pedestrian');
+  const [navMode, setNavMode] = useState<'pedestrian' | 'vehicle'>('pedestrian'); // Mode Ralliement
 
   const [gpsStatus, setGpsStatus] = useState<'WAITING' | 'OK' | 'ERROR'>('WAITING');
-  // État local pour forcer le re-render en cas de changement d'état d'app
-  const [appStateVisible, setAppStateVisible] = useState(appState.current);
 
   const showToast = useCallback((msg: string, type: 'info' | 'error' | 'success' | 'warning' = 'info') => {
       setActiveNotif({ id: Date.now().toString(), msg, type });
@@ -136,20 +122,20 @@ const App: React.FC = () => {
       else if (type === 'success') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   }, []);
 
-  const triggerTacticalNotification = async (title: string, body: string) => {
-      if (AppState.currentState !== 'background' || settings.disableBackgroundNotifications) return;
-      await Notifications.dismissAllNotificationsAsync();
-      await Notifications.scheduleNotificationAsync({
-          content: { 
-              title, 
-              body, 
-              sound: true, 
-              priority: Notifications.AndroidNotificationPriority.HIGH,
-              color: "#000000"
-          },
-          trigger: null, 
-      });
-  };
+const triggerTacticalNotification = async (title: string, body: string) => {
+    if (AppState.currentState !== 'background' || settings.disableBackgroundNotifications) return;
+    await Notifications.dismissAllNotificationsAsync();
+    await Notifications.scheduleNotificationAsync({
+        content: { 
+            title, 
+            body, 
+            sound: true, 
+            priority: Notifications.AndroidNotificationPriority.HIGH,
+            color: "#000000" // Couleur de la notification passée en noir
+        },
+        trigger: null, 
+    });
+};
 
   useEffect(() => {
     let mounted = true;
@@ -195,9 +181,6 @@ const App: React.FC = () => {
     });
 
     const appStateSub = AppState.addEventListener('change', async nextAppState => {
-      appState.current = nextAppState;
-      setAppStateVisible(nextAppState);
-      
       if (nextAppState === 'active') {
         connectivityService.handleAppStateChange('active');
         await Notifications.dismissAllNotificationsAsync();
@@ -214,6 +197,7 @@ const App: React.FC = () => {
     const locSub = locationService.subscribe((loc) => {
         setGpsStatus('OK');
         setUser(prev => ({ ...prev, lat: loc.latitude, lng: loc.longitude }));
+        // On envoie la position et le dernier cap connu du magnétomètre
         connectivityService.updateUserPosition(loc.latitude, loc.longitude, userRef.current.head);
     });
     
@@ -224,89 +208,56 @@ const App: React.FC = () => {
     };
   }, []);
 
-  // --- GESTION ROBUSTE DES CAPTEURS ---
-  const isTrackingView = view === 'map' || view === 'ops';
-
-  // 1. GESTION GPS UNIQUEMENT
-  // Ce useEffect ne dépend PAS de l'orientation ou de l'utilisateur, ce qui empêche le redémarrage en boucle.
+  // --- GESTION DU MAGNÉTOMÈTRE (BOUSSOLE) ---
   useEffect(() => {
-    if (isTrackingView && hostId && appStateVisible === 'active') {
-        locationService.updateOptions({ 
-            foregroundService: {
-                notificationTitle: "PRAXIS ACTIF",
-                notificationBody: "Lien Tactique Maintenu",
-                notificationColor: "#2563eb"
-            }
-        });
-        locationService.startTracking();
-    } else if (!isTrackingView || !hostId) {
-        // En arrière-plan, on laisse tourner si c'est configuré (géré par locationService)
-        // Mais si on quitte la session, on arrête.
-        if (!hostId) locationService.stopTracking();
-    }
-    // AUCUNE AUTRE DÉPENDANCE ICI (Surtout pas isLandscape !)
-  }, [isTrackingView, hostId, appStateVisible]);
+      if (view === 'map' || view === 'ops') { 
+          // Active le GPS
+          locationService.updateOptions({ 
+              timeInterval: settings.gpsUpdateInterval,
+              foregroundService: {
+                  notificationTitle: "PRAXIS ACTIF",
+                  notificationBody: "Lien Tactique Maintenu",
+                  notificationColor: "#2563eb"
+              }
+          });
+          locationService.startTracking();
 
-  // 2. GESTION MAGNÉTOMÈTRE (BOUSSOLE)
-  useEffect(() => {
-      const cleanupMag = () => {
-          if (magSubscription.current) {
-              magSubscription.current.remove();
-              magSubscription.current = null;
-          }
-      };
-
-      if (isTrackingView && appStateVisible === 'active') {
-          cleanupMag();
-          Magnetometer.setUpdateInterval(100); // 10Hz
-          
-          const sub = Magnetometer.addListener(data => {
+          // Active la Boussole
+          if (magSubscription.current) magSubscription.current.remove();
+          Magnetometer.setUpdateInterval(100); // 10Hz pour fluidité
+          magSubscription.current = Magnetometer.addListener(data => {
               const { x, y } = data;
-
-              // APPLICATION DU FILTRE PASSE-BAS
-              smoothX.current = smoothX.current * ALPHA + x * (1 - ALPHA);
-              smoothY.current = smoothY.current * ALPHA + y * (1 - ALPHA);
-
-              const sx = smoothX.current;
-              const sy = smoothY.current;
-
-              // CALCUL D'ANGLE ROBUSTE
-              let angle = 0;
-              // Utilisation de isLandscapeRef.current pour éviter de redémarrer le listener
-              if (isLandscapeRef.current) {
-                 // Paysage : Axes inversés
-                 angle = Math.atan2(sx, -sy) * (180 / Math.PI) + 90;
-              } else {
-                 // Portrait
-                 angle = Math.atan2(sy, sx) * (180 / Math.PI) - 90;
+              // Calcul de l'angle 0-360
+              let angle = Math.atan2(y, x) * (180 / Math.PI);
+              
+              // Compensation de base (Portrait)
+              angle = angle - 90; 
+              
+              // MODIFICATION : Compensation pour le mode PAYSAGE
+              if (isLandscape) {
+                  angle = angle + 90; 
               }
 
-              // Normalisation [0, 360]
               if (angle < 0) angle = angle + 360;
               const heading = Math.floor(angle);
 
-              const now = Date.now();
-              // Throttling local (100ms) pour ne pas saturer le state React
-              if (now - lastLocalHeadUpdate.current > 100 || Math.abs(heading - userRef.current.head) > 5) {
-                  lastLocalHeadUpdate.current = now;
-                  setUser(prev => ({ ...prev, head: heading }));
-              }
+              // Mise à jour locale fluide (toujours)
+              setUser(prev => ({ ...prev, head: heading }));
 
-              // Envoi réseau (Throttled: changement > 5 degrés uniquement)
-              const diff = Math.abs(heading - lastSentHead.current);
-              if (diff > 5) {
+              // Envoi réseau (Throttled: seulement si changement > 5°)
+              if (Math.abs(heading - lastSentHead.current) > 5) {
                   lastSentHead.current = heading;
                   connectivityService.updateUserPosition(userRef.current.lat, userRef.current.lng, heading);
               }
           });
-          magSubscription.current = sub;
 
       } else {
-          cleanupMag();
+          if (!hostId) locationService.stopTracking();
+          if (magSubscription.current) magSubscription.current.remove();
       }
-      
-      return () => { cleanupMag(); }
-  }, [isTrackingView, appStateVisible]); // PAS de isLandscape ici !
+      return () => { if (magSubscription.current) magSubscription.current.remove(); }
+  }, [view, settings.gpsUpdateInterval, hostId, isLandscape]); // Dépendance isLandscape ajoutée
+
 
   const handleConnectivityEvent = (event: ConnectivityEvent) => {
       switch (event.type) {
@@ -365,6 +316,7 @@ const App: React.FC = () => {
         const isHostile = data.ping.type === 'HOSTILE';
         
         if (isHostile) {
+            // Notification avec position GPS pour les pings adversaires
             const gpsCoords = `${data.ping.lat.toFixed(5)}, ${data.ping.lng.toFixed(5)}`;
             triggerTacticalNotification(
                 `ALERTE PING HOSTILE - ${data.ping.sender}`, 
@@ -376,14 +328,21 @@ const App: React.FC = () => {
             triggerTacticalNotification(`${senderName} - Info`, `${data.ping.msg}`);
         }
     }
-    else if (data.type === 'LOG_UPDATE' && Array.isArray(data.logs)) {
+        else if (data.type === 'LOG_UPDATE' && Array.isArray(data.logs)) {
         const oldLogs = logsRef.current;
         const newLogs = data.logs;
 
+        // Détecter si un nouveau log a été ajouté
         if (newLogs.length > oldLogs.length) {
-            const latestLog = newLogs[newLogs.length - 1];
+            const latestLog = newLogs[newLogs.length - 1]; // C'est un objet de type LogEntry
+            
+            // CORRECTION ICI : Utilisation de 'pax' au lieu de 'category'
+            // Et vérification stricte sur le label "HOSTILE" défini dans MainCouranteView.tsx
             if (latestLog.pax === 'HOSTILE') {
+                
+                // CORRECTION ICI : Utilisation de 'lieu', 'action', 'remarques'
                 const logBody = `${latestLog.lieu || 'Non spécifié'} - ${latestLog.action} / ${latestLog.remarques || 'RAS'}`;
+                
                 triggerTacticalNotification(`MAIN COURANTE - HOSTILE`, logBody);
             }
         }
@@ -419,7 +378,9 @@ const App: React.FC = () => {
           }
       }
       
-      else if (data.type === 'LOG_UPDATE' && Array.isArray(data.logs)) setLogs(data.logs);
+      else if (data.type === 'LOG_UPDATE' && Array.isArray(data.logs)) {
+          setLogs(data.logs);
+      }
       else if (data.type === 'SYNC_PINGS') setPings(data.pings);
       else if (data.type === 'SYNC_LOGS') setLogs(data.logs);
       else if (data.type === 'PING_MOVE') setPings(prev => prev.map(p => p.id === data.id ? { ...p, lat: data.lat, lng: data.lng } : p));
@@ -472,9 +433,10 @@ const App: React.FC = () => {
       setTimeout(finishLogout, 500); 
   };
 
+  // --- ACTIONS OPÉRATEUR ---
   const handleOperatorActionNavigate = (targetId: string) => { 
       setNavTargetId(targetId); 
-      setNavMode('pedestrian'); 
+      setNavMode('pedestrian'); // Default to walking
       setView('map'); 
       setLastOpsView('map'); 
       showToast("Ralliement activé");
@@ -493,6 +455,7 @@ const App: React.FC = () => {
       setShowQuickMsgModal(false); setFreeMsgInput(''); showToast("Message transmis"); 
   };
   
+  // --- GESTION DES PINGS/MARQUEURS ---
   const submitPing = () => {
       if (!tempPingLoc) return;
       const newPing: PingData = {
@@ -567,10 +530,26 @@ const App: React.FC = () => {
       } else { setView('login'); }
   };
 
+  // --- HELPER STYLES FOR LANDSCAPE UI ---
   const isLandscapeMap = isLandscape && view === 'map';
-  const getLandscapeStyle = (baseStyle: any = {}) => isLandscapeMap ? [baseStyle, { opacity: 0.5 }] : baseStyle;
-  const getLandscapeProps = () => isLandscapeMap ? { activeOpacity: 1 } : { activeOpacity: 0.5 };
+  
+  // Fonction pour obtenir le style des boutons (transparence en paysage)
+  const getLandscapeStyle = (baseStyle: any = {}) => {
+    if (isLandscapeMap) {
+       return [baseStyle, { opacity: 0.5 }];
+    }
+    return baseStyle;
+  };
 
+  // Fonction pour les propriétés des boutons (accentuation au toucher)
+  const getLandscapeProps = () => {
+      if (isLandscapeMap) {
+          return { activeOpacity: 1 }; // Devient opaque quand touché
+      }
+      return { activeOpacity: 0.5 };
+  };
+
+  // --- RENDER HEADER & NAVIGATION ---
   useEffect(() => {
       if (navTargetId && peers[navTargetId] && user.lat && peers[navTargetId].lat) {
           const target = peers[navTargetId];
@@ -587,6 +566,7 @@ const App: React.FC = () => {
               setNavTargetId(null); showToast("Arrivé à destination", "success"); return;
           }
 
+          // Vitesse: Marche ~5km/h (1.4m/s), Voiture ~50km/h (13.8m/s)
           const speed = navMode === 'pedestrian' ? 1.4 : 13.8; 
           const seconds = distM / speed;
           const min = Math.round(seconds / 60);
@@ -681,7 +661,9 @@ const App: React.FC = () => {
             </TouchableOpacity>
           </View>
 
+          {/* AJOUTÉ ICI : Le notificateur s'affiche uniquement sur l'écran de Login */}
           <UpdateNotifier />
+          
           <PrivacyConsentModal onConsentGiven={() => {}} />
         </View>
       );
@@ -729,13 +711,19 @@ const App: React.FC = () => {
   const renderMainContent = () => {
     const isMapMode = view === 'map';
     const isOpsMode = view === 'ops';
+
+    // Styles conditionnels pour le layout
+    // Si paysage + map : header et footer sont absolute et transparents
+    // Sinon : flex layout normal
     
     return (
       <View style={{flex: 1}}>
+          {/* HEADER */}
           <View style={isLandscapeMap ? styles.headerLandscape : styles.header}>
              <SafeAreaView>{renderHeader()}</SafeAreaView>
           </View>
 
+          {/* CONTENT OPS (Liste) */}
           <View style={{ flex: 1, display: isOpsMode ? 'flex' : 'none' }}>
               <ScrollView contentContainerStyle={styles.grid}>
                   <OperatorCard user={user} isMe style={{ width: '100%' }} isNightOps={nightOpsMode} />
@@ -747,6 +735,8 @@ const App: React.FC = () => {
               </ScrollView>
           </View>
 
+          {/* CONTENT MAP */}
+          {/* En mode paysage, la map prend tout l'espace (flex 1 dans le conteneur principal) et le header/footer sont au-dessus */}
           <View style={{ flex: 1, display: isMapMode ? 'flex' : 'none', position: 'relative' }}>
               <View style={{flex: 1}}>
                   <TacticalMap 
@@ -758,8 +748,7 @@ const App: React.FC = () => {
                       pingMode={isPingMode} navTargetId={navTargetId}
                       nightOpsMode={nightOpsMode} 
                       initialCenter={mapState} 
-                      isLandscape={isLandscape} 
-                      maxTrailsPerUser={settings.maxTrailsPerUser}
+                      isLandscape={isLandscape} // Prop pour ajuster la carte (boussole)
                       onPing={(loc) => { setTempPingLoc(loc); setShowPingMenu(true); }}
                       onPingMove={(p) => { 
                           setPings(prev => prev.map(pi => pi.id === p.id ? p : pi));
@@ -769,6 +758,7 @@ const App: React.FC = () => {
                           const p = pings.find(ping => ping.id === id);
                           if (!p) return;
                           if (p.type === 'HOSTILE') {
+                              // Click simple sur Hostile : Voir les détails en lecture seule
                               setViewingPing(p);
                           } else {
                               showToast(`Ping de ${p.sender}`, 'info');
@@ -777,16 +767,20 @@ const App: React.FC = () => {
                       onPingLongPress={(id) => {
                           const p = pings.find(ping => ping.id === id);
                           if (!p) return;
+                          // Appui long sur Hostile : Editer si on a les droits
                           if (user.role === OperatorRole.HOST || p.sender === user.callsign) {
                              setEditingPing(p); 
                              setPingMsgInput(p.msg); 
                              if(p.details) setHostileDetails(p.details);
+                             // Pas de showPingForm(true) ici car on utilise la modale editingPing
                           }
                       }}
                       onNavStop={() => setNavTargetId(null)} 
                       onMapMoveEnd={(center, zoom) => setMapState({...center, zoom})} 
                   />
                   
+                  {/* MAP CONTROLS (Flottant) */}
+                  {/* MODIFIÉ : Centré verticalement à droite en mode paysage */}
                   <View style={[styles.mapControls, isLandscapeMap && { top: '50%', right: 16, marginTop: -100 }]}>
                       <TouchableOpacity onPress={() => setMapMode(m => m === 'custom' ? 'dark' : m === 'dark' ? 'light' : m === 'light' ? 'satellite' : settings.customMapUrl ? 'custom' : 'dark')} {...getLandscapeProps()} style={[getLandscapeStyle(styles.mapBtn), nightOpsMode && {borderColor: '#7f1d1d', backgroundColor: '#000'}]}>
                           <MaterialIcons name={mapMode === 'dark' ? 'dark-mode' : mapMode === 'light' ? 'light-mode' : mapMode === 'custom' ? 'map' : 'satellite'} size={24} color={nightOpsMode ? "#ef4444" : "#d4d4d8"} />
@@ -804,6 +798,7 @@ const App: React.FC = () => {
               </View>
           </View>
 
+          {/* FOOTER */}
           <View style={[isLandscapeMap ? styles.footerLandscape : styles.footer, nightOpsMode && {borderTopColor: '#7f1d1d'}]}>
                 <View style={styles.statusRow}>
                   {[OperatorStatus.PROGRESSION, OperatorStatus.CONTACT, OperatorStatus.CLEAR].map(s => (
@@ -839,6 +834,9 @@ const App: React.FC = () => {
                 setSettings(s); 
                 setUser(u => ({...u, paxColor: s.userArrowColor})); 
                 connectivityService.updateUser({paxColor: s.userArrowColor}); 
+                if(s.gpsUpdateInterval !== settings.gpsUpdateInterval) {
+                   locationService.updateOptions({ timeInterval: s.gpsUpdateInterval });
+                }
             }} 
          />
       </Modal>
@@ -846,6 +844,7 @@ const App: React.FC = () => {
       <OperatorActionModal visible={!!selectedOperatorId} targetOperator={peers[selectedOperatorId || ''] || null} currentUserRole={user.role} onClose={() => setSelectedOperatorId(null)} onKick={handleOperatorActionKick} onNavigate={handleOperatorActionNavigate} />
       <MainCouranteView visible={showLogs} logs={logs} role={user.role} onClose={() => setShowLogs(false)} onAddLog={handleAddLog} onUpdateLog={handleUpdateLog} onDeleteLog={handleDeleteLog} />
       
+      {/* MODALE MESSAGE RAPIDE - Adaptée PAYSAGE */}
       <Modal visible={showQuickMsgModal} animationType="fade" transparent>
         <KeyboardAvoidingView behavior="padding" style={styles.modalOverlay}>
             <View style={[styles.modalContent, {
@@ -858,11 +857,12 @@ const App: React.FC = () => {
             }]}>
                 <Text style={[styles.modalTitle, {color: '#06b6d4', marginBottom: 5}]}>MESSAGE RAPIDE</Text>
                 
+                {/* Liste des messages - Flex 1 pour prendre tout l'espace */}
                 <View style={{flex: 1, width: '100%', marginBottom: 10}}>
                     <FlatList 
                         data={quickMessagesList} 
                         keyExtractor={(item, index) => index.toString()} 
-                        numColumns={isLandscape ? 2 : 1} 
+                        numColumns={isLandscape ? 2 : 1} // Optionnel : Grid en paysage si beaucoup de messages
                         renderItem={({item}) => (
                             <TouchableOpacity onPress={() => handleSendQuickMessage(item.includes("Effacer") ? "" : item)} style={[styles.quickMsgItem, isLandscape && {flex: 1, margin: 5, backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 8}]}>
                                 <Text style={styles.quickMsgText}>{item}</Text>
@@ -873,6 +873,7 @@ const App: React.FC = () => {
                     />
                 </View>
 
+                {/* Zone de saisie + Bouton Envoi - Fixe en bas */}
                 <View style={{flexDirection: 'row', marginBottom: 10, width: '100%', paddingHorizontal: 5}}>
                     <TextInput style={[styles.pingInput, {flex: 1, marginBottom: 0, textAlign: 'left'}]} placeholder="Message libre..." placeholderTextColor="#52525b" value={freeMsgInput} onChangeText={setFreeMsgInput} />
                     <TouchableOpacity onPress={() => handleSendQuickMessage(freeMsgInput)} style={[styles.modalBtn, {backgroundColor: '#06b6d4', marginLeft: 10, flex: 0, width: 50}]}>
@@ -880,6 +881,7 @@ const App: React.FC = () => {
                     </TouchableOpacity>
                 </View>
                 
+                {/* Bouton Annuler - Fixe en bas */}
                 <TouchableOpacity onPress={() => setShowQuickMsgModal(false)} style={[styles.closeBtn, {backgroundColor: '#27272a', marginTop: 0, width: '100%'}]}>
                     <Text style={{color: '#a1a1aa'}}>ANNULER</Text>
                 </TouchableOpacity>
@@ -889,6 +891,7 @@ const App: React.FC = () => {
 
       <Modal visible={showPingMenu} transparent animationType="fade"><View style={styles.modalOverlay}><View style={styles.pingMenuContainer}><Text style={styles.modalTitle}>TYPE DE MARQUEUR</Text><View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 15, justifyContent: 'center'}}><TouchableOpacity onPress={() => { setCurrentPingType('HOSTILE'); setShowPingMenu(false); setPingMsgInput(''); setHostileDetails({position: tempPingLoc ? `${tempPingLoc.lat.toFixed(5)}, ${tempPingLoc.lng.toFixed(5)}` : '', nature: '', attitude: '', volume: '', armes: '', substances: ''}); setShowPingForm(true); }} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(239, 68, 68, 0.2)', borderColor: '#ef4444'}]}><MaterialIcons name="warning" size={30} color="#ef4444" /><Text style={{color: '#ef4444', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>ADVERSAIRE</Text></TouchableOpacity><TouchableOpacity onPress={() => { setCurrentPingType('FRIEND'); setShowPingMenu(false); setPingMsgInput(''); setShowPingForm(true); }} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(34, 197, 94, 0.2)', borderColor: '#22c55e'}]}><MaterialIcons name="shield" size={30} color="#22c55e" /><Text style={{color: '#22c55e', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>AMI</Text></TouchableOpacity><TouchableOpacity onPress={() => { setCurrentPingType('INTEL'); setShowPingMenu(false); setPingMsgInput(''); setShowPingForm(true); }} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(234, 179, 8, 0.2)', borderColor: '#eab308'}]}><MaterialIcons name="visibility" size={30} color="#eab308" /><Text style={{color: '#eab308', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>RENS</Text></TouchableOpacity></View><TouchableOpacity onPress={() => setShowPingMenu(false)} style={[styles.closeBtn, {marginTop: 20, backgroundColor: '#27272a'}]}><Text style={{color:'white'}}>ANNULER</Text></TouchableOpacity></View></View></Modal>
       
+      {/* MODALE CRÉATION PING (ADVERSAIRE) - Adaptée PAYSAGE */}
       <Modal visible={showPingForm} transparent animationType="slide">
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
             <View style={[styles.modalContent, {
@@ -901,14 +904,18 @@ const App: React.FC = () => {
             }]}>
                 <Text style={[styles.modalTitle, {color: currentPingType === 'HOSTILE' ? '#ef4444' : currentPingType === 'FRIEND' ? '#22c55e' : '#eab308'}]}>{currentPingType === 'HOSTILE' ? 'ADVERSAIRE' : currentPingType === 'FRIEND' ? 'AMI' : 'RENS'}</Text>
                 
+                {/* ScrollView Wrapper for inputs */}
                 <ScrollView style={{width: '100%'}} contentContainerStyle={{paddingBottom: 20}}>
                     <View style={{width: '100%'}}>
                         <Text style={styles.label}>Message</Text>
                         <TextInput style={styles.pingInput} placeholder="Titre / Info" placeholderTextColor="#52525b" value={pingMsgInput} onChangeText={setPingMsgInput} autoFocus={currentPingType !== 'HOSTILE'} />
                         
                         {currentPingType === 'HOSTILE' && (
+                            /* Flex container pour les champs en mode paysage */
                             <View style={isLandscape ? {flexDirection: 'row', flexWrap: 'wrap', gap: 10, width: '100%', justifyContent: 'space-between'} : {width: '100%'}}>
                                 <Text style={[styles.label, {color: '#ef4444', marginTop: 5, width: '100%'}]}>Détails Tactiques (Caneva)</Text>
+                                
+                                {/* Les champs s'adaptent : 30% en paysage, 100% en portrait */}
                                 <TextInput style={[styles.detailInput, isLandscape && {width: '30%'}]} placeholder="Position" placeholderTextColor="#52525b" value={hostileDetails.position} onChangeText={t => setHostileDetails({...hostileDetails, position: t})} />
                                 <TextInput style={[styles.detailInput, isLandscape && {width: '30%'}]} placeholder="Nature" placeholderTextColor="#52525b" value={hostileDetails.nature} onChangeText={t => setHostileDetails({...hostileDetails, nature: t})} />
                                 <TextInput style={[styles.detailInput, isLandscape && {width: '30%'}]} placeholder="Attitude" placeholderTextColor="#52525b" value={hostileDetails.attitude} onChangeText={t => setHostileDetails({...hostileDetails, attitude: t})} />
@@ -920,6 +927,7 @@ const App: React.FC = () => {
                     </View>
                 </ScrollView>
 
+                {/* Boutons d'action fixés en bas */}
                 <View style={{flexDirection: 'row', gap: 10, marginTop: 10, paddingBottom: isLandscape ? 10 : 0}}>
                     <TouchableOpacity onPress={() => setShowPingForm(false)} style={[styles.modalBtn, {backgroundColor: '#27272a'}]}>
                         <Text style={{color: 'white'}}>ANNULER</Text>
@@ -932,6 +940,7 @@ const App: React.FC = () => {
         </KeyboardAvoidingView>
       </Modal>
       
+      {/* MODALE ÉDITION PING (HOSTILE) - Adaptée PAYSAGE */}
       <Modal visible={!!editingPing && !showPingForm} transparent animationType="slide">
         <View style={styles.modalOverlay}>
             <View style={[styles.modalContent, {
@@ -968,6 +977,7 @@ const App: React.FC = () => {
         </View>
       </Modal>
       
+      {/* MODALE LECTURE SEULE PING (HOSTILE) - Adaptée PAYSAGE */}
       <Modal visible={!!viewingPing} transparent animationType="slide">
           <View style={styles.modalOverlay}>
               <View style={[styles.modalContent, {
@@ -996,29 +1006,34 @@ const App: React.FC = () => {
           </View>
       </Modal>
 
+      {/* MODALE QR CODE - REFONDUE POUR PAYSAGE */}
       <Modal visible={showQRModal} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
             <View style={[styles.modalContent, isLandscape && { width: '100%', height: '100%', padding: 20, justifyContent: 'space-between', alignItems: 'center' }]}>
+                {/* Titre en haut à gauche en paysage */}
                 <Text style={[styles.modalTitle, isLandscape && { alignSelf: 'flex-start', marginBottom: 10 }]}>MON IDENTITY TAG</Text>
                 
+                {/* Conteneur principal : Ligne en paysage, Colonne en portrait */}
                 <View style={{
                     flexDirection: isLandscape ? 'row' : 'column', 
                     alignItems: 'center', 
-                    justifyContent: isLandscape ? 'space-evenly' : 'center',
+                    justifyContent: isLandscape ? 'space-evenly' : 'center', // Changed for better distribution
                     width: '100%',
                     flex: isLandscape ? 1 : 0,
                     gap: isLandscape ? 0 : 0 
                 }}>
+                    {/* QR Code à gauche */}
                     <View style={{
                         padding: 20, 
                         backgroundColor: 'white', 
                         borderRadius: 10, 
                         marginVertical: 20,
-                        marginRight: isLandscape ? 40 : 0 
+                        marginRight: isLandscape ? 40 : 0 // Shift right
                     }}>
                         <QRCode value={hostId || user.id || 'NO_ID'} size={isLandscape ? 120 : 200} backgroundColor="white" color="black" />
                     </View>
 
+                    {/* ID à droite (en paysage) ou dessous (en portrait) */}
                     <TouchableOpacity onPress={copyToClipboard} style={{
                         flexDirection:'row', alignItems:'center', backgroundColor: '#f4f4f5', padding: 10, borderRadius: 8,
                         marginLeft: isLandscape ? 20 : 0
@@ -1028,6 +1043,7 @@ const App: React.FC = () => {
                     </TouchableOpacity>
                 </View>
 
+                {/* Bouton Fermer Fixe en bas */}
                 <TouchableOpacity onPress={() => setShowQRModal(false)} style={[styles.closeBtn, {marginTop: isLandscape ? 20 : 20, width: isLandscape ? '100%' : '100%'}]}>
                     <Text style={styles.closeBtnText}>FERMER</Text>
                 </TouchableOpacity>
@@ -1039,6 +1055,8 @@ const App: React.FC = () => {
 
       {activeNotif && <NotificationToast message={activeNotif.msg} type={activeNotif.type} isNightOps={nightOpsMode} onDismiss={() => setActiveNotif(null)} />}
       
+      {/* --- FIN DES COMPOSANTS --- */}
+
       {nightOpsMode && <View style={styles.nightOpsOverlay} pointerEvents="none" />}
     </View>
   );
@@ -1064,9 +1082,11 @@ const styles = StyleSheet.create({
   joinBtn: { backgroundColor: '#27272a', padding: 20, borderRadius: 16, alignItems: 'center' },
   joinBtnText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
   
+  // Header Standard
   header: { backgroundColor: '#09090b', borderBottomWidth: 1, borderBottomColor: '#27272a', paddingTop: Platform.OS === 'android' ? RNStatusBar.currentHeight : 0, zIndex: 1000, elevation: 1000 },
   headerContent: { height: 60, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20 },
   
+  // Header Landscape (Transparent & Absolute)
   headerLandscape: { position: 'absolute', top: 0, left: 0, right: 0, backgroundColor: 'transparent', zIndex: 2000, borderBottomWidth: 0, paddingTop: Platform.OS === 'android' ? RNStatusBar.currentHeight : 0 },
   headerContentLandscape: { height: 60, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20 },
 
@@ -1077,7 +1097,10 @@ const styles = StyleSheet.create({
   mapControls: { position: 'absolute', top: 16, right: 16, gap: 12, zIndex: 2000, elevation: 2000 },
   mapBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#18181b', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
   
+  // Footer Standard
   footer: { backgroundColor: '#050505', borderTopWidth: 1, borderTopColor: '#27272a', paddingBottom: 20, zIndex: 2000, elevation: 2000 },
+  
+  // Footer Landscape (Transparent & Absolute)
   footerLandscape: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: 'transparent', zIndex: 2000, paddingBottom: 10, borderTopWidth: 0 },
   
   statusRow: { flexDirection: 'row', padding: 12, gap: 8, flexWrap: 'wrap', justifyContent: 'center' },
