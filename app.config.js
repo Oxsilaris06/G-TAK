@@ -1,5 +1,5 @@
-// RETOUR AU VRAI ID DU PROJET (Celui qui est correct)
-const PROJECT_ID = "f55fd8e2-57c6-4432-a64c-fae41bb16a3e"; 
+// ID PROJET VALIDE
+const PROJECT_ID = "f55fd8e2-57c6-4432-a64c-fae41bb16a3e";
 const VERSION = "4.1.0";
 
 export default {
@@ -13,7 +13,7 @@ export default {
     
     runtimeVersion: VERSION,
     
-    // Inclusion des assets (Vital pour éviter les erreurs de téléchargement)
+    // Inclusion des assets
     assetBundlePatterns: [
       "**/*"
     ],
@@ -45,12 +45,17 @@ export default {
         foregroundImage: "./assets/adaptive-icon.png",
         backgroundColor: "#000000"
       },
-      // --- AJOUT CRITIQUE : FORÇAGE NATIF DU CANAL ---
-      // Cela garantit que le code natif Android sait où chercher AVANT de charger le JS
+      // --- SECTION CRITIQUE : FORÇAGE DES HEADERS ---
+      // On inscrit ces valeurs directement dans le coeur d'Android
       metaData: {
-        "expo.modules.updates.EXPO_UPDATES_CHANNEL_NAME": "production",
         "expo.modules.updates.EXPO_UPDATES_CHECK_ON_LAUNCH": "ALWAYS",
-        "expo.modules.updates.EXPO_UPDATES_LAUNCH_WAIT_MS": "30000"
+        "expo.modules.updates.EXPO_UPDATES_LAUNCH_WAIT_MS": "30000",
+        // Force l'URL (évite les erreurs de construction)
+        "expo.modules.updates.EXPO_UPDATES_URL": `https://u.expo.dev/${PROJECT_ID}`,
+        // Force le canal
+        "expo.modules.updates.EXPO_UPDATES_CHANNEL_NAME": "production",
+        // Force la version (Règle l'erreur "runtime-version: Required")
+        "expo.modules.updates.EXPO_RUNTIME_VERSION": VERSION
       },
       permissions: [
         "ACCESS_FINE_LOCATION",
