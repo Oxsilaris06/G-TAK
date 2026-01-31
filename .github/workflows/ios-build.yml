@@ -53,6 +53,24 @@ jobs:
       - name: ⚙️ Expo Prebuild
         run: npx expo prebuild --platform ios --clean --no-install
 
+      # --- ETAPE CRITIQUE : PATCH PODFILE ---
+      - name: 🔧 Patch Podfile for iOS Version
+        run: |
+          cd ios
+          # On ajoute un bloc post_install pour forcer iOS 13.0 min sur tous les pods
+          cat <<EOF >> Podfile
+          
+          post_install do |installer|
+            installer.pods_project.targets.each do |target|
+              target.build_configurations.each do |config|
+                config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
+                config.build_settings['GCC_WARN_INHIBIT_ALL_WARNINGS'] = "YES"
+              end
+            end
+          end
+          EOF
+          echo "✅ Podfile patché pour forcer iOS 13.0"
+
       - name: 🔧 Install Pods
         run: |
           cd ios
@@ -99,6 +117,10 @@ jobs:
           mkdir -p "$DERIVED_DATA_PATH"
 
           # Compilation pour ARM64 (Device) sans signature
+          # Flags ajoutés :
+          # - GCC_TREAT_WARNINGS_AS_ERRORS=NO : Ignore les warnings C/ObjC
+          # - SWIFT_TREAT_WARNINGS_AS_ERRORS=NO : Ignore les warnings Swift
+          # - COMPILER_INDEX_STORE_ENABLE=NO : Accélère un peu le build et réduit l'espace
           xcodebuild \
             -workspace "$WORKSPACE" \
             -scheme "$SCHEME" \
@@ -112,6 +134,8 @@ jobs:
             DISABLE_MANUAL_TARGET_ORDER_BUILD_WARNING=YES \
             COMPILER_INDEX_STORE_ENABLE=NO \
             CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES=YES \
+            GCC_TREAT_WARNINGS_AS_ERRORS=NO \
+            SWIFT_TREAT_WARNINGS_AS_ERRORS=NO \
             ONLY_ACTIVE_ARCH=NO
 
       - name: 📦 Package into .ipa (Payload)
