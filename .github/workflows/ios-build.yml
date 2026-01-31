@@ -55,8 +55,9 @@ jobs:
         run: npx expo prebuild --platform ios --clean --no-install
 
       - name: 🔧 Install Pods
-        cd ios
-        run: pod install --repo-update
+        run: |
+          cd ios
+          pod install --repo-update
 
       - name: 🔨 Build Unsigned .app with Xcode
         run: |
