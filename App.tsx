@@ -899,17 +899,17 @@ const triggerTacticalNotification = async (title: string, body: string) => {
       <Modal visible={showPingForm} transparent animationType="slide">
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
             <View style={[styles.modalContent, {
-                width: isLandscape ? '100%' : '90%', 
-                height: isLandscape ? '100%' : undefined,
-                maxHeight: isLandscape ? '100%' : '80%', 
+                width: isLandscape ? '90%' : '90%', 
+                height: isLandscape ? '90%' : undefined, // Force height in landscape
+                maxHeight: isLandscape ? '90%' : '80%', 
                 borderRadius: isLandscape ? 0 : 24,
-                justifyContent: 'space-between',
+                justifyContent: 'flex-start', // Important for scrollview
                 paddingVertical: 20
             }]}>
-                <Text style={[styles.modalTitle, {color: currentPingType === 'HOSTILE' ? '#ef4444' : currentPingType === 'FRIEND' ? '#22c55e' : '#eab308'}]}>{currentPingType === 'HOSTILE' ? 'ADVERSAIRE' : currentPingType === 'FRIEND' ? 'AMI' : 'RENS'}</Text>
+                <Text style={[styles.modalTitle, {color: currentPingType === 'HOSTILE' ? '#ef4444' : currentPingType === 'FRIEND' ? '#22c55e' : '#eab308', marginBottom: 10}]}>{currentPingType === 'HOSTILE' ? 'ADVERSAIRE' : currentPingType === 'FRIEND' ? 'AMI' : 'RENS'}</Text>
                 
-                {/* ScrollView Wrapper for inputs */}
-                <ScrollView style={{width: '100%'}} contentContainerStyle={{paddingBottom: 20}}>
+                {/* ScrollView Wrapper for inputs - FLEX 1 to take available space */}
+                <ScrollView style={{width: '100%', flex: 1}} contentContainerStyle={{paddingBottom: 20}}>
                     <View style={{width: '100%'}}>
                         <Text style={styles.label}>Message</Text>
                         <TextInput style={styles.pingInput} placeholder="Titre / Info" placeholderTextColor="#52525b" value={pingMsgInput} onChangeText={setPingMsgInput} autoFocus={currentPingType !== 'HOSTILE'} />
@@ -919,20 +919,20 @@ const triggerTacticalNotification = async (title: string, body: string) => {
                             <View style={isLandscape ? {flexDirection: 'row', flexWrap: 'wrap', gap: 10, width: '100%', justifyContent: 'space-between'} : {width: '100%'}}>
                                 <Text style={[styles.label, {color: '#ef4444', marginTop: 5, width: '100%'}]}>Détails Tactiques (Caneva)</Text>
                                 
-                                {/* Les champs s'adaptent : 30% en paysage, 100% en portrait */}
-                                <TextInput style={[styles.detailInput, isLandscape && {width: '30%'}]} placeholder="Position" placeholderTextColor="#52525b" value={hostileDetails.position} onChangeText={t => setHostileDetails({...hostileDetails, position: t})} />
-                                <TextInput style={[styles.detailInput, isLandscape && {width: '30%'}]} placeholder="Nature" placeholderTextColor="#52525b" value={hostileDetails.nature} onChangeText={t => setHostileDetails({...hostileDetails, nature: t})} />
-                                <TextInput style={[styles.detailInput, isLandscape && {width: '30%'}]} placeholder="Attitude" placeholderTextColor="#52525b" value={hostileDetails.attitude} onChangeText={t => setHostileDetails({...hostileDetails, attitude: t})} />
-                                <TextInput style={[styles.detailInput, isLandscape && {width: '30%'}]} placeholder="Volume" placeholderTextColor="#52525b" value={hostileDetails.volume} onChangeText={t => setHostileDetails({...hostileDetails, volume: t})} />
-                                <TextInput style={[styles.detailInput, isLandscape && {width: '30%'}]} placeholder="Armement" placeholderTextColor="#52525b" value={hostileDetails.armes} onChangeText={t => setHostileDetails({...hostileDetails, armes: t})} />
-                                <TextInput style={[styles.detailInput, isLandscape && {width: '30%'}]} placeholder="Substances / Tenue" placeholderTextColor="#52525b" value={hostileDetails.substances} onChangeText={t => setHostileDetails({...hostileDetails, substances: t})} />
+                                {/* Les champs s'adaptent : 48% en paysage (2 colonnes), 100% en portrait */}
+                                <TextInput style={[styles.detailInput, isLandscape && {width: '48%'}]} placeholder="Position" placeholderTextColor="#52525b" value={hostileDetails.position} onChangeText={t => setHostileDetails({...hostileDetails, position: t})} />
+                                <TextInput style={[styles.detailInput, isLandscape && {width: '48%'}]} placeholder="Nature" placeholderTextColor="#52525b" value={hostileDetails.nature} onChangeText={t => setHostileDetails({...hostileDetails, nature: t})} />
+                                <TextInput style={[styles.detailInput, isLandscape && {width: '48%'}]} placeholder="Attitude" placeholderTextColor="#52525b" value={hostileDetails.attitude} onChangeText={t => setHostileDetails({...hostileDetails, attitude: t})} />
+                                <TextInput style={[styles.detailInput, isLandscape && {width: '48%'}]} placeholder="Volume" placeholderTextColor="#52525b" value={hostileDetails.volume} onChangeText={t => setHostileDetails({...hostileDetails, volume: t})} />
+                                <TextInput style={[styles.detailInput, isLandscape && {width: '48%'}]} placeholder="Armement" placeholderTextColor="#52525b" value={hostileDetails.armes} onChangeText={t => setHostileDetails({...hostileDetails, armes: t})} />
+                                <TextInput style={[styles.detailInput, isLandscape && {width: '48%'}]} placeholder="Substances / Tenue" placeholderTextColor="#52525b" value={hostileDetails.substances} onChangeText={t => setHostileDetails({...hostileDetails, substances: t})} />
                             </View>
                         )}
                     </View>
                 </ScrollView>
 
                 {/* Boutons d'action fixés en bas */}
-                <View style={{flexDirection: 'row', gap: 10, marginTop: 10, paddingBottom: isLandscape ? 10 : 0}}>
+                <View style={{flexDirection: 'row', gap: 10, marginTop: 10, paddingBottom: isLandscape ? 0 : 0}}>
                     <TouchableOpacity onPress={() => setShowPingForm(false)} style={[styles.modalBtn, {backgroundColor: '#27272a'}]}>
                         <Text style={{color: 'white'}}>ANNULER</Text>
                     </TouchableOpacity>
@@ -946,39 +946,40 @@ const triggerTacticalNotification = async (title: string, body: string) => {
       
       {/* MODALE ÉDITION PING (HOSTILE) - Adaptée PAYSAGE */}
       <Modal visible={!!editingPing && !showPingForm} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
             <View style={[styles.modalContent, {
-                width: isLandscape ? '100%' : '90%', 
-                height: isLandscape ? '100%' : undefined,
-                maxHeight: isLandscape ? '100%' : '80%', 
+                width: isLandscape ? '90%' : '90%', 
+                height: isLandscape ? '90%' : undefined,
+                maxHeight: isLandscape ? '90%' : '80%', 
                 borderRadius: isLandscape ? 0 : 24,
-                justifyContent: 'space-between'
+                justifyContent: 'flex-start',
+                paddingVertical: 20
             }]}>
-                <Text style={styles.modalTitle}>MODIFICATION</Text>
+                <Text style={[styles.modalTitle, {marginBottom: 10}]}>MODIFICATION</Text>
                 
-                <ScrollView style={{width: '100%'}} contentContainerStyle={{paddingBottom: 20}}>
+                <ScrollView style={{width: '100%', flex: 1}} contentContainerStyle={{paddingBottom: 20}}>
                     <View style={{width: '100%'}}>
                         <TextInput style={styles.pingInput} value={pingMsgInput} onChangeText={setPingMsgInput} />
                         {editingPing?.type === 'HOSTILE' && (
                             <View style={isLandscape ? {flexDirection: 'row', flexWrap: 'wrap', gap: 10, width: '100%', justifyContent: 'space-between'} : {width: '100%'}}>
-                                <TextInput style={[styles.detailInput, isLandscape && {width: '30%'}]} placeholder="Position" value={hostileDetails.position} onChangeText={t => setHostileDetails({...hostileDetails, position: t})} />
-                                <TextInput style={[styles.detailInput, isLandscape && {width: '30%'}]} placeholder="Nature" value={hostileDetails.nature} onChangeText={t => setHostileDetails({...hostileDetails, nature: t})} />
-                                <TextInput style={[styles.detailInput, isLandscape && {width: '30%'}]} placeholder="Attitude" value={hostileDetails.attitude} onChangeText={t => setHostileDetails({...hostileDetails, attitude: t})} />
-                                <TextInput style={[styles.detailInput, isLandscape && {width: '30%'}]} placeholder="Volume" value={hostileDetails.volume} onChangeText={t => setHostileDetails({...hostileDetails, volume: t})} />
-                                <TextInput style={[styles.detailInput, isLandscape && {width: '30%'}]} placeholder="Armement" value={hostileDetails.armes} onChangeText={t => setHostileDetails({...hostileDetails, armes: t})} />
-                                <TextInput style={[styles.detailInput, isLandscape && {width: '30%'}]} placeholder="Substances" value={hostileDetails.substances} onChangeText={t => setHostileDetails({...hostileDetails, substances: t})} />
+                                <TextInput style={[styles.detailInput, isLandscape && {width: '48%'}]} placeholder="Position" value={hostileDetails.position} onChangeText={t => setHostileDetails({...hostileDetails, position: t})} />
+                                <TextInput style={[styles.detailInput, isLandscape && {width: '48%'}]} placeholder="Nature" value={hostileDetails.nature} onChangeText={t => setHostileDetails({...hostileDetails, nature: t})} />
+                                <TextInput style={[styles.detailInput, isLandscape && {width: '48%'}]} placeholder="Attitude" value={hostileDetails.attitude} onChangeText={t => setHostileDetails({...hostileDetails, attitude: t})} />
+                                <TextInput style={[styles.detailInput, isLandscape && {width: '48%'}]} placeholder="Volume" value={hostileDetails.volume} onChangeText={t => setHostileDetails({...hostileDetails, volume: t})} />
+                                <TextInput style={[styles.detailInput, isLandscape && {width: '48%'}]} placeholder="Armement" value={hostileDetails.armes} onChangeText={t => setHostileDetails({...hostileDetails, armes: t})} />
+                                <TextInput style={[styles.detailInput, isLandscape && {width: '48%'}]} placeholder="Substances" value={hostileDetails.substances} onChangeText={t => setHostileDetails({...hostileDetails, substances: t})} />
                             </View>
                         )}
                     </View>
                 </ScrollView>
 
-                <View style={{flexDirection: 'row', justifyContent: 'space-around', width: '100%', marginTop: 20, paddingBottom: isLandscape ? 10 : 0}}>
+                <View style={{flexDirection: 'row', justifyContent: 'space-around', width: '100%', marginTop: 20, paddingBottom: isLandscape ? 0 : 0}}>
                     <TouchableOpacity onPress={deletePing} style={styles.iconBtnDanger}><MaterialIcons name="delete" size={28} color="white" /></TouchableOpacity>
                     <TouchableOpacity onPress={() => setEditingPing(null)} style={styles.iconBtnSecondary}><MaterialIcons name="close" size={28} color="white" /></TouchableOpacity>
                     <TouchableOpacity onPress={savePingEdit} style={styles.iconBtnSuccess}><MaterialIcons name="check" size={28} color="white" /></TouchableOpacity>
                 </View>
             </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
       
       {/* MODALE LECTURE SEULE PING (HOSTILE) - Adaptée PAYSAGE */}
