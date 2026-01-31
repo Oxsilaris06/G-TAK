@@ -18,6 +18,7 @@ interface TacticalMapProps {
   nightOpsMode?: boolean;
   initialCenter?: {lat: number, lng: number, zoom: number};
   isLandscape?: boolean;
+  maxTrailsPerUser?: number; // Prop pour configurer la limite de points
   onPing: (loc: { lat: number; lng: number }) => void;
   onPingMove: (ping: PingData) => void;
   onPingClick: (id: string) => void; 
@@ -27,7 +28,7 @@ interface TacticalMapProps {
 }
 
 const TacticalMap: React.FC<TacticalMapProps> = ({
-  me, peers, pings, mapMode, customMapUrl, showTrails, showPings, isHost, userArrowColor, navTargetId, pingMode, nightOpsMode, initialCenter, isLandscape,
+  me, peers, pings, mapMode, customMapUrl, showTrails, showPings, isHost, userArrowColor, navTargetId, pingMode, nightOpsMode, initialCenter, isLandscape, maxTrailsPerUser = 500,
   onPing, onPingMove, onPingClick, onPingLongPress, onNavStop, onMapMoveEnd
 }) => {
   const webViewRef = useRef<WebView>(null);
@@ -91,8 +92,13 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
       <div id="compass"><div id="compass-indicator"></div><div id="compass-rose"><span class="compass-label compass-n">N</span><span class="compass-label compass-e">E</span><span class="compass-label compass-s">S</span><span class="compass-label compass-w">O</span></div></div>
 
       <script>
-        // Init Map
-        const map = L.map('map', { zoomControl: false, attributionControl: false, doubleClickZoom: false }).setView([${startLat}, ${startLng}], ${startZoom});
+        // Init Map with touch fix settings
+        const map = L.map('map', { 
+            zoomControl: false, 
+            attributionControl: false, 
+            doubleClickZoom: false,
+            tap: false // Important for React Native WebView to avoid touch conflict
+        }).setView([${startLat}, ${startLng}], ${startZoom});
         
         const commonOptions = {
             maxZoom: 19,
@@ -119,17 +125,16 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         currentLayer.addTo(map);
 
         // --- Z-INDEX FIX ---
-        // Augmentation des z-index pour garantir la visibilité au-dessus des tuiles (tilePane est ~200)
+        // Layers order (bottom to top): tiles -> trailPane -> userPane -> pingPane
         map.createPane('trailPane'); map.getPane('trailPane').style.zIndex = 400;
         map.createPane('userPane'); map.getPane('userPane').style.zIndex = 600;
-        map.createPane('pingPane'); map.getPane('pingPane').style.zIndex = 800; // Très haut pour être toujours visible
+        map.createPane('pingPane'); map.getPane('pingPane').style.zIndex = 800; // Highest for pings
 
         const markers = {};
-        const trails = {}; 
-        const trailPolylines = {}; 
         
-        // --- PING LAYER ---
-        // Création du groupe de calque pour les pings
+        // Structure: trails[userId] = [ L.Polyline(segment1), L.Polyline(segment2), ... ]
+        const trails = {}; 
+        
         const pingLayer = L.layerGroup({ pane: 'pingPane' }).addTo(map);
         let navLine = null;
         
@@ -138,6 +143,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         let pingMode = false;
         let lastMePos = null;
         let autoCentered = ${initialAutoCentered};
+        let maxTrails = 500;
 
         function hexToRgba(hex, alpha) {
             let r = parseInt(hex.slice(1, 3), 16),
@@ -170,6 +176,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
             if (data.type === 'UPDATE_MAP') {
                 if(data.userArrowColor) userArrowColor = data.userArrowColor;
                 pingMode = data.pingMode; 
+                if(data.maxTrailsPerUser) maxTrails = data.maxTrailsPerUser;
                 
                 if (data.nightOpsMode) document.body.classList.add('night-ops');
                 else document.body.classList.remove('night-ops');
@@ -179,10 +186,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                 
                 updateMapMode(data.mode, data.customMapUrl);
                 updateMarkers(data.me, data.peers, data.showTrails);
-                
-                // On passe bien les arguments
                 updatePings(data.pings, data.showPings, data.isHost, data.me.callsign);
-                
                 updateNavigation(data.me, data.navTargetId, data.peers);
 
                 if(data.me && typeof data.me.head === 'number') {
@@ -230,18 +234,20 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
             const all = [me, ...validPeers].filter(u => u && u.lat);
             const activeIds = all.map(u => u.id);
             
+            // Clean up old markers
             Object.keys(markers).forEach(id => { if(!activeIds.includes(id)) { map.removeLayer(markers[id]); delete markers[id]; } });
             
-            Object.keys(trailPolylines).forEach(id => { 
+            // Clean up old trails if user left
+            Object.keys(trails).forEach(id => { 
                 if(!activeIds.includes(id)) { 
-                    map.removeLayer(trailPolylines[id]); 
-                    delete trailPolylines[id]; 
+                    trails[id].forEach(poly => map.removeLayer(poly));
                     delete trails[id]; 
                 } 
             });
 
             if (!showTrails) {
-                Object.values(trailPolylines).forEach(p => map.removeLayer(p));
+                // Hide all trails
+                Object.values(trails).forEach(userSegments => userSegments.forEach(p => map.removeLayer(p)));
             }
 
             all.forEach(u => {
@@ -272,29 +278,83 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                     markers[u.id] = L.marker([u.lat, u.lng], { icon: icon, pane: 'userPane' }).addTo(map); 
                 }
 
+                // --- TRAIL SEGMENT LOGIC ---
                 if (showTrails) {
                     if (!trails[u.id]) trails[u.id] = [];
-                    const history = trails[u.id];
+                    const userSegments = trails[u.id];
                     const newPt = [u.lat, u.lng];
                     
-                    const lastPt = history.length > 0 ? history[history.length - 1] : null;
-                    if (!lastPt || Math.abs(lastPt[0] - newPt[0]) > 0.00005 || Math.abs(lastPt[1] - newPt[1]) > 0.00005) {
-                        history.push(newPt);
-                        if (history.length > 50) history.shift();
+                    // Logic to avoid spamming points if user hasn't moved
+                    // Find last point of last segment
+                    let lastPt = null;
+                    if (userSegments.length > 0) {
+                        const latlngs = userSegments[userSegments.length - 1].getLatLngs();
+                        if (latlngs.length > 0) lastPt = latlngs[latlngs.length - 1];
                     }
 
-                    if (trailPolylines[u.id]) {
-                        trailPolylines[u.id].setLatLngs(history);
-                        trailPolylines[u.id].setStyle({ color: colorHex }); 
-                        if (!map.hasLayer(trailPolylines[u.id])) trailPolylines[u.id].addTo(map);
+                    const moved = !lastPt || (Math.abs(lastPt.lat - newPt[0]) > 0.00005 || Math.abs(lastPt.lng - newPt[1]) > 0.00005);
+
+                    if (moved) {
+                        const currentColor = colorHex; // Current status color
+                        let currentSegment = userSegments.length > 0 ? userSegments[userSegments.length - 1] : null;
+                        
+                        // Check if we need a new segment (color change)
+                        // If currentSegment exists, compare color. 
+                        // Note: Leaflet Polyline options.color holds the color.
+                        
+                        if (!currentSegment || currentSegment.options.color !== currentColor) {
+                            // Start NEW Segment
+                            // To connect segments, start the new one at the last point of the previous one
+                            let segmentPoints = [newPt];
+                            if (lastPt) {
+                                segmentPoints.unshift(lastPt);
+                            }
+                            
+                            const newPoly = L.polyline(segmentPoints, {
+                                color: currentColor,
+                                weight: 2,
+                                opacity: 0.6,
+                                dashArray: '4, 4',
+                                pane: 'trailPane'
+                            }).addTo(map);
+                            
+                            userSegments.push(newPoly);
+                        } else {
+                            // Continue SAME Segment
+                            currentSegment.addLatLng(newPt);
+                        }
+                        
+                        // --- PRUNING LOGIC (Max Trails) ---
+                        // Count total points
+                        let totalPoints = 0;
+                        userSegments.forEach(seg => totalPoints += seg.getLatLngs().length);
+                        
+                        if (totalPoints > maxTrails) {
+                            // Remove points from the beginning
+                            // We might need to remove full segments or trim the first segment
+                            while (totalPoints > maxTrails && userSegments.length > 0) {
+                                const firstSeg = userSegments[0];
+                                const pts = firstSeg.getLatLngs();
+                                
+                                if (pts.length <= (totalPoints - maxTrails)) {
+                                    // Remove this whole segment
+                                    map.removeLayer(firstSeg);
+                                    userSegments.shift();
+                                    totalPoints -= pts.length;
+                                } else {
+                                    // Trim this segment
+                                    // Leaflet doesn't have a simple 'remove first N points' for Polyline easily without redrawing
+                                    // So we slice and setLatLngs
+                                    const toRemove = totalPoints - maxTrails;
+                                    const newPts = pts.slice(toRemove);
+                                    firstSeg.setLatLngs(newPts);
+                                    totalPoints -= toRemove;
+                                }
+                            }
+                        }
                     } else {
-                        trailPolylines[u.id] = L.polyline(history, { 
-                            color: colorHex, 
-                            weight: 2, 
-                            opacity: 0.6, 
-                            dashArray: '4, 4',
-                            pane: 'trailPane' 
-                        }).addTo(map);
+                        // If just showing, ensure visible
+                        userSegments.forEach(seg => { if(!map.hasLayer(seg)) seg.addTo(map); });
                     }
                 }
             });
@@ -317,21 +377,18 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         }
 
         function updatePings(serverPings, showPings, isHost, myCallsign) {
-            // Nettoyage si on doit cacher
             if (!showPings) { 
                 pingLayer.clearLayers(); 
                 pings = {}; 
                 return; 
             }
             
-            // Assure que le layer est sur la map
             if (!map.hasLayer(pingLayer)) {
                 pingLayer.addTo(map);
             }
             
             const currentIds = serverPings.map(p => p.id);
             
-            // Supprimer les anciens pings
             Object.keys(pings).forEach(id => { 
                 if(!currentIds.includes(id)) { 
                     pingLayer.removeLayer(pings[id]); 
@@ -347,20 +404,23 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                 const html = \`<div id="ping-\${p.id}" class="ping-marker-box"><div class="ping-label" style="border-color: \${color}">\${p.msg}</div><div class="ping-icon">\${iconChar}</div></div>\`;
 
                 if (pings[p.id]) {
-                    // Update existant
                     pings[p.id].setLatLng([p.lat, p.lng]);
                     if(pings[p.id]._icon) pings[p.id]._icon.innerHTML = html;
                     
-                    if (canDrag) { pings[p.id].dragging.enable(); } else { pings[p.id].dragging.disable(); }
+                    if (canDrag) { 
+                        if (!pings[p.id].dragging.enabled()) pings[p.id].dragging.enable();
+                    } else { 
+                        if (pings[p.id].dragging.enabled()) pings[p.id].dragging.disable();
+                    }
                 } else {
-                    // Création nouveau
                     const icon = L.divIcon({ className: 'custom-div-icon', html: html, iconSize: [100, 60], iconAnchor: [50, 50] });
                     
-                    // Important: spécifier le pane 'pingPane' ici
+                    // Fixed Draggable Logic
                     const m = L.marker([p.lat, p.lng], { 
                         icon: icon, 
-                        draggable: true, 
-                        pane: 'pingPane' // Force le Z-Index via le pane
+                        draggable: true, // Init as true, controlled later
+                        autoPan: true,
+                        pane: 'pingPane'
                     });
                     
                     if (!canDrag) m.dragging.disable();
@@ -385,10 +445,10 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
       webViewRef.current.postMessage(JSON.stringify({
         type: 'UPDATE_MAP', me, peers, pings, mode: mapMode, customMapUrl,
         showTrails, showPings, isHost,
-        userArrowColor, navTargetId, pingMode, nightOpsMode, isLandscape
+        userArrowColor, navTargetId, pingMode, nightOpsMode, isLandscape, maxTrailsPerUser
       }));
     }
-  }, [me, peers, pings, mapMode, customMapUrl, showTrails, showPings, isHost, userArrowColor, navTargetId, pingMode, nightOpsMode, isLandscape]);
+  }, [me, peers, pings, mapMode, customMapUrl, showTrails, showPings, isHost, userArrowColor, navTargetId, pingMode, nightOpsMode, isLandscape, maxTrailsPerUser]);
 
   const handleMessage = (event: any) => {
     try {
