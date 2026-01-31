@@ -1,4 +1,4 @@
-// ID TROUVÉ DANS LES LOGS DE DIAGNOSTIC EAS
+// ID TROUVÉ DANS LES LOGS DE DIAGNOSTIC EAS (Le bon !)
 const PROJECT_ID = "019c0ef6-2134-7c8f-8aba-72da5bafadc6"; 
 const VERSION = "4.1.0";
 
@@ -14,15 +14,20 @@ export default {
     // Runtime version alignée
     runtimeVersion: VERSION,
     
+    // --- CORRECTION CRITIQUE ICI ---
+    // On force l'inclusion de TOUS les fichiers du dossier assets dans la mise à jour
+    assetBundlePatterns: [
+      "**/*"
+    ],
+    
     updates: {
-      // L'URL pointe maintenant vers le bon projet où sont vos updates
       url: `https://u.expo.dev/${PROJECT_ID}`,
       requestHeaders: {
         "expo-channel-name": "production"
       },
       enabled: true,
       checkAutomatically: "ON_LOAD",
-      fallbackToCacheTimeout: 0
+      fallbackToCacheTimeout: 30000 // On augmente le timeout à 30s pour les connexions lentes
     },
 
     extra: {
