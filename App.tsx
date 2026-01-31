@@ -749,6 +749,7 @@ const triggerTacticalNotification = async (title: string, body: string) => {
                       nightOpsMode={nightOpsMode} 
                       initialCenter={mapState} 
                       isLandscape={isLandscape} // Prop pour ajuster la carte (boussole)
+                      maxTrailsPerUser={settings.maxTrailsPerUser}
                       onPing={(loc) => { setTempPingLoc(loc); setShowPingMenu(true); }}
                       onPingMove={(p) => { 
                           setPings(prev => prev.map(pi => pi.id === p.id ? p : pi));
