@@ -118,10 +118,10 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
             return L.tileLayer(url, options);
         }
 
-        // Esri Satellite
+        // Esri Satellite (Base)
         const esriSat = getLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { ...commonOptions });
-        // Stamen Toner Hybrid (Labels + Lines)
-        const stamenHybrid = getLayer('https://tiles.stadiamaps.com/tiles/stamen_toner_hybrid/{z}/{x}/{y}{r}.png', { ...commonOptions, maxZoom: 20 });
+        // Carto Dark Labels (Overlay)
+        const cartoLabels = getLayer('https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png', { ...commonOptions, subdomains:'abcd' });
 
         const layers = {
             dark: getLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { ...commonOptions, subdomains:'abcd' }),
@@ -130,7 +130,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
             // Hybrid combines Satellite + Overlay
             hybrid: L.layerGroup([
                 getLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { ...commonOptions }),
-                stamenHybrid
+                cartoLabels
             ]),
             custom: null
         };
