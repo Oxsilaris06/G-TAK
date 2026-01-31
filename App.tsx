@@ -855,7 +855,7 @@ const triggerTacticalNotification = async (title: string, body: string) => {
                 backgroundColor: '#18181b', borderWidth: 1, borderColor: '#333',
                 width: isLandscape ? '100%' : '90%', 
                 // En mode portrait, on force une hauteur pour garantir le scroll si beaucoup de messages
-                height: isLandscape ? '100%' : undefined, 
+                height: '80%', 
                 maxHeight: isLandscape ? '100%' : '80%',
                 borderRadius: isLandscape ? 0 : 24,
                 justifyContent: 'space-between', paddingBottom: 10
@@ -899,7 +899,7 @@ const triggerTacticalNotification = async (title: string, body: string) => {
       {/* MODALE CRÉATION PING (ADVERSAIRE/RENS/AMI) */}
       <Modal visible={showPingForm} transparent animationType="slide">
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
-            <View style={[styles.modalContent, isLandscape && styles.modalContentLandscape]}>
+            <View style={[styles.modalContent, isLandscape && styles.modalContentLandscape, { height: '80%' }]}>
                 
                 {/* Header */}
                 <View style={styles.modalHeader}>
@@ -966,7 +966,7 @@ const triggerTacticalNotification = async (title: string, body: string) => {
       {/* MODALE ÉDITION PING (TOUS TYPES) */}
       <Modal visible={!!editingPing && !showPingForm} transparent animationType="slide">
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
-            <View style={[styles.modalContent, isLandscape && styles.modalContentLandscape]}>
+            <View style={[styles.modalContent, isLandscape && styles.modalContentLandscape, { height: '80%' }]}>
                 <View style={styles.modalHeader}>
                     <Text style={[styles.modalTitle, {marginBottom: 0}]}>MODIFICATION</Text>
                 </View>
@@ -1155,12 +1155,13 @@ const styles = StyleSheet.create({
   // MODALE STYLES REVISITED
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center', alignItems: 'center', padding: 20 },
   modalContent: { 
-      width: '90%', 
+      width: '95%', 
       backgroundColor: '#18181b', 
       borderRadius: 24, 
       borderWidth: 1, 
       borderColor: '#333',
-      maxHeight: '85%', // Prevent overflow in portrait
+      height: '80%',
+      //maxHeight: '85%', // Prevent overflow in portrait
       overflow: 'hidden'
   },
   modalContentLandscape: {
@@ -1199,10 +1200,10 @@ const styles = StyleSheet.create({
   closeBtn: { marginTop: 20, backgroundColor: '#2563eb', width: '100%', padding: 16, borderRadius: 12, alignItems: 'center' },
   closeBtnText: { color: 'white', fontWeight: 'bold' },
   
-  pingInput: { width: '100%', backgroundColor: 'black', color: 'white', padding: 16, borderRadius: 12, textAlign: 'center', fontSize: 18, marginBottom: 10, borderWidth: 1, borderColor: '#333' },
+  pingInput: { width: '100%', backgroundColor: 'black', color: 'white', padding: 16, borderRadius: 12, textAlign: 'center', fontSize: 18, marginBottom: 10, borderWidth: 1, borderColor: '#333', minHeight: 50 },
   
   modalBtn: { flex: 1, padding: 16, borderRadius: 12, alignItems: 'center' },
-  quickMsgItem: { paddingVertical: 15, paddingHorizontal: 10, width: '100%', alignItems: 'center' },
+  quickMsgItem: { paddingVertical: 20, paddingHorizontal: 15, width: '100%', alignItems: 'center' }, // Increased padding
   quickMsgText: { color: 'white', fontSize: 16, fontWeight: 'bold' },
   pingMenuContainer: { width: '85%', backgroundColor: '#09090b', borderRadius: 20, padding: 20, alignItems: 'center', borderWidth: 1, borderColor: '#333' },
   pingTypeBtn: { width: 80, height: 80, borderRadius: 12, justifyContent: 'center', alignItems: 'center', borderWidth: 2 },
@@ -1212,8 +1213,8 @@ const styles = StyleSheet.create({
   // NEW CANEVA GRID STYLES
   canevaContainer: { width: '100%', gap: 10 },
   canevaRow: { flexDirection: 'row', gap: 10, justifyContent: 'space-between', width: '100%' },
-  detailInput: { width: '100%', backgroundColor: '#000', color: 'white', padding: 12, borderRadius: 8, marginBottom: 10, borderWidth: 1, borderColor: '#333' },
-  detailInputHalf: { flex: 1, backgroundColor: '#000', color: 'white', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#333', minHeight: 45 },
+  detailInput: { width: '100%', backgroundColor: '#000', color: 'white', padding: 12, borderRadius: 8, marginBottom: 10, borderWidth: 1, borderColor: '#333', minHeight: 50, fontSize: 16 },
+  detailInputHalf: { flex: 1, backgroundColor: '#000', color: 'white', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#333', minHeight: 50, fontSize: 16 }, // Increased height and font size
   
   iconBtnDanger: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#ef4444', justifyContent: 'center', alignItems: 'center', elevation: 5 },
   iconBtnSecondary: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#52525b', justifyContent: 'center', alignItems: 'center', elevation: 5 },
