@@ -65,12 +65,6 @@ jobs:
           WORKSPACE=$(find . -name "*.xcworkspace" | head -n 1)
           echo "Workspace trouvé : $WORKSPACE"
           
-          # AFFICHER LES SCHEMES DISPONIBLES (DEBUG)
-          echo "------------------------------------------------"
-          echo "Liste des Schemes disponibles :"
-          xcodebuild -workspace "$WORKSPACE" -list
-          echo "------------------------------------------------"
-
           # DÉTECTION INTELLIGENTE DU SCHEME
           # 1. On cherche explicitement "Praxis" (nom dans app.config.js)
           if xcodebuild -workspace "$WORKSPACE" -list | grep -q "Praxis"; then
@@ -80,7 +74,6 @@ jobs:
             SCHEME="GTAK"
           else
             # 3. FALLBACK ULTIME : On prend le premier scheme de la liste
-            # Cette commande extrait la première ligne non-vide après "Schemes:"
             SCHEME=$(xcodebuild -workspace "$WORKSPACE" -list | sed -n '/Schemes:/,$p' | tail -n +2 | head -n 1 | xargs)
           fi
           
@@ -92,17 +85,21 @@ jobs:
           echo "✅ SCHEME SÉLECTIONNÉ : $SCHEME"
 
           # Compilation pour ARM64 (Device) sans signature
+          # Ajout de -destination 'generic/platform=iOS' pour stabiliser l'architecture
+          # Ajout de CLANG_ALLOW_NON_MODULAR_INCLUDES... pour les erreurs de modules
           xcodebuild \
             -workspace "$WORKSPACE" \
             -scheme "$SCHEME" \
             -configuration Release \
-            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
             -derivedDataPath ./build \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
             DISABLE_MANUAL_TARGET_ORDER_BUILD_WARNING=YES \
-            COMPILER_INDEX_STORE_ENABLE=NO
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES=YES
 
       - name: 📦 Package into .ipa (Payload)
         run: |
