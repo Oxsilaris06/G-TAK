@@ -17,6 +17,7 @@ interface TacticalMapProps {
   pingMode?: boolean; 
   nightOpsMode?: boolean;
   initialCenter?: {lat: number, lng: number, zoom: number};
+  isLandscape?: boolean; // Prop pour le mode paysage
   onPing: (loc: { lat: number; lng: number }) => void;
   onPingMove: (ping: PingData) => void;
   onPingClick: (id: string) => void; 
@@ -26,7 +27,7 @@ interface TacticalMapProps {
 }
 
 const TacticalMap: React.FC<TacticalMapProps> = ({
-  me, peers, pings, mapMode, customMapUrl, showTrails, showPings, isHost, userArrowColor, navTargetId, pingMode, nightOpsMode, initialCenter,
+  me, peers, pings, mapMode, customMapUrl, showTrails, showPings, isHost, userArrowColor, navTargetId, pingMode, nightOpsMode, initialCenter, isLandscape,
   onPing, onPingMove, onPingClick, onPingLongPress, onNavStop, onMapMoveEnd
 }) => {
   const webViewRef = useRef<WebView>(null);
@@ -65,7 +66,11 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         .ping-label { background: rgba(0,0,0,0.7); color: white; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: bold; margin-bottom: 2px; border: 1px solid rgba(255,255,255,0.3); white-space: nowrap; max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
 
         /* Compass Styles */
-        #compass { position: absolute; top: 20px; left: 20px; width: 60px; height: 60px; z-index: 9999; background: rgba(0,0,0,0.6); border-radius: 50%; border: 2px solid rgba(255,255,255,0.2); display: flex; justify-content: center; align-items: center; backdrop-filter: blur(2px); pointer-events: none; }
+        #compass { position: absolute; top: 20px; left: 20px; width: 60px; height: 60px; z-index: 9999; background: rgba(0,0,0,0.6); border-radius: 50%; border: 2px solid rgba(255,255,255,0.2); display: flex; justify-content: center; align-items: center; backdrop-filter: blur(2px); pointer-events: none; transition: top 0.3s, left 0.3s, bottom 0.3s; }
+        
+        /* Landscape Compass Position */
+        body.landscape #compass { top: auto; bottom: 20px; left: 20px; }
+
         #compass-indicator { position: absolute; top: -5px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 8px solid #ef4444; z-index: 20; }
         #compass-rose { position: relative; width: 100%; height: 100%; transition: transform 0.1s linear; }
         .compass-label { position: absolute; color: rgba(255,255,255,0.9); font-size: 10px; font-weight: bold; font-family: monospace; }
@@ -144,6 +149,9 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                 
                 if (data.nightOpsMode) document.body.classList.add('night-ops');
                 else document.body.classList.remove('night-ops');
+
+                if (data.isLandscape) document.body.classList.add('landscape');
+                else document.body.classList.remove('landscape');
                 
                 updateMapMode(data.mode, data.customMapUrl);
                 updateMarkers(data.me, data.peers, data.showTrails);
@@ -157,8 +165,8 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                 }
 
                 if (!autoCentered && data.me && data.me.lat !== 0 && data.me.lng !== 0) {
-                     map.setView([data.me.lat, data.me.lng], 16);
-                     autoCentered = true;
+                      map.setView([data.me.lat, data.me.lng], 16);
+                      autoCentered = true;
                 }
             }
         }
@@ -320,10 +328,10 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
       webViewRef.current.postMessage(JSON.stringify({
         type: 'UPDATE_MAP', me, peers, pings, mode: mapMode, customMapUrl,
         showTrails, showPings, isHost,
-        userArrowColor, navTargetId, pingMode, nightOpsMode
+        userArrowColor, navTargetId, pingMode, nightOpsMode, isLandscape
       }));
     }
-  }, [me, peers, pings, mapMode, customMapUrl, showTrails, showPings, isHost, userArrowColor, navTargetId, pingMode, nightOpsMode]);
+  }, [me, peers, pings, mapMode, customMapUrl, showTrails, showPings, isHost, userArrowColor, navTargetId, pingMode, nightOpsMode, isLandscape]);
 
   const handleMessage = (event: any) => {
     try {
