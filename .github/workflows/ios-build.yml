@@ -9,7 +9,9 @@ permissions:
 jobs:
   build-ios:
     name: Build iOS IPA
-    runs-on: macos-latest # Obligatoire pour compiler pour iOS
+    # UTILISATION DE MACOS 13 (Xcode 15) POUR LA STABILITÉ
+    # Xcode 16+ (macos-latest) est trop agressif avec les anciennes libs React Native
+    runs-on: macos-13
     timeout-minutes: 60
 
     steps:
@@ -53,26 +55,52 @@ jobs:
       - name: ⚙️ Expo Prebuild
         run: npx expo prebuild --platform ios --clean --no-install
 
-      # --- ETAPE CRITIQUE : PATCH PODFILE ---
-      - name: 🔧 Patch Podfile for iOS Version
+      # --- MURPHY FIX #1 : PATCH PODFILE ROBUSTE (RUBY) ---
+      - name: 🔧 Patch Podfile for iOS Version (Ruby Script)
         run: |
           cd ios
-          # Au lieu d'ajouter un 2ème hook post_install (ce qui est interdit), 
-          # on insère nos modifications DANS le hook existant généré par Expo.
-          # On cherche la ligne "post_install do |installer|" et on ajoute nos règles juste après.
+          # Création d'un script Ruby temporaire pour modifier le Podfile proprement
+          # Cela évite les erreurs de 'sed' si le format du fichier change légèrement
+          cat <<EOF > patch_podfile.rb
+          file_path = 'Podfile'
+          text = File.read(file_path)
           
-          sed -i '' '/post_install do |installer|/a\
-            installer.pods_project.targets.each do |target|\
-              target.build_configurations.each do |config|\
-                config.build_settings["IPHONEOS_DEPLOYMENT_TARGET"] = "13.4"\
-                config.build_settings["GCC_WARN_INHIBIT_ALL_WARNINGS"] = "YES"\
-              end\
-            end\
-          ' Podfile
+          # Configuration à injecter
+          config_block = <<~RUBY
+            installer.pods_project.targets.each do |target|
+              target.build_configurations.each do |config|
+                config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.4'
+                config.build_settings['GCC_WARN_INHIBIT_ALL_WARNINGS'] = "YES"
+                config.build_settings['SWIFT_SUPPRESS_WARNINGS'] = "YES"
+              end
+            end
+          RUBY
+
+          # On insère la config juste après le début du bloc post_install existant
+          if text.include?('post_install do |installer|')
+            new_text = text.sub('post_install do |installer|', "post_install do |installer|\n#{config_block}")
+            File.write(file_path, new_text)
+            puts "✅ Podfile patché avec succès (Injection)."
+          else
+            # Si pas de bloc, on en crée un à la fin
+            File.open(file_path, 'a') do |f|
+              f.puts ""
+              f.puts "post_install do |installer|"
+              f.puts config_block
+              f.puts "end"
+            end
+            puts "✅ Podfile patché avec succès (Ajout fin)."
+          end
+          EOF
           
-          echo "✅ Podfile patché : Injection de la config iOS 13.4 dans le hook existant."
-          # Debug: Vérifier le contenu du fichier
-          head -n 50 Podfile
+          # Exécution du script
+          ruby patch_podfile.rb
+          rm patch_podfile.rb
+          
+          echo "--- Vérification du Podfile (Début) ---"
+          head -n 20 Podfile
+          echo "--- Vérification du Podfile (Fin) ---"
+          tail -n 20 Podfile
 
       - name: 🔧 Install Pods
         run: |
@@ -84,26 +112,19 @@ jobs:
           cd ios
           
           # --- CORRECTION CRITIQUE DU WORKSPACE ---
-          # On cherche d'abord le workspace CocoaPods à la racine (ex: Praxis.xcworkspace)
-          # On évite le piège de trouver ./Praxis.xcodeproj/project.xcworkspace
           WORKSPACE=$(find . -maxdepth 1 -name "*.xcworkspace" | head -n 1)
-          
           if [ -z "$WORKSPACE" ]; then
-             echo "⚠️ Pas de workspace racine trouvé, recherche plus large (en excluant xcodeproj)..."
+             echo "⚠️ Pas de workspace racine trouvé, recherche plus large..."
              WORKSPACE=$(find . -name "*.xcworkspace" -not -path "*.xcodeproj/*" | head -n 1)
           fi
-          
           echo "✅ Workspace Correct trouvé : $WORKSPACE"
           
           # DÉTECTION INTELLIGENTE DU SCHEME
-          # 1. On cherche explicitement "Praxis" (nom dans app.config.js)
           if xcodebuild -workspace "$WORKSPACE" -list | grep -q "Praxis"; then
             SCHEME="Praxis"
-          # 2. Sinon on cherche "GTAK"
           elif xcodebuild -workspace "$WORKSPACE" -list | grep -q "GTAK"; then
             SCHEME="GTAK"
           else
-            # 3. FALLBACK ULTIME : On prend le premier scheme de la liste
             SCHEME=$(xcodebuild -workspace "$WORKSPACE" -list | sed -n '/Schemes:/,$p' | tail -n +2 | head -n 1 | xargs)
           fi
           
@@ -111,19 +132,13 @@ jobs:
              echo "❌ ERREUR : Aucun Scheme trouvé. Forçage à 'Praxis'."
              SCHEME="Praxis"
           fi
-          
           echo "✅ SCHEME SÉLECTIONNÉ : $SCHEME"
           
-          # --- CORRECTION CHEMINS ---
-          # Utilisation d'un chemin ABSOLU pour DerivedData pour éviter les erreurs de module map
+          # Utilisation d'un chemin ABSOLU pour DerivedData
           DERIVED_DATA_PATH="$(pwd)/build_xc"
           mkdir -p "$DERIVED_DATA_PATH"
 
           # Compilation pour ARM64 (Device) sans signature
-          # Flags ajoutés :
-          # - GCC_TREAT_WARNINGS_AS_ERRORS=NO : Ignore les warnings C/ObjC
-          # - SWIFT_TREAT_WARNINGS_AS_ERRORS=NO : Ignore les warnings Swift
-          # - COMPILER_INDEX_STORE_ENABLE=NO : Accélère un peu le build et réduit l'espace
           xcodebuild \
             -workspace "$WORKSPACE" \
             -scheme "$SCHEME" \
@@ -144,19 +159,20 @@ jobs:
       - name: 📦 Package into .ipa (Payload)
         run: |
           cd ios
-          # On récupère le chemin absolu utilisé précédemment
           DERIVED_DATA_PATH="$(pwd)/build_xc"
           
           mkdir Payload
-          # On déplace l'application compilée (.app) dans un dossier Payload
-          # Note: Le chemin peut varier légèrement, on utilise find pour être sûr
-          APP_PATH=$(find "$DERIVED_DATA_PATH/Build/Products/Release-iphoneos" -name "*.app" | head -n 1)
+          # --- MURPHY FIX #4 : Trouver le bon .app ---
+          # On cherche spécifiquement l'app qui ne contient pas 'Tests' et qui est dans le dossier Release
+          APP_PATH=$(find "$DERIVED_DATA_PATH/Build/Products/Release-iphoneos" -name "*.app" -maxdepth 1 | grep -v "Tests" | head -n 1)
           
           if [ -z "$APP_PATH" ]; then
             echo "❌ ERREUR : Aucun fichier .app trouvé dans $DERIVED_DATA_PATH"
+            ls -R "$DERIVED_DATA_PATH/Build/Products/Release-iphoneos"
             exit 1
           fi
           
+          echo "✅ Packaging de l'application : $APP_PATH"
           cp -r "$APP_PATH" Payload/
           
           # On zippe le dossier Payload pour créer l'IPA
