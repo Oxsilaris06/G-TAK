@@ -1,5 +1,5 @@
-// ID TROUVÉ DANS LES LOGS DE DIAGNOSTIC EAS (Le bon !)
-const PROJECT_ID = "019c0ef6-2134-7c8f-8aba-72da5bafadc6"; 
+// LE VRAI ID DU PROJET (Celui du début)
+const PROJECT_ID = "f55fd8e2-57c6-4432-a64c-fae41bb16a3e";
 const VERSION = "4.1.0";
 
 export default {
@@ -14,8 +14,8 @@ export default {
     // Runtime version alignée
     runtimeVersion: VERSION,
     
-    // --- CORRECTION CRITIQUE ICI ---
-    // On force l'inclusion de TOUS les fichiers du dossier assets dans la mise à jour
+    // --- CORRECTION CRITIQUE (GARDÉE) ---
+    // Inclusion de tous les fichiers assets pour éviter "Failed to download"
     assetBundlePatterns: [
       "**/*"
     ],
@@ -27,7 +27,7 @@ export default {
       },
       enabled: true,
       checkAutomatically: "ON_LOAD",
-      fallbackToCacheTimeout: 30000 // On augmente le timeout à 30s pour les connexions lentes
+      fallbackToCacheTimeout: 30000
     },
 
     extra: {
