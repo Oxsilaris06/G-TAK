@@ -1,0 +1,82 @@
+name: Build iOS (Unsigned IPA for SideStore)
+
+on:
+  workflow_dispatch: # Déclenchement manuel via l'interface GitHub
+
+jobs:
+  build-ios:
+    name: Build iOS IPA
+    runs-on: macos-latest # Obligatoire pour compiler pour iOS
+
+    steps:
+      - name: 🏗 Setup Repository
+        uses: actions/checkout@v4
+
+      - name: 🏗 Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: 🏗 Setup Java (for Expo tools)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: 📦 Install Dependencies
+        run: npm ci
+
+      - name: ⚙️ Expo Prebuild
+        run: npx expo prebuild --platform ios --no-install
+        # Cela génère le dossier /ios basé sur app.config.js
+
+      - name: 🔧 Install Pods
+        cd ios
+        run: pod install --repo-update
+
+      - name: 🔨 Build Unsigned .app with Xcode
+        run: |
+          cd ios
+          # On cherche le nom du workspace (souvent GTAK.xcworkspace)
+          WORKSPACE=$(find . -name "*.xcworkspace" | head -n 1)
+          SCHEME="G-TAK" 
+          
+          # Si le scheme n'est pas trouvé avec le nom exact, on essaie de le déduire (souvent le nom sans tirets ou "gtak")
+          # Pour G-TAK, Expo génère souvent le scheme "GTAK" ou "gtak"
+          if ! xcodebuild -workspace "$WORKSPACE" -list | grep -q "$SCHEME"; then
+            SCHEME="GTAK"
+          fi
+          
+          echo "Building Scheme: $SCHEME from Workspace: $WORKSPACE"
+
+          # Compilation pour ARM64 (Device) sans signature
+          xcodebuild \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath ./build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_IDENTITY="" \
+            DISABLE_MANUAL_TARGET_ORDER_BUILD_WARNING=YES \
+            COMPILER_INDEX_STORE_ENABLE=NO
+
+      - name: 📦 Package into .ipa (Payload)
+        run: |
+          cd ios
+          mkdir Payload
+          # On déplace l'application compilée (.app) dans un dossier Payload
+          # Le chemin dépend du derivedDataPath défini plus haut
+          mv ./build/Build/Products/Release-iphoneos/*.app Payload/
+          
+          # On zippe le dossier Payload pour créer l'IPA
+          zip -r GTAK-unsigned.ipa Payload
+
+      - name: 📤 Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-unsigned-ipa
+          path: ios/GTAK-unsigned.ipa
+          retention-days: 14
