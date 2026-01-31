@@ -92,30 +92,45 @@ jobs:
           fi
           
           echo "✅ SCHEME SÉLECTIONNÉ : $SCHEME"
+          
+          # --- CORRECTION CHEMINS ---
+          # Utilisation d'un chemin ABSOLU pour DerivedData pour éviter les erreurs de module map
+          DERIVED_DATA_PATH="$(pwd)/build_xc"
+          mkdir -p "$DERIVED_DATA_PATH"
 
           # Compilation pour ARM64 (Device) sans signature
-          # Ajout de -destination 'generic/platform=iOS' pour stabiliser l'architecture
-          # Ajout de CLANG_ALLOW_NON_MODULAR_INCLUDES... pour les erreurs de modules
           xcodebuild \
             -workspace "$WORKSPACE" \
             -scheme "$SCHEME" \
             -configuration Release \
             -destination 'generic/platform=iOS' \
-            -derivedDataPath ./build \
+            -derivedDataPath "$DERIVED_DATA_PATH" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_IDENTITY="" \
             DEVELOPMENT_TEAM="" \
             DISABLE_MANUAL_TARGET_ORDER_BUILD_WARNING=YES \
             COMPILER_INDEX_STORE_ENABLE=NO \
-            CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES=YES
+            CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES=YES \
+            ONLY_ACTIVE_ARCH=NO
 
       - name: 📦 Package into .ipa (Payload)
         run: |
           cd ios
+          # On récupère le chemin absolu utilisé précédemment
+          DERIVED_DATA_PATH="$(pwd)/build_xc"
+          
           mkdir Payload
           # On déplace l'application compilée (.app) dans un dossier Payload
-          mv ./build/Build/Products/Release-iphoneos/*.app Payload/
+          # Note: Le chemin peut varier légèrement, on utilise find pour être sûr
+          APP_PATH=$(find "$DERIVED_DATA_PATH/Build/Products/Release-iphoneos" -name "*.app" | head -n 1)
+          
+          if [ -z "$APP_PATH" ]; then
+            echo "❌ ERREUR : Aucun fichier .app trouvé dans $DERIVED_DATA_PATH"
+            exit 1
+          fi
+          
+          cp -r "$APP_PATH" Payload/
           
           # On zippe le dossier Payload pour créer l'IPA
           zip -r GTAK-unsigned.ipa Payload
