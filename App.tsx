@@ -3,7 +3,7 @@ import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { 
   StyleSheet, View, Text, TextInput, TouchableOpacity, 
   SafeAreaView, Platform, Modal, StatusBar as RNStatusBar, Alert, ScrollView, ActivityIndicator,
-  KeyboardAvoidingView, AppState, Image, FlatList, useWindowDimensions
+  KeyboardAvoidingView, AppState, FlatList, useWindowDimensions
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import QRCode from 'react-native-qrcode-svg';
@@ -528,7 +528,7 @@ const triggerTacticalNotification = async (title: string, body: string) => {
   // Fonction pour obtenir le style des boutons (transparence en paysage)
   const getLandscapeStyle = (baseStyle: any = {}) => {
     if (isLandscapeMap) {
-       return [baseStyle, { opacity: 0.3 }];
+       return [baseStyle, { opacity: 0.5 }]; // MODIFIÉ : 0.5 pour meilleure lisibilité
     }
     return baseStyle;
   };
@@ -603,7 +603,7 @@ const triggerTacticalNotification = async (title: string, body: string) => {
                   <MaterialIcons name="arrow-back" size={24} color={nightOpsMode ? "#ef4444" : "white"} />
               </TouchableOpacity>
               
-              <Text style={[styles.headerTitle, nightOpsMode && {color: '#ef4444'}, isLandscapeMap && {opacity: 0.3}]}>Praxis</Text>
+              <Text style={[styles.headerTitle, nightOpsMode && {color: '#ef4444'}, isLandscapeMap && {opacity: 0.5}]}>Praxis</Text>
               
               <View style={{flexDirection: 'row', gap: 15}}>
                   <TouchableOpacity onPress={() => setShowLogs(true)} {...getLandscapeProps()} style={getLandscapeStyle()}>
@@ -772,7 +772,8 @@ const triggerTacticalNotification = async (title: string, body: string) => {
                   />
                   
                   {/* MAP CONTROLS (Flottant) */}
-                  <View style={[styles.mapControls, isLandscapeMap && { top: 60 }]}>
+                  {/* MODIFIÉ : Top 110 en paysage pour éviter le chevauchement avec le header */}
+                  <View style={[styles.mapControls, isLandscapeMap && { top: 110 }]}>
                       <TouchableOpacity onPress={() => setMapMode(m => m === 'custom' ? 'dark' : m === 'dark' ? 'light' : m === 'light' ? 'satellite' : settings.customMapUrl ? 'custom' : 'dark')} {...getLandscapeProps()} style={[getLandscapeStyle(styles.mapBtn), nightOpsMode && {borderColor: '#7f1d1d', backgroundColor: '#000'}]}>
                           <MaterialIcons name={mapMode === 'dark' ? 'dark-mode' : mapMode === 'light' ? 'light-mode' : mapMode === 'custom' ? 'map' : 'satellite'} size={24} color={nightOpsMode ? "#ef4444" : "#d4d4d8"} />
                       </TouchableOpacity>
@@ -834,7 +835,39 @@ const triggerTacticalNotification = async (title: string, body: string) => {
 
       <OperatorActionModal visible={!!selectedOperatorId} targetOperator={peers[selectedOperatorId || ''] || null} currentUserRole={user.role} onClose={() => setSelectedOperatorId(null)} onKick={handleOperatorActionKick} onNavigate={handleOperatorActionNavigate} />
       <MainCouranteView visible={showLogs} logs={logs} role={user.role} onClose={() => setShowLogs(false)} onAddLog={handleAddLog} onUpdateLog={handleUpdateLog} onDeleteLog={handleDeleteLog} />
-      <Modal visible={showQuickMsgModal} animationType="fade" transparent><KeyboardAvoidingView behavior="padding" style={styles.modalOverlay}><View style={[styles.modalContent, {backgroundColor: '#18181b', borderWidth: 1, borderColor: '#333', maxHeight: '80%'}]}><Text style={[styles.modalTitle, {color: '#06b6d4', marginBottom: 15}]}>MESSAGE RAPIDE</Text><View style={{flexDirection: 'row', marginBottom: 15, width: '100%'}}><TextInput style={[styles.pingInput, {flex: 1, marginBottom: 0, textAlign: 'left'}]} placeholder="Message libre..." placeholderTextColor="#52525b" value={freeMsgInput} onChangeText={setFreeMsgInput} /><TouchableOpacity onPress={() => handleSendQuickMessage(freeMsgInput)} style={[styles.modalBtn, {backgroundColor: '#06b6d4', marginLeft: 10, flex: 0, width: 50}]}><MaterialIcons name="send" size={20} color="white" /></TouchableOpacity></View><FlatList data={quickMessagesList} keyExtractor={(item, index) => index.toString()} renderItem={({item}) => (<TouchableOpacity onPress={() => handleSendQuickMessage(item.includes("Effacer") ? "" : item)} style={styles.quickMsgItem}><Text style={styles.quickMsgText}>{item}</Text></TouchableOpacity>)} ItemSeparatorComponent={() => <View style={{height: 1, backgroundColor: '#27272a'}} />} /><TouchableOpacity onPress={() => setShowQuickMsgModal(false)} style={[styles.closeBtn, {backgroundColor: '#27272a', marginTop: 15}]}><Text style={{color: '#a1a1aa'}}>ANNULER</Text></TouchableOpacity></View></KeyboardAvoidingView></Modal>
+      
+      {/* MODALE MESSAGE RAPIDE - AJOUT SCROLLVIEW ET MAXHEIGHT */}
+      <Modal visible={showQuickMsgModal} animationType="fade" transparent>
+        <KeyboardAvoidingView behavior="padding" style={styles.modalOverlay}>
+            <View style={[styles.modalContent, {backgroundColor: '#18181b', borderWidth: 1, borderColor: '#333', maxHeight: isLandscape ? '90%' : '80%'}]}>
+                <Text style={[styles.modalTitle, {color: '#06b6d4', marginBottom: 15}]}>MESSAGE RAPIDE</Text>
+                
+                <View style={{flexDirection: 'row', marginBottom: 15, width: '100%'}}>
+                    <TextInput style={[styles.pingInput, {flex: 1, marginBottom: 0, textAlign: 'left'}]} placeholder="Message libre..." placeholderTextColor="#52525b" value={freeMsgInput} onChangeText={setFreeMsgInput} />
+                    <TouchableOpacity onPress={() => handleSendQuickMessage(freeMsgInput)} style={[styles.modalBtn, {backgroundColor: '#06b6d4', marginLeft: 10, flex: 0, width: 50}]}>
+                        <MaterialIcons name="send" size={20} color="white" />
+                    </TouchableOpacity>
+                </View>
+                
+                <FlatList 
+                    data={quickMessagesList} 
+                    keyExtractor={(item, index) => index.toString()} 
+                    renderItem={({item}) => (
+                        <TouchableOpacity onPress={() => handleSendQuickMessage(item.includes("Effacer") ? "" : item)} style={styles.quickMsgItem}>
+                            <Text style={styles.quickMsgText}>{item}</Text>
+                        </TouchableOpacity>
+                    )} 
+                    ItemSeparatorComponent={() => <View style={{height: 1, backgroundColor: '#27272a'}} />}
+                    style={{width: '100%'}} // Ajout pour s'assurer que la liste prend la largeur
+                />
+                
+                <TouchableOpacity onPress={() => setShowQuickMsgModal(false)} style={[styles.closeBtn, {backgroundColor: '#27272a', marginTop: 15}]}>
+                    <Text style={{color: '#a1a1aa'}}>ANNULER</Text>
+                </TouchableOpacity>
+            </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
       <Modal visible={showPingMenu} transparent animationType="fade"><View style={styles.modalOverlay}><View style={styles.pingMenuContainer}><Text style={styles.modalTitle}>TYPE DE MARQUEUR</Text><View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 15, justifyContent: 'center'}}><TouchableOpacity onPress={() => { setCurrentPingType('HOSTILE'); setShowPingMenu(false); setPingMsgInput(''); setHostileDetails({position: tempPingLoc ? `${tempPingLoc.lat.toFixed(5)}, ${tempPingLoc.lng.toFixed(5)}` : '', nature: '', attitude: '', volume: '', armes: '', substances: ''}); setShowPingForm(true); }} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(239, 68, 68, 0.2)', borderColor: '#ef4444'}]}><MaterialIcons name="warning" size={30} color="#ef4444" /><Text style={{color: '#ef4444', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>ADVERSAIRE</Text></TouchableOpacity><TouchableOpacity onPress={() => { setCurrentPingType('FRIEND'); setShowPingMenu(false); setPingMsgInput(''); setShowPingForm(true); }} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(34, 197, 94, 0.2)', borderColor: '#22c55e'}]}><MaterialIcons name="shield" size={30} color="#22c55e" /><Text style={{color: '#22c55e', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>AMI</Text></TouchableOpacity><TouchableOpacity onPress={() => { setCurrentPingType('INTEL'); setShowPingMenu(false); setPingMsgInput(''); setShowPingForm(true); }} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(234, 179, 8, 0.2)', borderColor: '#eab308'}]}><MaterialIcons name="visibility" size={30} color="#eab308" /><Text style={{color: '#eab308', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>RENS</Text></TouchableOpacity></View><TouchableOpacity onPress={() => setShowPingMenu(false)} style={[styles.closeBtn, {marginTop: 20, backgroundColor: '#27272a'}]}><Text style={{color:'white'}}>ANNULER</Text></TouchableOpacity></View></View></Modal>
       
       {/* MODALE CRÉATION PING */}
@@ -868,7 +901,27 @@ const triggerTacticalNotification = async (title: string, body: string) => {
           </View>
       </Modal>
 
-      <Modal visible={showQRModal} animationType="slide" transparent><View style={styles.modalOverlay}><View style={styles.modalContent}><Text style={styles.modalTitle}>MON IDENTITY TAG</Text><View style={{padding: 20, backgroundColor: 'white', borderRadius: 10, marginVertical: 20}}><QRCode value={hostId || user.id || 'NO_ID'} size={200} backgroundColor="white" color="black" /></View><TouchableOpacity onPress={copyToClipboard} style={{flexDirection:'row', alignItems:'center', backgroundColor: '#f4f4f5', padding: 10, borderRadius: 8}}><Text style={[styles.qrId, {marginTop: 0, marginRight: 10, color:'black'}]}>{hostId || user.id}</Text><MaterialIcons name="content-copy" size={20} color="#3b82f6" /></TouchableOpacity><TouchableOpacity onPress={() => setShowQRModal(false)} style={styles.closeBtn}><Text style={styles.closeBtnText}>FERMER</Text></TouchableOpacity></View></View></Modal>
+      {/* MODALE QR CODE - AJOUT SCROLLVIEW POUR PAYSAGE */}
+      <Modal visible={showQRModal} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+            <View style={[styles.modalContent, { maxHeight: isLandscape ? '90%' : undefined }]}>
+                <ScrollView contentContainerStyle={{alignItems: 'center', justifyContent: 'center'}}>
+                    <Text style={styles.modalTitle}>MON IDENTITY TAG</Text>
+                    <View style={{padding: 20, backgroundColor: 'white', borderRadius: 10, marginVertical: 20}}>
+                        <QRCode value={hostId || user.id || 'NO_ID'} size={isLandscape ? 150 : 200} backgroundColor="white" color="black" />
+                    </View>
+                    <TouchableOpacity onPress={copyToClipboard} style={{flexDirection:'row', alignItems:'center', backgroundColor: '#f4f4f5', padding: 10, borderRadius: 8}}>
+                        <Text style={[styles.qrId, {marginTop: 0, marginRight: 10, color:'black'}]}>{hostId || user.id}</Text>
+                        <MaterialIcons name="content-copy" size={20} color="#3b82f6" />
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => setShowQRModal(false)} style={styles.closeBtn}>
+                        <Text style={styles.closeBtnText}>FERMER</Text>
+                    </TouchableOpacity>
+                </ScrollView>
+            </View>
+        </View>
+      </Modal>
+
       <Modal visible={showScanner} animationType="slide"><View style={{flex: 1, backgroundColor: 'black'}}><CameraView style={{flex: 1}} onBarcodeScanned={handleScannerBarCodeScanned} barcodeScannerSettings={{barcodeTypes: ["qr"]}} /><View style={{position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center'}}><View style={{width: 250, height: 250, borderWidth: 2, borderColor: '#3b82f6', backgroundColor: 'transparent'}} /><Text style={{color: 'white', marginTop: 20, backgroundColor: 'rgba(0,0,0,0.5)', padding: 5}}>Visez le QR Code de l'Hôte</Text></View><TouchableOpacity onPress={() => setShowScanner(false)} style={styles.scannerClose}><MaterialIcons name="close" size={30} color="white" /></TouchableOpacity></View></Modal>
 
       {activeNotif && <NotificationToast message={activeNotif.msg} type={activeNotif.type} isNightOps={nightOpsMode} onDismiss={() => setActiveNotif(null)} />}
