@@ -49,6 +49,11 @@ const App: React.FC = () => {
   useKeepAwake();
   const { width, height } = useWindowDimensions();
   const isLandscape = width > height;
+  const isLandscapeRef = useRef(isLandscape); // Ref pour accès dans le listener sans re-render
+
+  useEffect(() => {
+    isLandscapeRef.current = isLandscape;
+  }, [isLandscape]);
 
   const [isAppReady, setIsAppReady] = useState(false);
   const [activeNotif, setActiveNotif] = useState<{ id: string, msg: string, type: 'alert' | 'info' | 'success' | 'warning' } | null>(null);
@@ -79,6 +84,12 @@ const App: React.FC = () => {
   const magSubscription = useRef<any>(null);
   const lastSentHead = useRef<number>(0);
   const lastLocalHeadUpdate = useRef<number>(0); // Pour throttler les mises à jour locales
+  
+  // Low Pass Filter Refs
+  const smoothX = useRef(0);
+  const smoothY = useRef(0);
+  const ALPHA = 0.5; // Facteur de lissage (0.0 - 1.0). Plus bas = plus lisse mais plus de lag.
+
   const appState = useRef<AppStateStatus>(AppState.currentState);
 
   useEffect(() => { pingsRef.current = pings; }, [pings]);
@@ -214,9 +225,28 @@ const App: React.FC = () => {
     };
   }, []);
 
-  // --- GESTION ROBUSTE DES CAPTEURS (GPS & BOUSSOLE) ---
+  // --- GESTION ROBUSTE DES CAPTEURS ---
   const isTrackingView = view === 'map' || view === 'ops';
 
+  // 1. GESTION GPS (Séparée du magnétomètre pour éviter les refresh notification)
+  useEffect(() => {
+    if (isTrackingView && hostId && appStateVisible === 'active') {
+        locationService.updateOptions({ 
+            foregroundService: {
+                notificationTitle: "PRAXIS ACTIF",
+                notificationBody: "Lien Tactique Maintenu",
+                notificationColor: "#2563eb"
+            }
+        });
+        locationService.startTracking();
+    } else if (!isTrackingView || !hostId) {
+        // Stop seulement si on sort des vues tactiques totalement
+        // En background, on laisse tourner si configuré
+        if (!hostId) locationService.stopTracking();
+    }
+  }, [isTrackingView, hostId, appStateVisible]);
+
+  // 2. GESTION MAGNÉTOMÈTRE (Orientation)
   useEffect(() => {
       const cleanupMag = () => {
           if (magSubscription.current) {
@@ -225,44 +255,54 @@ const App: React.FC = () => {
           }
       };
 
-      // On active les capteurs seulement si :
-      // 1. On est sur une vue tactique (Carte ou Liste Ops)
-      // 2. L'application est active (premier plan)
-      // 3. On a un hostId (session active)
-      if (isTrackingView && appStateVisible === 'active') { 
-          
-          // Redémarrage GPS pour appliquer d'éventuels nouveaux paramètres
-          locationService.updateOptions({ 
-              foregroundService: {
-                  notificationTitle: "PRAXIS ACTIF",
-                  notificationBody: "Lien Tactique Maintenu",
-                  notificationColor: "#2563eb"
-              }
-          });
-          locationService.startTracking();
-
-          // Redémarrage Magnétomètre
+      if (isTrackingView && appStateVisible === 'active') {
           cleanupMag();
           Magnetometer.setUpdateInterval(100); // 10Hz
           
           const sub = Magnetometer.addListener(data => {
               const { x, y } = data;
-              let angle = Math.atan2(y, x) * (180 / Math.PI);
-              angle = angle - 90; 
-              if (isLandscape) { angle = angle + 90; }
+
+              // LISSAGE (Low Pass Filter) pour réduire le tremblement
+              smoothX.current = smoothX.current * ALPHA + x * (1 - ALPHA);
+              smoothY.current = smoothY.current * ALPHA + y * (1 - ALPHA);
+
+              // CALCUL D'ANGLE
+              let angle = 0;
+              const sx = smoothX.current;
+              const sy = smoothY.current;
+
+              if (isLandscapeRef.current) {
+                 // Landscape (Mode Paysage)
+                 // Les axes sont inversés par rapport à l'écran
+                 angle = Math.atan2(sx, -sy) * (180 / Math.PI) + 90;
+              } else {
+                 // Portrait
+                 // Math.atan2(y, x) donne l'angle par rapport à l'axe X (Est)
+                 // On veut par rapport à Y (Nord)
+                 angle = Math.atan2(sy, sx) * (180 / Math.PI) - 90;
+              }
+
+              // Normalisation 0-360
               if (angle < 0) angle = angle + 360;
+              
+              // Inversion pour le cap (Heading) : Le sens horaire est positif pour le cap
+              // atan2 donne le sens trigonométrique (anti-horaire)
+              // Cependant, selon le repère senseur, atan2(y,x) - 90 est souvent correct pour le Nord magnétique.
+              // On garde la valeur calculée mais on s'assure qu'elle est "Nord = 0".
+              
               const heading = Math.floor(angle);
 
               const now = Date.now();
-              // Throttling local pour éviter de spammer le state React et la WebView
-              // Mise à jour max toutes les 150ms ou si changement > 2 degrés
-              if (now - lastLocalHeadUpdate.current > 150 || Math.abs(heading - userRef.current.head) > 2) {
+              // Throttling local (100ms) pour éviter de spammer React
+              if (now - lastLocalHeadUpdate.current > 100 || Math.abs(heading - userRef.current.head) > 3) {
                   lastLocalHeadUpdate.current = now;
                   setUser(prev => ({ ...prev, head: heading }));
               }
 
-              // Envoi réseau (Throttled: seulement si changement > 5°)
-              if (Math.abs(heading - lastSentHead.current) > 5) {
+              // Envoi réseau (Throttled: seulement si changement > 5° et délai > 1s)
+              // Ou si changement majeur > 20° immédiat
+              const diff = Math.abs(heading - lastSentHead.current);
+              if (diff > 5) {
                   lastSentHead.current = heading;
                   connectivityService.updateUserPosition(userRef.current.lat, userRef.current.lng, heading);
               }
@@ -270,17 +310,11 @@ const App: React.FC = () => {
           magSubscription.current = sub;
 
       } else {
-          // Arrêt propre si on quitte les vues tactiques ou si l'app passe en background
-          // Note: On laisse le GPS tourner si configuré pour background, mais on coupe le magnétomètre
-          if (!hostId) locationService.stopTracking();
           cleanupMag();
       }
       
       return () => { cleanupMag(); }
-      
-      // AJOUT CRITIQUE : settings.gpsUpdateInterval dans les dépendances
-      // Cela force le redémarrage des services quand on change les réglages GPS
-  }, [isTrackingView, hostId, isLandscape, appStateVisible, settings.gpsUpdateInterval]); 
+  }, [isTrackingView, appStateVisible]); // Retrait de isLandscape pour éviter reset
 
   const handleConnectivityEvent = (event: ConnectivityEvent) => {
       switch (event.type) {
