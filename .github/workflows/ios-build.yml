@@ -61,9 +61,18 @@ jobs:
       - name: 🔨 Build Unsigned .app with Xcode
         run: |
           cd ios
-          # Trouver le fichier workspace
-          WORKSPACE=$(find . -name "*.xcworkspace" | head -n 1)
-          echo "Workspace trouvé : $WORKSPACE"
+          
+          # --- CORRECTION CRITIQUE DU WORKSPACE ---
+          # On cherche d'abord le workspace CocoaPods à la racine (ex: Praxis.xcworkspace)
+          # On évite le piège de trouver ./Praxis.xcodeproj/project.xcworkspace
+          WORKSPACE=$(find . -maxdepth 1 -name "*.xcworkspace" | head -n 1)
+          
+          if [ -z "$WORKSPACE" ]; then
+             echo "⚠️ Pas de workspace racine trouvé, recherche plus large (en excluant xcodeproj)..."
+             WORKSPACE=$(find . -name "*.xcworkspace" -not -path "*.xcodeproj/*" | head -n 1)
+          fi
+          
+          echo "✅ Workspace Correct trouvé : $WORKSPACE"
           
           # DÉTECTION INTELLIGENTE DU SCHEME
           # 1. On cherche explicitement "Praxis" (nom dans app.config.js)
