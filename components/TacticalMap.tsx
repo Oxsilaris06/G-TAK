@@ -7,7 +7,7 @@ interface TacticalMapProps {
   me: UserData;
   peers: Record<string, UserData>;
   pings: PingData[];
-  mapMode: 'dark' | 'light' | 'satellite' | 'custom';
+  mapMode: 'dark' | 'light' | 'satellite' | 'hybrid' | 'custom';
   customMapUrl?: string;
   showTrails: boolean;
   showPings: boolean;
@@ -60,6 +60,11 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         .tac-circle-id { position: absolute; z-index: 10; width: 32px; height: 32px; border-radius: 50%; border: 2px solid white; display: flex; justify-content: center; align-items: center; box-shadow: 0 0 5px rgba(0,0,0,0.5); top: 50%; left: 50%; transform: translate(-50%, -50%); transition: all 0.3s ease; }
         .tac-circle-id span { color: white; font-family: monospace; font-size: 10px; font-weight: 900; text-shadow: 0 1px 2px black; }
         
+        /* FIX DRAG & DROP: prevent browser zoom/scroll on markers to allow direct touch manipulation */
+        .leaflet-marker-icon, .leaflet-marker-shadow {
+            touch-action: none;
+        }
+
         @keyframes heartbeat { 0% { transform: translate(-50%, -50%) scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); } 50% { transform: translate(-50%, -50%) scale(1.4); box-shadow: 0 0 20px 10px rgba(239, 68, 68, 0); } 100% { transform: translate(-50%, -50%) scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
         .tac-marker-heartbeat .tac-circle-id { animation: heartbeat 1.5s infinite ease-in-out !important; border-color: #ef4444 !important; background-color: rgba(239, 68, 68, 0.8) !important; z-index: 9999 !important; }
 
@@ -113,10 +118,20 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
             return L.tileLayer(url, options);
         }
 
+        // Esri Satellite
+        const esriSat = getLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { ...commonOptions });
+        // Stamen Toner Hybrid (Labels + Lines)
+        const stamenHybrid = getLayer('https://tiles.stadiamaps.com/tiles/stamen_toner_hybrid/{z}/{x}/{y}{r}.png', { ...commonOptions, maxZoom: 20 });
+
         const layers = {
             dark: getLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { ...commonOptions, subdomains:'abcd' }),
             light: getLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { ...commonOptions, subdomains:'abcd' }),
-            satellite: getLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { ...commonOptions }),
+            satellite: esriSat,
+            // Hybrid combines Satellite + Overlay
+            hybrid: L.layerGroup([
+                getLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { ...commonOptions }),
+                stamenHybrid
+            ]),
             custom: null
         };
         
@@ -388,7 +403,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                         if (pings[p.id].dragging.enabled()) pings[p.id].dragging.disable();
                     }
                 } else {
-                    // FIX: Variable name corrected from iconHtml to html
                     const icon = L.divIcon({ className: 'custom-div-icon', html: html, iconSize: [100, 60], iconAnchor: [50, 50] });
                     
                     const m = L.marker([p.lat, p.lng], { 
