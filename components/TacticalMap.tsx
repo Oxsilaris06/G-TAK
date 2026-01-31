@@ -342,9 +342,11 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                                 }
                             }
                         }
-                    } else {
-                        // Ensure visibility if just switched back to showTrails
-                        userSegments.forEach(seg => { if(!map.hasLayer(seg)) seg.addTo(map); });
+                    }
+                } else {
+                    // Ensure visibility if just switched back to showTrails
+                    if (trails[u.id]) {
+                        // Normally handled by next update or clear, but good safety
                     }
                 }
             });
