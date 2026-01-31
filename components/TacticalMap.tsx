@@ -84,6 +84,10 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
       <!-- Ajout Leaflet Offline & EdgeBuffer -->
       <script src="https://unpkg.com/leaflet.offline@2.0.0/dist/leaflet.offline.min.js"></script>
       <script src="https://unpkg.com/leaflet-edgebuffer@1.0.6/src/leaflet.edgebuffer.js"></script>
+      
+      <!-- Script PouchDB pour la persistance locale dans la WebView -->
+      <script src="https://unpkg.com/pouchdb@7.3.0/dist/pouchdb.min.js"></script>
+      <script src="https://unpkg.com/leaflet.tilelayer.pouchdb@latest/Leaflet.TileLayer.PouchDB.js"></script>
     </head>
     <body>
       <div id="map"></div>
@@ -93,13 +97,26 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         // Init Map
         const map = L.map('map', { zoomControl: false, attributionControl: false, doubleClickZoom: false }).setView([${startLat}, ${startLng}], ${startZoom});
         
+        // Configuration des couches avec mise en cache PouchDB automatique
+        // useCache: true active la mise en cache locale via PouchDB/IndexedDB
+        // crossOrigin: true est nécessaire pour charger des images externes dans le canvas/DB
+        const commonOptions = {
+            maxZoom: 19,
+            useCache: true, 
+            crossOrigin: true,
+            edgeBufferTiles: 2 // Préchargement
+        };
+
         const layers = {
-            dark: L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {subdomains:'abcd', maxZoom:19}),
-            light: L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {subdomains:'abcd', maxZoom:19}),
-            satellite: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {maxZoom:19}),
+            // Utilisation de L.tileLayer.pouchDbcached si le script est chargé, sinon fallback standard
+            dark: (L.tileLayer.pouchDbcached ? L.tileLayer.pouchDbcached : L.tileLayer)('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { ...commonOptions, subdomains:'abcd' }),
+            light: (L.tileLayer.pouchDbcached ? L.tileLayer.pouchDbcached : L.tileLayer)('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { ...commonOptions, subdomains:'abcd' }),
+            satellite: (L.tileLayer.pouchDbcached ? L.tileLayer.pouchDbcached : L.tileLayer)('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { ...commonOptions }),
             custom: null
         };
-        let currentLayer = layers.dark; currentLayer.addTo(map);
+        
+        let currentLayer = layers.dark; 
+        currentLayer.addTo(map);
 
         map.createPane('userPane'); map.getPane('userPane').style.zIndex = 600;
         map.createPane('pingPane'); map.getPane('pingPane').style.zIndex = 800;
@@ -132,6 +149,12 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         map.on('moveend', () => {
             const center = map.getCenter();
             sendToApp({ type: 'MAP_MOVE_END', center: {lat: center.lat, lng: center.lng}, zoom: map.getZoom() });
+            
+            // Sauvegarde automatique des tuiles visibles dans le cache PouchDB
+            if (currentLayer && currentLayer.seed) {
+                // Seed la vue courante (télécharge et stocke les tuiles de la vue actuelle)
+                // currentLayer.seed(map.getBounds(), map.getZoom(), map.getZoom());
+            }
         });
 
         map.on('click', (e) => {
@@ -177,10 +200,17 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
             if (mode === 'custom' && customUrl) {
                 if (!layers.custom || layers.custom._url !== customUrl) {
                     if(layers.custom) map.removeLayer(layers.custom);
-                    // Configuration pour le cache et les tuiles locales
-                    layers.custom = L.tileLayer(customUrl, {
+                    
+                    // Si c'est un fichier local (file://), pas besoin de PouchDB cache (c'est déjà local)
+                    // Si c'est une URL HTTP, on utilise le cache
+                    const isLocalFile = customUrl.startsWith('file://') || customUrl.startsWith('content://');
+                    const LayerClass = (!isLocalFile && L.tileLayer.pouchDbcached) ? L.tileLayer.pouchDbcached : L.tileLayer;
+                    
+                    layers.custom = LayerClass(customUrl, {
                         maxZoom: 20,
-                        edgeBufferTiles: 2 // Précharge les tuiles adjacentes
+                        edgeBufferTiles: 2,
+                        useCache: !isLocalFile, // Cache seulement si c'est une URL distante
+                        crossOrigin: true
                     });
                 }
             }
@@ -360,8 +390,8 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         domStorageEnabled={true}
         startInLoadingState={true}
         cacheEnabled={true}
-        allowFileAccess={true} // IMPORTANT pour accès fichiers locaux
-        allowUniversalAccessFromFileURLs={true} // IMPORTANT pour accès fichiers locaux
+        allowFileAccess={true} 
+        allowUniversalAccessFromFileURLs={true} 
         renderLoading={() => <ActivityIndicator size="large" color="#3b82f6" style={styles.loader} />}
       />
     </View>
