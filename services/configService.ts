@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppSettings, DEFAULT_SETTINGS } from '../types';
 import { CONFIG } from '../constants';
-import { locationService } from './locationService'; // Import du service
+import { locationService } from './locationService';
 
 const CONFIG_KEY = 'TacSuite_Settings_v1';
 
@@ -16,12 +16,10 @@ class ConfigService {
         const loaded = JSON.parse(json);
         this.settings = { ...DEFAULT_SETTINGS, ...loaded };
         
-        // Sécurité pour la liste de messages
-        if (!this.settings.quickMessages || !Array.isArray(this.settings.quickMessages) || this.settings.quickMessages.length === 0) {
+        // Sécurité pour la liste de messages et maxTrails
+        if (!this.settings.quickMessages || !Array.isArray(this.settings.quickMessages)) {
               this.settings.quickMessages = DEFAULT_SETTINGS.quickMessages;
         }
-
-        // Sécurité pour maxTrails (Issu du Code 1)
         if (!this.settings.maxTrailsPerUser) {
             this.settings.maxTrailsPerUser = 500;
         }
@@ -33,7 +31,7 @@ class ConfigService {
           this.settings.username = legacyTrigram;
       }
 
-      // --- APPLICATION INITIALE DES REGLAGES GPS ---
+      // Application initiale
       this.applyLocationSettings(this.settings);
 
     } catch (e) {
@@ -45,52 +43,50 @@ class ConfigService {
   get() { return this.settings; }
 
   async update(newSettings: Partial<AppSettings>) {
-    // 1. Mise à jour de l'objet local
     this.settings = { ...this.settings, ...newSettings };
     
-    // 2. Synchro legacy
     if (newSettings.username) {
         try {
             await AsyncStorage.setItem(CONFIG.TRIGRAM_STORAGE_KEY, newSettings.username);
         } catch (e) {}
     }
 
-    // 3. APPLICATION DYNAMIQUE AU SERVICE GPS
-    // Si l'intervalle GPS change, on met à jour le service de loc immédiatement
+    // Mise à jour dynamique du service GPS
     if (newSettings.gpsUpdateInterval !== undefined) {
         this.applyLocationSettings(this.settings);
     }
 
-    // 4. Notification UI et Sauvegarde
     this.notify();
     await AsyncStorage.setItem(CONFIG_KEY, JSON.stringify(this.settings));
   }
 
-  /**
-   * Traduit les réglages "Utilisateur" en réglages "Techniques" pour le GPS
-   */
   private applyLocationSettings(s: AppSettings) {
       const interval = s.gpsUpdateInterval || 5000;
       
-      // Logique adaptative :
-      // - Si intervalle court (< 2s) -> Mode "Assaut" (Précis, réactif, gourmand)
-      // - Si intervalle long (> 10s) -> Mode "Patrouille" (Éco, moins précis)
-      
+      // Configuration du Service Foreground (Notification)
+      // On le fait ici pour éviter de le faire clignoter dans App.tsx
+      const foregroundOptions = {
+          notificationTitle: "PRAXIS ACTIF",
+          notificationBody: "Lien Tactique Maintenu",
+          notificationColor: "#000000" // Fond noir demandé
+      };
+
+      // Mode Assaut (< 2s) vs Mode Patrouille
       if (interval < 2000) {
-          // MODE ASSAUT / HAUTE PRÉCISION
           locationService.updateOptions({
-              accuracy: 6, // Accuracy.BestForNavigation (valeur enum expo)
-              distanceInterval: 0, // Zéro latence
+              accuracy: 6, // BestForNavigation
+              distanceInterval: 0,
               timeInterval: interval,
-              deferredUpdatesInterval: interval
+              deferredUpdatesInterval: interval,
+              foregroundService: foregroundOptions
           });
       } else {
-          // MODE STANDARD / ÉCO
           locationService.updateOptions({
-              accuracy: 4, // Accuracy.High
-              distanceInterval: 10, // Filtre de 10m pour économiser batterie
+              accuracy: 4, // High
+              distanceInterval: 5, // Un peu de filtrage
               timeInterval: interval,
-              deferredUpdatesInterval: interval
+              deferredUpdatesInterval: interval,
+              foregroundService: foregroundOptions
           });
       }
   }
