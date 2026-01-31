@@ -1,19 +1,22 @@
+// ID TROUVÉ DANS LES LOGS DE DIAGNOSTIC EAS
+const PROJECT_ID = "019c0ef6-2134-7c8f-8aba-72da5bafadc6"; 
+const VERSION = "4.1.0";
+
 export default {
   expo: {
-    // CHANGEMENT DE NOM POUR PREUVE VISUELLE
-    name: "Praxis DEBUG", 
+    name: "Praxis",
     slug: "praxis",
-    version: "4.1.0",
+    version: VERSION,
     orientation: "default",
     icon: "./assets/icon.png",
     userInterfaceStyle: "dark",
     
-    // Version figée
-    runtimeVersion: "4.1.0", 
+    // Runtime version alignée
+    runtimeVersion: VERSION,
     
     updates: {
-      // URL (Vérifiez qu'elle est propre ici)
-      url: "https://u.expo.dev/f55fd8e2-57c6-4432-a64c-fae41bb16a3e",
+      // L'URL pointe maintenant vers le bon projet où sont vos updates
+      url: `https://u.expo.dev/${PROJECT_ID}`,
       requestHeaders: {
         "expo-channel-name": "production"
       },
@@ -24,10 +27,10 @@ export default {
 
     extra: {
       eas: {
-        projectId: "f55fd8e2-57c6-4432-a64c-fae41bb16a3e"
+        projectId: PROJECT_ID
       }
     },
-    // ... reste identique (splash, android, plugins) ...
+
     splash: {
       image: "./assets/icon2.png",
       resizeMode: "contain",
