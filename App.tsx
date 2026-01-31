@@ -49,11 +49,10 @@ const App: React.FC = () => {
   useKeepAwake();
   const { width, height } = useWindowDimensions();
   const isLandscape = width > height;
-  const isLandscapeRef = useRef(isLandscape); // Ref pour accès dans le listener sans re-render
-
-  useEffect(() => {
-    isLandscapeRef.current = isLandscape;
-  }, [isLandscape]);
+  
+  // REF CRITIQUE : Permet de lire l'orientation dans le listener Magnétomètre sans le redémarrer
+  const isLandscapeRef = useRef(isLandscape);
+  useEffect(() => { isLandscapeRef.current = isLandscape; }, [isLandscape]);
 
   const [isAppReady, setIsAppReady] = useState(false);
   const [activeNotif, setActiveNotif] = useState<{ id: string, msg: string, type: 'alert' | 'info' | 'success' | 'warning' } | null>(null);
@@ -83,12 +82,12 @@ const App: React.FC = () => {
   // Refs pour la gestion des capteurs
   const magSubscription = useRef<any>(null);
   const lastSentHead = useRef<number>(0);
-  const lastLocalHeadUpdate = useRef<number>(0); // Pour throttler les mises à jour locales
+  const lastLocalHeadUpdate = useRef<number>(0); 
   
-  // Low Pass Filter Refs
+  // FILTRE PASSE-BAS POUR LA BOUSSOLE (Anti-Tremblement)
   const smoothX = useRef(0);
   const smoothY = useRef(0);
-  const ALPHA = 0.5; // Facteur de lissage (0.0 - 1.0). Plus bas = plus lisse mais plus de lag.
+  const ALPHA = 0.5; // Facteur de lissage (0.0 à 1.0). 0.5 = équilibre réactivité/stabilité.
 
   const appState = useRef<AppStateStatus>(AppState.currentState);
 
@@ -228,7 +227,8 @@ const App: React.FC = () => {
   // --- GESTION ROBUSTE DES CAPTEURS ---
   const isTrackingView = view === 'map' || view === 'ops';
 
-  // 1. GESTION GPS (Séparée du magnétomètre pour éviter les refresh notification)
+  // 1. GESTION GPS UNIQUEMENT
+  // Ce useEffect ne dépend PAS de l'orientation ou de l'utilisateur, ce qui empêche le redémarrage en boucle.
   useEffect(() => {
     if (isTrackingView && hostId && appStateVisible === 'active') {
         locationService.updateOptions({ 
@@ -240,13 +240,14 @@ const App: React.FC = () => {
         });
         locationService.startTracking();
     } else if (!isTrackingView || !hostId) {
-        // Stop seulement si on sort des vues tactiques totalement
-        // En background, on laisse tourner si configuré
+        // En arrière-plan, on laisse tourner si c'est configuré (géré par locationService)
+        // Mais si on quitte la session, on arrête.
         if (!hostId) locationService.stopTracking();
     }
+    // AUCUNE AUTRE DÉPENDANCE ICI (Surtout pas isLandscape !)
   }, [isTrackingView, hostId, appStateVisible]);
 
-  // 2. GESTION MAGNÉTOMÈTRE (Orientation)
+  // 2. GESTION MAGNÉTOMÈTRE (BOUSSOLE)
   useEffect(() => {
       const cleanupMag = () => {
           if (magSubscription.current) {
@@ -262,45 +263,36 @@ const App: React.FC = () => {
           const sub = Magnetometer.addListener(data => {
               const { x, y } = data;
 
-              // LISSAGE (Low Pass Filter) pour réduire le tremblement
+              // APPLICATION DU FILTRE PASSE-BAS
               smoothX.current = smoothX.current * ALPHA + x * (1 - ALPHA);
               smoothY.current = smoothY.current * ALPHA + y * (1 - ALPHA);
 
-              // CALCUL D'ANGLE
-              let angle = 0;
               const sx = smoothX.current;
               const sy = smoothY.current;
 
+              // CALCUL D'ANGLE ROBUSTE
+              let angle = 0;
+              // Utilisation de isLandscapeRef.current pour éviter de redémarrer le listener
               if (isLandscapeRef.current) {
-                 // Landscape (Mode Paysage)
-                 // Les axes sont inversés par rapport à l'écran
+                 // Paysage : Axes inversés
                  angle = Math.atan2(sx, -sy) * (180 / Math.PI) + 90;
               } else {
                  // Portrait
-                 // Math.atan2(y, x) donne l'angle par rapport à l'axe X (Est)
-                 // On veut par rapport à Y (Nord)
                  angle = Math.atan2(sy, sx) * (180 / Math.PI) - 90;
               }
 
-              // Normalisation 0-360
+              // Normalisation [0, 360]
               if (angle < 0) angle = angle + 360;
-              
-              // Inversion pour le cap (Heading) : Le sens horaire est positif pour le cap
-              // atan2 donne le sens trigonométrique (anti-horaire)
-              // Cependant, selon le repère senseur, atan2(y,x) - 90 est souvent correct pour le Nord magnétique.
-              // On garde la valeur calculée mais on s'assure qu'elle est "Nord = 0".
-              
               const heading = Math.floor(angle);
 
               const now = Date.now();
-              // Throttling local (100ms) pour éviter de spammer React
-              if (now - lastLocalHeadUpdate.current > 100 || Math.abs(heading - userRef.current.head) > 3) {
+              // Throttling local (100ms) pour ne pas saturer le state React
+              if (now - lastLocalHeadUpdate.current > 100 || Math.abs(heading - userRef.current.head) > 5) {
                   lastLocalHeadUpdate.current = now;
                   setUser(prev => ({ ...prev, head: heading }));
               }
 
-              // Envoi réseau (Throttled: seulement si changement > 5° et délai > 1s)
-              // Ou si changement majeur > 20° immédiat
+              // Envoi réseau (Throttled: changement > 5 degrés uniquement)
               const diff = Math.abs(heading - lastSentHead.current);
               if (diff > 5) {
                   lastSentHead.current = heading;
@@ -314,7 +306,7 @@ const App: React.FC = () => {
       }
       
       return () => { cleanupMag(); }
-  }, [isTrackingView, appStateVisible]); // Retrait de isLandscape pour éviter reset
+  }, [isTrackingView, appStateVisible]); // PAS de isLandscape ici !
 
   const handleConnectivityEvent = (event: ConnectivityEvent) => {
       switch (event.type) {
