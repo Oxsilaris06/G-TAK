@@ -1002,7 +1002,7 @@ const triggerTacticalNotification = async (title: string, body: string) => {
       {/* MODALE QR CODE - REFONDUE POUR PAYSAGE */}
       <Modal visible={showQRModal} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
-            <View style={[styles.modalContent, isLandscape ? { width: '100%', height: '100%', justifyContent: 'space-between', padding: 20, borderRadius: 0 } : {}]}>
+            <View style={[styles.modalContent, isLandscape && { width: '100%', height: '100%', padding: 20, justifyContent: 'space-between', alignItems: 'center' }]}>
                 {/* Titre en haut à gauche en paysage */}
                 <Text style={[styles.modalTitle, isLandscape && { alignSelf: 'flex-start', marginBottom: 10 }]}>MON IDENTITY TAG</Text>
                 
@@ -1023,7 +1023,7 @@ const triggerTacticalNotification = async (title: string, body: string) => {
                     {/* ID à droite (en paysage) ou dessous (en portrait) */}
                     <TouchableOpacity onPress={copyToClipboard} style={{
                         flexDirection:'row', alignItems:'center', backgroundColor: '#f4f4f5', padding: 10, borderRadius: 8,
-                        marginLeft: isLandscape ? 0 : 0
+                        marginLeft: isLandscape ? 20 : 0
                     }}>
                         <Text style={[styles.qrId, {marginTop: 0, marginRight: 10, color:'black'}]}>{hostId || user.id}</Text>
                         <MaterialIcons name="content-copy" size={20} color="#3b82f6" />
@@ -1031,7 +1031,7 @@ const triggerTacticalNotification = async (title: string, body: string) => {
                 </View>
 
                 {/* Bouton Fermer Fixe en bas */}
-                <TouchableOpacity onPress={() => setShowQRModal(false)} style={[styles.closeBtn, {marginTop: isLandscape ? 10 : 20}]}>
+                <TouchableOpacity onPress={() => setShowQRModal(false)} style={[styles.closeBtn, {marginTop: isLandscape ? 10 : 20, width: isLandscape ? '100%' : '100%'}]}>
                     <Text style={styles.closeBtnText}>FERMER</Text>
                 </TouchableOpacity>
             </View>
