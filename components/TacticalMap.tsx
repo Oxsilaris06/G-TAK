@@ -128,7 +128,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         // Layers order (bottom to top)
         map.createPane('trailPane'); map.getPane('trailPane').style.zIndex = 400;
         map.createPane('userPane'); map.getPane('userPane').style.zIndex = 600;
-        map.createPane('pingPane'); map.getPane('pingPane').style.zIndex = 800; // Pings always on top
+        map.createPane('pingPane'); map.getPane('pingPane').style.zIndex = 2000; // Pings always on top
 
         const markers = {};
         // trails[userId] = [ L.Polyline(segment1), L.Polyline(segment2) ... ]
