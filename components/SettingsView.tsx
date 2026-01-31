@@ -8,10 +8,10 @@ import * as FileSystem from 'expo-file-system';
 
 interface Props {
     onClose: () => void;
-    onUpdate: (s: AppSettings) => void; // Callback pour mise à jour immédiate
+    onUpdate: (s: AppSettings) => void;
 }
 
-const CUSTOM_COLORS = ['#06b6d4', '#ec4899', '#8b5cf6', '#f97316']; // Cyan, Rose, Violet, Orange
+const CUSTOM_COLORS = ['#06b6d4', '#ec4899', '#8b5cf6', '#f97316'];
 
 const SettingsView: React.FC<Props> = ({ onClose, onUpdate }) => {
     const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
@@ -23,7 +23,7 @@ const SettingsView: React.FC<Props> = ({ onClose, onUpdate }) => {
 
     const save = async () => {
         await configService.update(settings);
-        onUpdate(settings); // Applique immédiatement
+        onUpdate(settings);
         onClose();
     };
 
@@ -57,12 +57,10 @@ const SettingsView: React.FC<Props> = ({ onClose, onUpdate }) => {
         } catch (e) { Alert.alert("Erreur", "Fichier invalide."); }
     };
 
-    // Simulation chargement fichier carte (récupère l'URI)
     const handlePickMapFile = async () => {
         try {
             const result = await DocumentPicker.getDocumentAsync({ type: '*/*' });
             if (!result.canceled && result.assets && result.assets.length > 0) {
-                // Dans un vrai cas offline, on copierait le fichier dans le cache app
                 setSettings(s => ({...s, customMapUrl: result.assets[0].uri}));
                 Alert.alert("Carte", "Fichier sélectionné (Simulation MBTiles)");
             }
@@ -122,6 +120,19 @@ const SettingsView: React.FC<Props> = ({ onClose, onUpdate }) => {
                             <TouchableOpacity onPress={() => setSettings(s => ({...s, orientationUpdateInterval: Math.min(1000, (s.orientationUpdateInterval || 500) + 100)}))} style={styles.miniBtn}><Text style={styles.miniBtnText}>+</Text></TouchableOpacity>
                         </View>
                     </View>
+                    
+                    {/* --- AJOUT CONFIGURATION TRAILS --- */}
+                    <View style={styles.row}>
+                        <View>
+                             <Text style={styles.label}>Historique Trails</Text>
+                             <Text style={styles.subLabel}>Max points par opérateur ({settings.maxTrailsPerUser})</Text>
+                        </View>
+                        <View style={{flexDirection: 'row', alignItems: 'center'}}>
+                            <TouchableOpacity onPress={() => setSettings(s => ({...s, maxTrailsPerUser: Math.max(50, (s.maxTrailsPerUser || 500) - 50)}))} style={styles.miniBtn}><Text style={styles.miniBtnText}>-</Text></TouchableOpacity>
+                            <TouchableOpacity onPress={() => setSettings(s => ({...s, maxTrailsPerUser: Math.min(1000, (s.maxTrailsPerUser || 500) + 50)}))} style={styles.miniBtn}><Text style={styles.miniBtnText}>+</Text></TouchableOpacity>
+                        </View>
+                    </View>
+
                     <View style={styles.row}>
                         <View>
                             <Text style={styles.label}>Notifs Arrière-plan</Text>
