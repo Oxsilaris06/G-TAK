@@ -64,6 +64,7 @@ export interface AppSettings {
     quickMessages: string[];
     disableBackgroundNotifications?: boolean;
     customMapUrl?: string; // NOUVEAU: Pour charger une source locale/custom
+    maxTrailsPerUser: number; // Modifié pour être toujours défini, pas optionnel
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -72,16 +73,19 @@ export const DEFAULT_SETTINGS: AppSettings = {
     orientationUpdateInterval: 500,
     userArrowColor: '#06b6d4', // Cyan par défaut
     quickMessages: [
-        "RAS / Effacer",
-        "Contact Visuel",
-        "En Position",
-        "Besoin Soutien",
-        "Reçu",
-        "Négatif",
-        "Départ",
-        "Halte"
+        "Demande de renfort",
+        "Demande de munitions",
+        "Tous sur moi",
+        "Demande cyno",
+        "Demande drone",
+        "Demande EOR",
+        "Demande BBAL",
+        "Demande Chef",
+        "Demande VL",
+        "RAS / Effacer"
     ],
-    disableBackgroundNotifications: false
+    disableBackgroundNotifications: false,
+    maxTrailsPerUser: 500 // Ajouté pour correspondre à l'interface
 };
 
 export type ViewType = 'login' | 'menu' | 'ops' | 'map' | 'settings' | 'logs';
