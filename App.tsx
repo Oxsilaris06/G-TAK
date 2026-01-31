@@ -48,10 +48,6 @@ const App: React.FC = () => {
   useKeepAwake();
   const { width, height } = useWindowDimensions();
   const isLandscape = width > height;
-  
-  // REF: Track landscape mode without triggering re-renders of effects
-  const isLandscapeRef = useRef(isLandscape);
-  useEffect(() => { isLandscapeRef.current = isLandscape; }, [isLandscape]);
 
   const [isAppReady, setIsAppReady] = useState(false);
   const [activeNotif, setActiveNotif] = useState<{ id: string, msg: string, type: 'alert' | 'info' | 'success' | 'warning' } | null>(null);
@@ -129,17 +125,14 @@ const App: React.FC = () => {
 
   const triggerTacticalNotification = async (title: string, body: string) => {
       if (AppState.currentState !== 'background' || settings.disableBackgroundNotifications) return;
-      
-      // CRITICAL FIX: Do NOT dismiss all notifications. 
-      // Dismissing all kills the Foreground Service notification, causing the Location Service to crash/restart.
-      
+      await Notifications.dismissAllNotificationsAsync();
       await Notifications.scheduleNotificationAsync({
           content: { 
               title, 
               body, 
               sound: true, 
               priority: Notifications.AndroidNotificationPriority.HIGH,
-              color: "#000000"
+              color: "#000000" // Fond noir pour la notif
           },
           trigger: null, 
       });
@@ -194,8 +187,7 @@ const App: React.FC = () => {
       
       if (nextAppState === 'active') {
         connectivityService.handleAppStateChange('active');
-        // Only dismiss standard notifications, careful not to kill service notif ID if known
-        // Safe to leave them or clear specific categories if implemented
+        await Notifications.dismissAllNotificationsAsync();
       } else if (nextAppState === 'background') {
         connectivityService.handleAppStateChange('background');
       }
@@ -218,71 +210,65 @@ const App: React.FC = () => {
     };
   }, []);
 
-  // --- ROBUST SENSOR & LOCATION MANAGEMENT ---
+  // --- GESTION ROBUSTE DES CAPTEURS ---
   const isTrackingView = view === 'map' || view === 'ops';
 
   useEffect(() => {
       const cleanupMag = () => {
           if (magSubscription.current) {
-              magSubscription.current.remove();
+              try { magSubscription.current.remove(); } catch(e) {}
               magSubscription.current = null;
           }
       };
 
       if (isTrackingView && appStateVisible === 'active') { 
-          // Update options without stopping service if possible
-          locationService.updateOptions({ 
-              foregroundService: {
-                  notificationTitle: "PRAXIS ACTIF",
-                  notificationBody: "Lien Tactique Maintenu",
-                  notificationColor: "#000000"
-              }
-          });
-          
-          // Ensure tracking is on
-          locationService.startTracking();
+          // Utilisation d'un délai pour éviter les conflits au démarrage
+          const startSensors = async () => {
+              try {
+                  locationService.updateOptions({ 
+                      foregroundService: {
+                          notificationTitle: "PRAXIS ACTIF",
+                          notificationBody: "Lien Tactique Maintenu",
+                          notificationColor: "#000000"
+                      }
+                  });
+                  locationService.startTracking();
 
-          // Reset Magnetometer
-          cleanupMag();
-          Magnetometer.setUpdateInterval(100); 
-          
-          const sub = Magnetometer.addListener(data => {
-              const { x, y } = data;
-              let angle = Math.atan2(y, x) * (180 / Math.PI);
-              angle = angle - 90; 
-              
-              // Use Ref for landscape to avoid effect re-run
-              if (isLandscapeRef.current) { angle = angle + 90; }
-              
-              if (angle < 0) angle = angle + 360;
-              const heading = Math.floor(angle);
+                  cleanupMag();
+                  Magnetometer.setUpdateInterval(100); 
+                  
+                  const sub = Magnetometer.addListener(data => {
+                      const { x, y } = data;
+                      let angle = Math.atan2(y, x) * (180 / Math.PI);
+                      angle = angle - 90; 
+                      if (isLandscape) { angle = angle + 90; }
+                      if (angle < 0) angle = angle + 360;
+                      const heading = Math.floor(angle);
 
-              const now = Date.now();
-              // Throttle: Update local state only if significant change or time passed
-              if (now - lastLocalHeadUpdate.current > 150 || Math.abs(heading - userRef.current.head) > 2) {
-                  lastLocalHeadUpdate.current = now;
-                  setUser(prev => ({ ...prev, head: heading }));
-              }
+                      const now = Date.now();
+                      if (now - lastLocalHeadUpdate.current > 150 || Math.abs(heading - userRef.current.head) > 2) {
+                          lastLocalHeadUpdate.current = now;
+                          setUser(prev => ({ ...prev, head: heading }));
+                      }
 
-              // Network Throttle: Update peers less frequently
-              if (Math.abs(heading - lastSentHead.current) > 5) {
-                  lastSentHead.current = heading;
-                  connectivityService.updateUserPosition(userRef.current.lat, userRef.current.lng, heading);
-              }
-          });
-          magSubscription.current = sub;
+                      if (Math.abs(heading - lastSentHead.current) > 5) {
+                          lastSentHead.current = heading;
+                          connectivityService.updateUserPosition(userRef.current.lat, userRef.current.lng, heading);
+                      }
+                  });
+                  magSubscription.current = sub;
+              } catch (e) { console.log("Sensor error", e); }
+          };
+
+          startSensors();
 
       } else {
-          // If leaving tracking view, stop heavy services
-          if (!hostId) {
-              locationService.stopTracking();
-          }
+          if (!hostId) locationService.stopTracking();
           cleanupMag();
       }
       
       return () => { cleanupMag(); }
-      // CRITICAL FIX: Removed 'isLandscape' from dependencies to prevent service restart on rotation
-  }, [isTrackingView, hostId, appStateVisible, settings.gpsUpdateInterval]); 
+  }, [isTrackingView, hostId, isLandscape, appStateVisible, settings.gpsUpdateInterval]); 
 
   const handleConnectivityEvent = (event: ConnectivityEvent) => {
       switch (event.type) {
@@ -731,8 +717,8 @@ const App: React.FC = () => {
                       showTrails={showTrails} showPings={showPings} 
                       isHost={user.role === OperatorRole.HOST} 
                       userArrowColor={settings.userArrowColor}
-                      navTargetId={navTargetId}
-                      pingMode={isPingMode} nightOpsMode={nightOpsMode} 
+                      pingMode={isPingMode} navTargetId={navTargetId}
+                      nightOpsMode={nightOpsMode} 
                       initialCenter={mapState} 
                       isLandscape={isLandscape} 
                       maxTrailsPerUser={settings.maxTrailsPerUser}
