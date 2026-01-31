@@ -3,7 +3,7 @@ import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { 
   StyleSheet, View, Text, TextInput, TouchableOpacity, 
   SafeAreaView, Platform, Modal, StatusBar as RNStatusBar, Alert, ScrollView, ActivityIndicator,
-  KeyboardAvoidingView, AppState, FlatList, useWindowDimensions
+  KeyboardAvoidingView, AppState, FlatList, useWindowDimensions, Dimensions
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import QRCode from 'react-native-qrcode-svg';
@@ -229,7 +229,13 @@ const triggerTacticalNotification = async (title: string, body: string) => {
               const { x, y } = data;
               // Calcul de l'angle 0-360
               let angle = Math.atan2(y, x) * (180 / Math.PI);
-              angle = angle - 90; // Compensation
+              angle = angle - 90; // Compensation de base (Portrait)
+              
+              // Ajustement pour le mode PAYSAGE
+              if (isLandscape) {
+                  angle = angle + 90; 
+              }
+
               if (angle < 0) angle = angle + 360;
               const heading = Math.floor(angle);
 
@@ -248,7 +254,7 @@ const triggerTacticalNotification = async (title: string, body: string) => {
           if (magSubscription.current) magSubscription.current.remove();
       }
       return () => { if (magSubscription.current) magSubscription.current.remove(); }
-  }, [view, settings.gpsUpdateInterval, hostId]);
+  }, [view, settings.gpsUpdateInterval, hostId, isLandscape]); // Ajout de isLandscape comme dépendance
 
 
   const handleConnectivityEvent = (event: ConnectivityEvent) => {
@@ -528,7 +534,7 @@ const triggerTacticalNotification = async (title: string, body: string) => {
   // Fonction pour obtenir le style des boutons (transparence en paysage)
   const getLandscapeStyle = (baseStyle: any = {}) => {
     if (isLandscapeMap) {
-       return [baseStyle, { opacity: 0.5 }]; // MODIFIÉ : 0.5 pour meilleure lisibilité
+       return [baseStyle, { opacity: 0.5 }];
     }
     return baseStyle;
   };
@@ -772,8 +778,8 @@ const triggerTacticalNotification = async (title: string, body: string) => {
                   />
                   
                   {/* MAP CONTROLS (Flottant) */}
-                  {/* MODIFIÉ : Top 110 en paysage pour éviter le chevauchement avec le header */}
-                  <View style={[styles.mapControls, isLandscapeMap && { top: 110 }]}>
+                  {/* MODIFIÉ : Centré verticalement à droite en mode paysage */}
+                  <View style={[styles.mapControls, isLandscapeMap && { top: '50%', right: 16, marginTop: -100 }]}>
                       <TouchableOpacity onPress={() => setMapMode(m => m === 'custom' ? 'dark' : m === 'dark' ? 'light' : m === 'light' ? 'satellite' : settings.customMapUrl ? 'custom' : 'dark')} {...getLandscapeProps()} style={[getLandscapeStyle(styles.mapBtn), nightOpsMode && {borderColor: '#7f1d1d', backgroundColor: '#000'}]}>
                           <MaterialIcons name={mapMode === 'dark' ? 'dark-mode' : mapMode === 'light' ? 'light-mode' : mapMode === 'custom' ? 'map' : 'satellite'} size={24} color={nightOpsMode ? "#ef4444" : "#d4d4d8"} />
                       </TouchableOpacity>
@@ -836,10 +842,10 @@ const triggerTacticalNotification = async (title: string, body: string) => {
       <OperatorActionModal visible={!!selectedOperatorId} targetOperator={peers[selectedOperatorId || ''] || null} currentUserRole={user.role} onClose={() => setSelectedOperatorId(null)} onKick={handleOperatorActionKick} onNavigate={handleOperatorActionNavigate} />
       <MainCouranteView visible={showLogs} logs={logs} role={user.role} onClose={() => setShowLogs(false)} onAddLog={handleAddLog} onUpdateLog={handleUpdateLog} onDeleteLog={handleDeleteLog} />
       
-      {/* MODALE MESSAGE RAPIDE - AJOUT SCROLLVIEW ET MAXHEIGHT */}
+      {/* MODALE MESSAGE RAPIDE - Adaptée PAYSAGE */}
       <Modal visible={showQuickMsgModal} animationType="fade" transparent>
         <KeyboardAvoidingView behavior="padding" style={styles.modalOverlay}>
-            <View style={[styles.modalContent, {backgroundColor: '#18181b', borderWidth: 1, borderColor: '#333', maxHeight: isLandscape ? '90%' : '80%'}]}>
+            <View style={[styles.modalContent, {backgroundColor: '#18181b', borderWidth: 1, borderColor: '#333', maxHeight: isLandscape ? '90%' : '80%', width: isLandscape ? '60%' : '90%' }]}>
                 <Text style={[styles.modalTitle, {color: '#06b6d4', marginBottom: 15}]}>MESSAGE RAPIDE</Text>
                 
                 <View style={{flexDirection: 'row', marginBottom: 15, width: '100%'}}>
@@ -858,10 +864,10 @@ const triggerTacticalNotification = async (title: string, body: string) => {
                         </TouchableOpacity>
                     )} 
                     ItemSeparatorComponent={() => <View style={{height: 1, backgroundColor: '#27272a'}} />}
-                    style={{width: '100%'}} // Ajout pour s'assurer que la liste prend la largeur
+                    style={{width: '100%'}} 
                 />
                 
-                <TouchableOpacity onPress={() => setShowQuickMsgModal(false)} style={[styles.closeBtn, {backgroundColor: '#27272a', marginTop: 15}]}>
+                <TouchableOpacity onPress={() => setShowQuickMsgModal(false)} style={[styles.closeBtn, {backgroundColor: '#27272a', marginTop: 15, width: isLandscape ? '50%' : '100%'}]}>
                     <Text style={{color: '#a1a1aa'}}>ANNULER</Text>
                 </TouchableOpacity>
             </View>
@@ -870,21 +876,78 @@ const triggerTacticalNotification = async (title: string, body: string) => {
 
       <Modal visible={showPingMenu} transparent animationType="fade"><View style={styles.modalOverlay}><View style={styles.pingMenuContainer}><Text style={styles.modalTitle}>TYPE DE MARQUEUR</Text><View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 15, justifyContent: 'center'}}><TouchableOpacity onPress={() => { setCurrentPingType('HOSTILE'); setShowPingMenu(false); setPingMsgInput(''); setHostileDetails({position: tempPingLoc ? `${tempPingLoc.lat.toFixed(5)}, ${tempPingLoc.lng.toFixed(5)}` : '', nature: '', attitude: '', volume: '', armes: '', substances: ''}); setShowPingForm(true); }} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(239, 68, 68, 0.2)', borderColor: '#ef4444'}]}><MaterialIcons name="warning" size={30} color="#ef4444" /><Text style={{color: '#ef4444', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>ADVERSAIRE</Text></TouchableOpacity><TouchableOpacity onPress={() => { setCurrentPingType('FRIEND'); setShowPingMenu(false); setPingMsgInput(''); setShowPingForm(true); }} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(34, 197, 94, 0.2)', borderColor: '#22c55e'}]}><MaterialIcons name="shield" size={30} color="#22c55e" /><Text style={{color: '#22c55e', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>AMI</Text></TouchableOpacity><TouchableOpacity onPress={() => { setCurrentPingType('INTEL'); setShowPingMenu(false); setPingMsgInput(''); setShowPingForm(true); }} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(234, 179, 8, 0.2)', borderColor: '#eab308'}]}><MaterialIcons name="visibility" size={30} color="#eab308" /><Text style={{color: '#eab308', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>RENS</Text></TouchableOpacity></View><TouchableOpacity onPress={() => setShowPingMenu(false)} style={[styles.closeBtn, {marginTop: 20, backgroundColor: '#27272a'}]}><Text style={{color:'white'}}>ANNULER</Text></TouchableOpacity></View></View></Modal>
       
-      {/* MODALE CRÉATION PING */}
-      <Modal visible={showPingForm} transparent animationType="slide"><KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}><View style={[styles.modalContent, {width: '90%', maxHeight: '80%'}]}><Text style={[styles.modalTitle, {color: currentPingType === 'HOSTILE' ? '#ef4444' : currentPingType === 'FRIEND' ? '#22c55e' : '#eab308'}]}>{currentPingType === 'HOSTILE' ? 'ADVERSAIRE' : currentPingType === 'FRIEND' ? 'AMI' : 'RENS'}</Text><Text style={styles.label}>Message</Text><TextInput style={styles.pingInput} placeholder="Titre / Info" placeholderTextColor="#52525b" value={pingMsgInput} onChangeText={setPingMsgInput} autoFocus={currentPingType !== 'HOSTILE'} />{currentPingType === 'HOSTILE' && (<ScrollView style={{width: '100%', maxHeight: 300, marginBottom: 10}}><Text style={[styles.label, {color: '#ef4444', marginTop: 10}]}>Détails Tactiques (Caneva)</Text><TextInput style={styles.detailInput} placeholder="Position" placeholderTextColor="#52525b" value={hostileDetails.position} onChangeText={t => setHostileDetails({...hostileDetails, position: t})} /><TextInput style={styles.detailInput} placeholder="Nature" placeholderTextColor="#52525b" value={hostileDetails.nature} onChangeText={t => setHostileDetails({...hostileDetails, nature: t})} /><TextInput style={styles.detailInput} placeholder="Attitude" placeholderTextColor="#52525b" value={hostileDetails.attitude} onChangeText={t => setHostileDetails({...hostileDetails, attitude: t})} /><TextInput style={styles.detailInput} placeholder="Volume" placeholderTextColor="#52525b" value={hostileDetails.volume} onChangeText={t => setHostileDetails({...hostileDetails, volume: t})} /><TextInput style={styles.detailInput} placeholder="Armement" placeholderTextColor="#52525b" value={hostileDetails.armes} onChangeText={t => setHostileDetails({...hostileDetails, armes: t})} /><TextInput style={styles.detailInput} placeholder="Substances / Tenue" placeholderTextColor="#52525b" value={hostileDetails.substances} onChangeText={t => setHostileDetails({...hostileDetails, substances: t})} /></ScrollView>)}<View style={{flexDirection: 'row', gap: 10, marginTop: 10}}><TouchableOpacity onPress={() => setShowPingForm(false)} style={[styles.modalBtn, {backgroundColor: '#27272a'}]}><Text style={{color: 'white'}}>ANNULER</Text></TouchableOpacity><TouchableOpacity onPress={submitPing} style={[styles.modalBtn, {backgroundColor: '#3b82f6'}]}><Text style={{color: 'white', fontWeight: 'bold'}}>VALIDER</Text></TouchableOpacity></View></View></KeyboardAvoidingView></Modal>
+      {/* MODALE CRÉATION PING - Adaptée PAYSAGE */}
+      <Modal visible={showPingForm} transparent animationType="slide">
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
+            <View style={[styles.modalContent, {width: isLandscape ? '60%' : '90%', maxHeight: '80%'}]}>
+                <Text style={[styles.modalTitle, {color: currentPingType === 'HOSTILE' ? '#ef4444' : currentPingType === 'FRIEND' ? '#22c55e' : '#eab308'}]}>{currentPingType === 'HOSTILE' ? 'ADVERSAIRE' : currentPingType === 'FRIEND' ? 'AMI' : 'RENS'}</Text>
+                
+                <ScrollView style={{width: '100%'}}>
+                    <Text style={styles.label}>Message</Text>
+                    <TextInput style={styles.pingInput} placeholder="Titre / Info" placeholderTextColor="#52525b" value={pingMsgInput} onChangeText={setPingMsgInput} autoFocus={currentPingType !== 'HOSTILE'} />
+                    {currentPingType === 'HOSTILE' && (
+                        <View style={{width: '100%', marginBottom: 10}}>
+                            <Text style={[styles.label, {color: '#ef4444', marginTop: 10}]}>Détails Tactiques (Caneva)</Text>
+                            <TextInput style={styles.detailInput} placeholder="Position" placeholderTextColor="#52525b" value={hostileDetails.position} onChangeText={t => setHostileDetails({...hostileDetails, position: t})} />
+                            <TextInput style={styles.detailInput} placeholder="Nature" placeholderTextColor="#52525b" value={hostileDetails.nature} onChangeText={t => setHostileDetails({...hostileDetails, nature: t})} />
+                            <TextInput style={styles.detailInput} placeholder="Attitude" placeholderTextColor="#52525b" value={hostileDetails.attitude} onChangeText={t => setHostileDetails({...hostileDetails, attitude: t})} />
+                            <TextInput style={styles.detailInput} placeholder="Volume" placeholderTextColor="#52525b" value={hostileDetails.volume} onChangeText={t => setHostileDetails({...hostileDetails, volume: t})} />
+                            <TextInput style={styles.detailInput} placeholder="Armement" placeholderTextColor="#52525b" value={hostileDetails.armes} onChangeText={t => setHostileDetails({...hostileDetails, armes: t})} />
+                            <TextInput style={styles.detailInput} placeholder="Substances / Tenue" placeholderTextColor="#52525b" value={hostileDetails.substances} onChangeText={t => setHostileDetails({...hostileDetails, substances: t})} />
+                        </View>
+                    )}
+                </ScrollView>
+
+                <View style={{flexDirection: 'row', gap: 10, marginTop: 10}}>
+                    <TouchableOpacity onPress={() => setShowPingForm(false)} style={[styles.modalBtn, {backgroundColor: '#27272a'}]}>
+                        <Text style={{color: 'white'}}>ANNULER</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={submitPing} style={[styles.modalBtn, {backgroundColor: '#3b82f6'}]}>
+                        <Text style={{color: 'white', fontWeight: 'bold'}}>VALIDER</Text>
+                    </TouchableOpacity>
+                </View>
+            </View>
+        </KeyboardAvoidingView>
+      </Modal>
       
-      {/* MODALE ÉDITION PING (HOSTILE) */}
-      <Modal visible={!!editingPing && !showPingForm} transparent animationType="slide"><View style={styles.modalOverlay}><View style={[styles.modalContent, {width: '90%'}]}><Text style={styles.modalTitle}>MODIFICATION</Text><TextInput style={styles.pingInput} value={pingMsgInput} onChangeText={setPingMsgInput} />{editingPing?.type === 'HOSTILE' && (<ScrollView style={{width: '100%', maxHeight: 200, marginBottom: 15}}><TextInput style={styles.detailInput} placeholder="Position" value={hostileDetails.position} onChangeText={t => setHostileDetails({...hostileDetails, position: t})} /><TextInput style={styles.detailInput} placeholder="Nature" value={hostileDetails.nature} onChangeText={t => setHostileDetails({...hostileDetails, nature: t})} /><TextInput style={styles.detailInput} placeholder="Attitude" value={hostileDetails.attitude} onChangeText={t => setHostileDetails({...hostileDetails, attitude: t})} /><TextInput style={styles.detailInput} placeholder="Volume" value={hostileDetails.volume} onChangeText={t => setHostileDetails({...hostileDetails, volume: t})} /><TextInput style={styles.detailInput} placeholder="Armement" value={hostileDetails.armes} onChangeText={t => setHostileDetails({...hostileDetails, armes: t})} /><TextInput style={styles.detailInput} placeholder="Substances" value={hostileDetails.substances} onChangeText={t => setHostileDetails({...hostileDetails, substances: t})} /></ScrollView>)}<View style={{flexDirection: 'row', justifyContent: 'space-around', width: '100%', marginTop: 20}}><TouchableOpacity onPress={deletePing} style={styles.iconBtnDanger}><MaterialIcons name="delete" size={28} color="white" /></TouchableOpacity><TouchableOpacity onPress={() => setEditingPing(null)} style={styles.iconBtnSecondary}><MaterialIcons name="close" size={28} color="white" /></TouchableOpacity><TouchableOpacity onPress={savePingEdit} style={styles.iconBtnSuccess}><MaterialIcons name="check" size={28} color="white" /></TouchableOpacity></View></View></View></Modal>
+      {/* MODALE ÉDITION PING (HOSTILE) - Adaptée PAYSAGE */}
+      <Modal visible={!!editingPing && !showPingForm} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+            <View style={[styles.modalContent, {width: isLandscape ? '60%' : '90%', maxHeight: '80%'}]}>
+                <Text style={styles.modalTitle}>MODIFICATION</Text>
+                
+                <ScrollView style={{width: '100%'}}>
+                    <TextInput style={styles.pingInput} value={pingMsgInput} onChangeText={setPingMsgInput} />
+                    {editingPing?.type === 'HOSTILE' && (
+                        <View style={{width: '100%', marginBottom: 15}}>
+                            <TextInput style={styles.detailInput} placeholder="Position" value={hostileDetails.position} onChangeText={t => setHostileDetails({...hostileDetails, position: t})} />
+                            <TextInput style={styles.detailInput} placeholder="Nature" value={hostileDetails.nature} onChangeText={t => setHostileDetails({...hostileDetails, nature: t})} />
+                            <TextInput style={styles.detailInput} placeholder="Attitude" value={hostileDetails.attitude} onChangeText={t => setHostileDetails({...hostileDetails, attitude: t})} />
+                            <TextInput style={styles.detailInput} placeholder="Volume" value={hostileDetails.volume} onChangeText={t => setHostileDetails({...hostileDetails, volume: t})} />
+                            <TextInput style={styles.detailInput} placeholder="Armement" value={hostileDetails.armes} onChangeText={t => setHostileDetails({...hostileDetails, armes: t})} />
+                            <TextInput style={styles.detailInput} placeholder="Substances" value={hostileDetails.substances} onChangeText={t => setHostileDetails({...hostileDetails, substances: t})} />
+                        </View>
+                    )}
+                </ScrollView>
+
+                <View style={{flexDirection: 'row', justifyContent: 'space-around', width: '100%', marginTop: 20}}>
+                    <TouchableOpacity onPress={deletePing} style={styles.iconBtnDanger}><MaterialIcons name="delete" size={28} color="white" /></TouchableOpacity>
+                    <TouchableOpacity onPress={() => setEditingPing(null)} style={styles.iconBtnSecondary}><MaterialIcons name="close" size={28} color="white" /></TouchableOpacity>
+                    <TouchableOpacity onPress={savePingEdit} style={styles.iconBtnSuccess}><MaterialIcons name="check" size={28} color="white" /></TouchableOpacity>
+                </View>
+            </View>
+        </View>
+      </Modal>
       
-      {/* MODALE LECTURE SEULE PING (HOSTILE) */}
+      {/* MODALE LECTURE SEULE PING (HOSTILE) - Adaptée PAYSAGE */}
       <Modal visible={!!viewingPing} transparent animationType="slide">
           <View style={styles.modalOverlay}>
-              <View style={[styles.modalContent, {width: '90%', borderColor: '#ef4444'}]}>
+              <View style={[styles.modalContent, {width: isLandscape ? '60%' : '90%', borderColor: '#ef4444', maxHeight: '80%'}]}>
                   <Text style={[styles.modalTitle, {color: '#ef4444'}]}>ADVERSAIRE</Text>
                   <Text style={{color: 'white', fontSize: 18, fontWeight: 'bold', marginBottom: 15}}>{viewingPing?.msg}</Text>
                   
                   {viewingPing?.details && (
-                      <ScrollView style={{width: '100%', maxHeight: 300}}>
+                      <ScrollView style={{width: '100%'}}>
                           <View style={styles.readOnlyRow}><Text style={styles.readOnlyLabel}>Pos:</Text><Text style={styles.readOnlyVal}>{viewingPing.details.position}</Text></View>
                           <View style={styles.readOnlyRow}><Text style={styles.readOnlyLabel}>Nat:</Text><Text style={styles.readOnlyVal}>{viewingPing.details.nature}</Text></View>
                           <View style={styles.readOnlyRow}><Text style={styles.readOnlyLabel}>Att:</Text><Text style={styles.readOnlyVal}>{viewingPing.details.attitude}</Text></View>
@@ -999,5 +1062,4 @@ const styles = StyleSheet.create({
   readOnlyLabel: { width: 50, color: '#71717a', fontWeight: 'bold', fontSize: 12 },
   readOnlyVal: { flex: 1, color: 'white', fontSize: 12 }
 });
-
 export default App;
