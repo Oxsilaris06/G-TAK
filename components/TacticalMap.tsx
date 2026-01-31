@@ -413,7 +413,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                         if (pings[p.id].dragging.enabled()) pings[p.id].dragging.disable();
                     }
                 } else {
-                    const icon = L.divIcon({ className: 'custom-div-icon', html: html, iconSize: [100, 60], iconAnchor: [50, 50] });
+                    const icon = L.divIcon({ className: 'custom-div-icon', html: iconHtml, iconSize: [100, 60], iconAnchor: [50, 50] });
                     
                     // Fixed Draggable Logic
                     const m = L.marker([p.lat, p.lng], { 
