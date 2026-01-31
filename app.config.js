@@ -34,6 +34,17 @@ export default {
       }
     },
 
+    // --- AJOUT CORRECTIF POUR IOS ---
+    ios: {
+      bundleIdentifier: "com.praxis.app",
+      supportsTablet: true,
+      infoPlist: {
+        UIBackgroundModes: ["location", "fetch"],
+        NSLocationWhenInUseUsageDescription: "Cette application a besoin de votre position pour le suivi tactique.",
+        NSLocationAlwaysAndWhenInUseUsageDescription: "Cette application a besoin de votre position même en arrière-plan pour le suivi tactique continu."
+      }
+    },
+
     splash: {
       image: "./assets/icon2.png",
       resizeMode: "contain",
