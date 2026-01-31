@@ -16,6 +16,7 @@ import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SplashScreen from 'expo-splash-screen';
 import * as Battery from 'expo-battery';
+// IMPORT MAGNÉTOMÈTRE POUR L'ORIENTATION
 import { Magnetometer } from 'expo-sensors';
 
 import { UserData, OperatorStatus, OperatorRole, ViewType, PingData, AppSettings, DEFAULT_SETTINGS, PingType, HostileDetails, LogEntry } from './types';
@@ -74,9 +75,10 @@ const App: React.FC = () => {
   const peersRef = useRef(peers);
   const userRef = useRef(user);
   
+  // Refs pour la gestion des capteurs
   const magSubscription = useRef<any>(null);
   const lastSentHead = useRef<number>(0);
-  const lastLocalHeadUpdate = useRef<number>(0); 
+  const lastLocalHeadUpdate = useRef<number>(0); // Pour throttler les mises à jour locales
   const appState = useRef<AppStateStatus>(AppState.currentState);
 
   useEffect(() => { pingsRef.current = pings; }, [pings]);
@@ -115,6 +117,7 @@ const App: React.FC = () => {
   const [navMode, setNavMode] = useState<'pedestrian' | 'vehicle'>('pedestrian');
 
   const [gpsStatus, setGpsStatus] = useState<'WAITING' | 'OK' | 'ERROR'>('WAITING');
+  // État local pour forcer le re-render en cas de changement d'état d'app
   const [appStateVisible, setAppStateVisible] = useState(appState.current);
 
   const showToast = useCallback((msg: string, type: 'info' | 'error' | 'success' | 'warning' = 'info') => {
@@ -132,7 +135,7 @@ const App: React.FC = () => {
               body, 
               sound: true, 
               priority: Notifications.AndroidNotificationPriority.HIGH,
-              color: "#000000" // Fond noir pour la notif
+              color: "#000000"
           },
           trigger: null, 
       });
@@ -197,6 +200,7 @@ const App: React.FC = () => {
         handleConnectivityEvent(event);
     });
     
+    // GPS : Met à jour Lat/Lng UNIQUEMENT
     const locSub = locationService.subscribe((loc) => {
         setGpsStatus('OK');
         setUser(prev => ({ ...prev, lat: loc.latitude, lng: loc.longitude }));
@@ -210,64 +214,72 @@ const App: React.FC = () => {
     };
   }, []);
 
-  // --- GESTION ROBUSTE DES CAPTEURS ---
+  // --- GESTION ROBUSTE DES CAPTEURS (GPS & BOUSSOLE) ---
   const isTrackingView = view === 'map' || view === 'ops';
 
   useEffect(() => {
       const cleanupMag = () => {
           if (magSubscription.current) {
-              try { magSubscription.current.remove(); } catch(e) {}
+              magSubscription.current.remove();
               magSubscription.current = null;
           }
       };
 
+      // On active les capteurs seulement si :
+      // 1. On est sur une vue tactique (Carte ou Liste Ops)
+      // 2. L'application est active (premier plan)
+      // 3. On a un hostId (session active)
       if (isTrackingView && appStateVisible === 'active') { 
-          // Utilisation d'un délai pour éviter les conflits au démarrage
-          const startSensors = async () => {
-              try {
-                  locationService.updateOptions({ 
-                      foregroundService: {
-                          notificationTitle: "PRAXIS ACTIF",
-                          notificationBody: "Lien Tactique Maintenu",
-                          notificationColor: "#000000"
-                      }
-                  });
-                  locationService.startTracking();
+          
+          // Redémarrage GPS pour appliquer d'éventuels nouveaux paramètres
+          locationService.updateOptions({ 
+              foregroundService: {
+                  notificationTitle: "PRAXIS ACTIF",
+                  notificationBody: "Lien Tactique Maintenu",
+                  notificationColor: "#2563eb"
+              }
+          });
+          locationService.startTracking();
 
-                  cleanupMag();
-                  Magnetometer.setUpdateInterval(100); 
-                  
-                  const sub = Magnetometer.addListener(data => {
-                      const { x, y } = data;
-                      let angle = Math.atan2(y, x) * (180 / Math.PI);
-                      angle = angle - 90; 
-                      if (isLandscape) { angle = angle + 90; }
-                      if (angle < 0) angle = angle + 360;
-                      const heading = Math.floor(angle);
+          // Redémarrage Magnétomètre
+          cleanupMag();
+          Magnetometer.setUpdateInterval(100); // 10Hz
+          
+          const sub = Magnetometer.addListener(data => {
+              const { x, y } = data;
+              let angle = Math.atan2(y, x) * (180 / Math.PI);
+              angle = angle - 90; 
+              if (isLandscape) { angle = angle + 90; }
+              if (angle < 0) angle = angle + 360;
+              const heading = Math.floor(angle);
 
-                      const now = Date.now();
-                      if (now - lastLocalHeadUpdate.current > 150 || Math.abs(heading - userRef.current.head) > 2) {
-                          lastLocalHeadUpdate.current = now;
-                          setUser(prev => ({ ...prev, head: heading }));
-                      }
+              const now = Date.now();
+              // Throttling local pour éviter de spammer le state React et la WebView
+              // Mise à jour max toutes les 150ms ou si changement > 2 degrés
+              if (now - lastLocalHeadUpdate.current > 150 || Math.abs(heading - userRef.current.head) > 2) {
+                  lastLocalHeadUpdate.current = now;
+                  setUser(prev => ({ ...prev, head: heading }));
+              }
 
-                      if (Math.abs(heading - lastSentHead.current) > 5) {
-                          lastSentHead.current = heading;
-                          connectivityService.updateUserPosition(userRef.current.lat, userRef.current.lng, heading);
-                      }
-                  });
-                  magSubscription.current = sub;
-              } catch (e) { console.log("Sensor error", e); }
-          };
-
-          startSensors();
+              // Envoi réseau (Throttled: seulement si changement > 5°)
+              if (Math.abs(heading - lastSentHead.current) > 5) {
+                  lastSentHead.current = heading;
+                  connectivityService.updateUserPosition(userRef.current.lat, userRef.current.lng, heading);
+              }
+          });
+          magSubscription.current = sub;
 
       } else {
+          // Arrêt propre si on quitte les vues tactiques ou si l'app passe en background
+          // Note: On laisse le GPS tourner si configuré pour background, mais on coupe le magnétomètre
           if (!hostId) locationService.stopTracking();
           cleanupMag();
       }
       
       return () => { cleanupMag(); }
+      
+      // AJOUT CRITIQUE : settings.gpsUpdateInterval dans les dépendances
+      // Cela force le redémarrage des services quand on change les réglages GPS
   }, [isTrackingView, hostId, isLandscape, appStateVisible, settings.gpsUpdateInterval]); 
 
   const handleConnectivityEvent = (event: ConnectivityEvent) => {
