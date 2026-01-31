@@ -1,4 +1,4 @@
-name: 🕵️ DIAGNOSTIC SERVEUR EAS
+name: 🕵️ DIAGNOSTIC SERVEUR EAS (CORRIGÉ)
 
 on:
   workflow_dispatch:
@@ -14,6 +14,11 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: 'npm'
+
+      # --- ETAPE MANQUANTE AJOUTÉE ---
+      - name: 📦 Installation des dépendances (CRUCIAL)
+        run: npm install --legacy-peer-deps
 
       - name: 🏗 Installation EAS CLI
         run: npm install -g eas-cli
@@ -23,7 +28,7 @@ jobs:
           EXPO_TOKEN: ${{ secrets.EXPO_PRAXIS_SECRET }}
         run: |
           echo "Tentative de connexion au projet..."
-          # Cette commande va échouer si l'ID dans app.config.js est faux
+          # Si l'ID dans app.config.js est faux, ça plantera ici
           npx eas project:info
 
       - name: 🔍 TEST 2 - LISTE DES MISES À JOUR (Production)
@@ -31,11 +36,11 @@ jobs:
           EXPO_TOKEN: ${{ secrets.EXPO_PRAXIS_SECRET }}
         run: |
           echo "Récupération des mises à jour sur le canal 'production'..."
-          # Affiche les 5 dernières mises à jour. 
           # On cherche une ligne avec "Runtime Version: 4.1.0"
-          npx eas update:list --branch production --limit 5
+          npx eas update:list --branch production --limit 5 || echo "⚠️ Pas encore de mises à jour ou erreur de branche"
 
       - name: 🔍 TEST 3 - LECTURE CONFIG LOCALE
         run: |
           echo "Vérification de la configuration locale :"
-          cat app.config.js
+          grep "url:" app.config.js
+          grep "runtimeVersion:" app.config.js
