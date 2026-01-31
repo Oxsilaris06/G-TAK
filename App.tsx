@@ -851,14 +851,15 @@ const triggerTacticalNotification = async (title: string, body: string) => {
             <View style={[styles.modalContent, {
                 backgroundColor: '#18181b', borderWidth: 1, borderColor: '#333',
                 width: isLandscape ? '100%' : '90%', 
-                height: isLandscape ? '100%' : undefined,
+                // En mode portrait, on force une hauteur pour garantir le scroll si beaucoup de messages
+                height: isLandscape ? '100%' : undefined, 
                 maxHeight: isLandscape ? '100%' : '80%',
                 borderRadius: isLandscape ? 0 : 24,
                 justifyContent: 'space-between', paddingBottom: 10
             }]}>
                 <Text style={[styles.modalTitle, {color: '#06b6d4', marginBottom: 5}]}>MESSAGE RAPIDE</Text>
                 
-                {/* Liste des messages - Flex 1 pour prendre tout l'espace */}
+                {/* Liste des messages - Flex 1 pour prendre tout l'espace et forcer le scroll */}
                 <View style={{flex: 1, width: '100%', marginBottom: 10}}>
                     <FlatList 
                         data={quickMessagesList} 
