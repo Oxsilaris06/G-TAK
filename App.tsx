@@ -86,7 +86,8 @@ const App: React.FC = () => {
 
   const [loginInput, setLoginInput] = useState('');
   const [hostInput, setHostInput] = useState('');
-  const [mapMode, setMapMode] = useState<'dark' | 'light' | 'satellite' | 'custom'>('satellite');
+  // MODIFICATION: Ajout du mode 'hybrid'
+  const [mapMode, setMapMode] = useState<'dark' | 'light' | 'satellite' | 'hybrid' | 'custom'>('satellite');
   const [showTrails, setShowTrails] = useState(true);
   const [showPings, setShowPings] = useState(true);
   const [isPingMode, setIsPingMode] = useState(false);
@@ -783,8 +784,9 @@ const triggerTacticalNotification = async (title: string, body: string) => {
                   {/* MAP CONTROLS (Flottant) */}
                   {/* MODIFIÉ : Centré verticalement à droite en mode paysage */}
                   <View style={[styles.mapControls, isLandscapeMap && { top: '50%', right: 16, marginTop: -100 }]}>
-                      <TouchableOpacity onPress={() => setMapMode(m => m === 'custom' ? 'dark' : m === 'dark' ? 'light' : m === 'light' ? 'satellite' : settings.customMapUrl ? 'custom' : 'dark')} {...getLandscapeProps()} style={[getLandscapeStyle(styles.mapBtn), nightOpsMode && {borderColor: '#7f1d1d', backgroundColor: '#000'}]}>
-                          <MaterialIcons name={mapMode === 'dark' ? 'dark-mode' : mapMode === 'light' ? 'light-mode' : mapMode === 'custom' ? 'map' : 'satellite'} size={24} color={nightOpsMode ? "#ef4444" : "#d4d4d8"} />
+                      {/* MODIFICATION: Cycle de mode avec Hybrid */}
+                      <TouchableOpacity onPress={() => setMapMode(m => m === 'custom' ? 'dark' : m === 'dark' ? 'light' : m === 'light' ? 'satellite' : m === 'satellite' ? 'hybrid' : settings.customMapUrl ? 'custom' : 'dark')} {...getLandscapeProps()} style={[getLandscapeStyle(styles.mapBtn), nightOpsMode && {borderColor: '#7f1d1d', backgroundColor: '#000'}]}>
+                          <MaterialIcons name={mapMode === 'dark' ? 'dark-mode' : mapMode === 'light' ? 'light-mode' : mapMode === 'hybrid' ? 'layers' : mapMode === 'custom' ? 'map' : 'satellite'} size={24} color={nightOpsMode ? "#ef4444" : "#d4d4d8"} />
                       </TouchableOpacity>
                       <TouchableOpacity onPress={() => setShowTrails(!showTrails)} {...getLandscapeProps()} style={[getLandscapeStyle(styles.mapBtn), nightOpsMode && {borderColor: '#7f1d1d', backgroundColor: '#000'}]}>
                           <MaterialIcons name={showTrails ? 'visibility' : 'visibility-off'} size={24} color={nightOpsMode ? "#ef4444" : "#d4d4d8"} />
