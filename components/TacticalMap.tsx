@@ -440,15 +440,21 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
   `;
   }, []); 
 
-  useEffect(() => {
-    if (webViewRef.current) {
-      webViewRef.current.postMessage(JSON.stringify({
+  // PERFORMANCE FIX: Use useMemo to avoid sending duplicate JSON messages to WebView
+  // This prevents the JS thread from overloading the Bridge
+  const mapUpdateMessage = useMemo(() => {
+      return JSON.stringify({
         type: 'UPDATE_MAP', me, peers, pings, mode: mapMode, customMapUrl,
         showTrails, showPings, isHost,
         userArrowColor, navTargetId, pingMode, nightOpsMode, isLandscape, maxTrailsPerUser
-      }));
-    }
+      });
   }, [me, peers, pings, mapMode, customMapUrl, showTrails, showPings, isHost, userArrowColor, navTargetId, pingMode, nightOpsMode, isLandscape, maxTrailsPerUser]);
+
+  useEffect(() => {
+    if (webViewRef.current) {
+      webViewRef.current.postMessage(mapUpdateMessage);
+    }
+  }, [mapUpdateMessage]);
 
   const handleMessage = (event: any) => {
     try {
