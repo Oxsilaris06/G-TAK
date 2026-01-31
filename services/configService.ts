@@ -18,7 +18,12 @@ class ConfigService {
         
         // Sécurité pour la liste de messages
         if (!this.settings.quickMessages || !Array.isArray(this.settings.quickMessages) || this.settings.quickMessages.length === 0) {
-             this.settings.quickMessages = DEFAULT_SETTINGS.quickMessages;
+              this.settings.quickMessages = DEFAULT_SETTINGS.quickMessages;
+        }
+
+        // Sécurité pour maxTrails (Issu du Code 1)
+        if (!this.settings.maxTrailsPerUser) {
+            this.settings.maxTrailsPerUser = 500;
         }
       }
 
