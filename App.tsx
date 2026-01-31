@@ -229,11 +229,9 @@ const triggerTacticalNotification = async (title: string, body: string) => {
               const { x, y } = data;
               // Calcul de l'angle 0-360
               let angle = Math.atan2(y, x) * (180 / Math.PI);
+              angle = angle - 90; // Compensation de base (Portrait)
               
-              // Compensation de base (Portrait)
-              angle = angle - 90; 
-              
-              // MODIFICATION : Compensation pour le mode PAYSAGE
+              // Ajustement pour le mode PAYSAGE
               if (isLandscape) {
                   angle = angle + 90; 
               }
