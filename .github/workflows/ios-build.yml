@@ -27,9 +27,9 @@ jobs:
       - name: 📦 Install Dependencies
         run: npm ci
 
+      # Cela génère le dossier /ios basé sur app.config.js
       - name: ⚙️ Expo Prebuild
         run: npx expo prebuild --platform ios --no-install
-        # Cela génère le dossier /ios basé sur app.config.js
 
       - name: 🔧 Install Pods
         cd ios
