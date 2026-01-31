@@ -17,7 +17,7 @@ interface TacticalMapProps {
   pingMode?: boolean; 
   nightOpsMode?: boolean;
   initialCenter?: {lat: number, lng: number, zoom: number};
-  isLandscape?: boolean; // Prop pour le mode paysage
+  isLandscape?: boolean;
   onPing: (loc: { lat: number; lng: number }) => void;
   onPingMove: (ping: PingData) => void;
   onPingClick: (id: string) => void; 
@@ -44,6 +44,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
     <head>
       <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
       <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+      
       <style>
         body { margin: 0; padding: 0; background: #000; font-family: sans-serif; transition: filter 0.5s ease; }
         #map { width: 100vw; height: 100vh; }
@@ -68,7 +69,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         /* Compass Styles */
         #compass { position: absolute; top: 20px; left: 20px; width: 60px; height: 60px; z-index: 9999; background: rgba(0,0,0,0.6); border-radius: 50%; border: 2px solid rgba(255,255,255,0.2); display: flex; justify-content: center; align-items: center; backdrop-filter: blur(2px); pointer-events: none; transition: top 0.3s, left 0.3s, bottom 0.3s; }
         
-        /* Landscape Compass Position */
         body.landscape #compass { top: auto; bottom: 20px; left: 20px; }
 
         #compass-indicator { position: absolute; top: -5px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 8px solid #ef4444; z-index: 20; }
@@ -79,7 +79,11 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         .compass-e { right: 6px; top: 50%; transform: translateY(-50%); }
         .compass-w { left: 6px; top: 50%; transform: translateY(-50%); }
       </style>
+
       <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+      <!-- Ajout Leaflet Offline & EdgeBuffer -->
+      <script src="https://unpkg.com/leaflet.offline@2.0.0/dist/leaflet.offline.min.js"></script>
+      <script src="https://unpkg.com/leaflet-edgebuffer@1.0.6/src/leaflet.edgebuffer.js"></script>
     </head>
     <body>
       <div id="map"></div>
@@ -130,14 +134,12 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
             sendToApp({ type: 'MAP_MOVE_END', center: {lat: center.lat, lng: center.lng}, zoom: map.getZoom() });
         });
 
-        // Gestion Single Click
         map.on('click', (e) => {
             if (pingMode) {
                 sendToApp({ type: 'MAP_CLICK', lat: e.latlng.lat, lng: e.latlng.lng });
             }
         });
 
-        // Gestion Double Click
         map.on('dblclick', (e) => {
              sendToApp({ type: 'MAP_DBLCLICK', lat: e.latlng.lat, lng: e.latlng.lng });
         });
@@ -175,7 +177,11 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
             if (mode === 'custom' && customUrl) {
                 if (!layers.custom || layers.custom._url !== customUrl) {
                     if(layers.custom) map.removeLayer(layers.custom);
-                    layers.custom = L.tileLayer(customUrl, {maxZoom: 20});
+                    // Configuration pour le cache et les tuiles locales
+                    layers.custom = L.tileLayer(customUrl, {
+                        maxZoom: 20,
+                        edgeBufferTiles: 2 // Précharge les tuiles adjacentes
+                    });
                 }
             }
 
@@ -210,7 +216,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
 
             all.forEach(u => {
                 let colorHex = '#71717a'; 
-                
                 if (u.status === 'CONTACT') colorHex = '#ef4444';
                 else if (u.status === 'CLEAR') colorHex = '#22c55e';
                 else if (u.status === 'BUSY') colorHex = '#a855f7';
@@ -298,12 +303,9 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                 if (pings[p.id]) {
                     pings[p.id].setLatLng([p.lat, p.lng]);
                     if(pings[p.id]._icon) pings[p.id]._icon.innerHTML = html;
-                    
-                    // Force update draggable status
                     if (canDrag) { pings[p.id].dragging.enable(); } else { pings[p.id].dragging.disable(); }
                 } else {
-                    const icon = L.divIcon({ className: 'custom-div-icon', html: html, iconSize: [100, 60], iconAnchor: [50, 50] });
-                    // On initialise draggable: true, mais on contrôle ensuite
+                    const icon = L.divIcon({ className: 'custom-div-icon', html: iconHtml, iconSize: [100, 60], iconAnchor: [50, 50] });
                     const m = L.marker([p.lat, p.lng], { icon: icon, draggable: true, pane: 'pingPane' });
                     
                     if (!canDrag) m.dragging.disable();
@@ -358,6 +360,8 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         domStorageEnabled={true}
         startInLoadingState={true}
         cacheEnabled={true}
+        allowFileAccess={true} // IMPORTANT pour accès fichiers locaux
+        allowUniversalAccessFromFileURLs={true} // IMPORTANT pour accès fichiers locaux
         renderLoading={() => <ActivityIndicator size="large" color="#3b82f6" style={styles.loader} />}
       />
     </View>
