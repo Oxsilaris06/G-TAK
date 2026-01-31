@@ -16,7 +16,6 @@ import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SplashScreen from 'expo-splash-screen';
 import * as Battery from 'expo-battery';
-// IMPORT MAGNÉTOMÈTRE POUR L'ORIENTATION
 import { Magnetometer } from 'expo-sensors';
 
 import { UserData, OperatorStatus, OperatorRole, ViewType, PingData, AppSettings, DEFAULT_SETTINGS, PingType, HostileDetails, LogEntry } from './types';
@@ -49,6 +48,10 @@ const App: React.FC = () => {
   useKeepAwake();
   const { width, height } = useWindowDimensions();
   const isLandscape = width > height;
+  
+  // REF: Track landscape mode without triggering re-renders of effects
+  const isLandscapeRef = useRef(isLandscape);
+  useEffect(() => { isLandscapeRef.current = isLandscape; }, [isLandscape]);
 
   const [isAppReady, setIsAppReady] = useState(false);
   const [activeNotif, setActiveNotif] = useState<{ id: string, msg: string, type: 'alert' | 'info' | 'success' | 'warning' } | null>(null);
@@ -77,8 +80,6 @@ const App: React.FC = () => {
   
   const magSubscription = useRef<any>(null);
   const lastSentHead = useRef<number>(0);
-  
-  // Optimisation : Limite les rafraîchissements React dus à la boussole
   const lastLocalHeadUpdate = useRef<number>(0); 
   const appState = useRef<AppStateStatus>(AppState.currentState);
 
@@ -128,14 +129,17 @@ const App: React.FC = () => {
 
   const triggerTacticalNotification = async (title: string, body: string) => {
       if (AppState.currentState !== 'background' || settings.disableBackgroundNotifications) return;
-      await Notifications.dismissAllNotificationsAsync();
+      
+      // CRITICAL FIX: Do NOT dismiss all notifications. 
+      // Dismissing all kills the Foreground Service notification, causing the Location Service to crash/restart.
+      
       await Notifications.scheduleNotificationAsync({
           content: { 
               title, 
               body, 
               sound: true, 
               priority: Notifications.AndroidNotificationPriority.HIGH,
-              color: "#000000" // Fond noir pour la notif (Android)
+              color: "#000000"
           },
           trigger: null, 
       });
@@ -190,7 +194,8 @@ const App: React.FC = () => {
       
       if (nextAppState === 'active') {
         connectivityService.handleAppStateChange('active');
-        await Notifications.dismissAllNotificationsAsync();
+        // Only dismiss standard notifications, careful not to kill service notif ID if known
+        // Safe to leave them or clear specific categories if implemented
       } else if (nextAppState === 'background') {
         connectivityService.handleAppStateChange('background');
       }
@@ -200,7 +205,6 @@ const App: React.FC = () => {
         handleConnectivityEvent(event);
     });
     
-    // GPS : Met à jour Lat/Lng UNIQUEMENT
     const locSub = locationService.subscribe((loc) => {
         setGpsStatus('OK');
         setUser(prev => ({ ...prev, lat: loc.latitude, lng: loc.longitude }));
@@ -214,7 +218,7 @@ const App: React.FC = () => {
     };
   }, []);
 
-  // --- GESTION ROBUSTE DES CAPTEURS ---
+  // --- ROBUST SENSOR & LOCATION MANAGEMENT ---
   const isTrackingView = view === 'map' || view === 'ops';
 
   useEffect(() => {
@@ -226,6 +230,7 @@ const App: React.FC = () => {
       };
 
       if (isTrackingView && appStateVisible === 'active') { 
+          // Update options without stopping service if possible
           locationService.updateOptions({ 
               foregroundService: {
                   notificationTitle: "PRAXIS ACTIF",
@@ -233,8 +238,11 @@ const App: React.FC = () => {
                   notificationColor: "#000000"
               }
           });
+          
+          // Ensure tracking is on
           locationService.startTracking();
 
+          // Reset Magnetometer
           cleanupMag();
           Magnetometer.setUpdateInterval(100); 
           
@@ -242,17 +250,21 @@ const App: React.FC = () => {
               const { x, y } = data;
               let angle = Math.atan2(y, x) * (180 / Math.PI);
               angle = angle - 90; 
-              if (isLandscape) { angle = angle + 90; }
+              
+              // Use Ref for landscape to avoid effect re-run
+              if (isLandscapeRef.current) { angle = angle + 90; }
+              
               if (angle < 0) angle = angle + 360;
               const heading = Math.floor(angle);
 
               const now = Date.now();
-              // Throttle: Limite la mise à jour de l'état local pour fluidifier l'UI
+              // Throttle: Update local state only if significant change or time passed
               if (now - lastLocalHeadUpdate.current > 150 || Math.abs(heading - userRef.current.head) > 2) {
                   lastLocalHeadUpdate.current = now;
                   setUser(prev => ({ ...prev, head: heading }));
               }
 
+              // Network Throttle: Update peers less frequently
               if (Math.abs(heading - lastSentHead.current) > 5) {
                   lastSentHead.current = heading;
                   connectivityService.updateUserPosition(userRef.current.lat, userRef.current.lng, heading);
@@ -261,12 +273,16 @@ const App: React.FC = () => {
           magSubscription.current = sub;
 
       } else {
-          if (!hostId) locationService.stopTracking();
+          // If leaving tracking view, stop heavy services
+          if (!hostId) {
+              locationService.stopTracking();
+          }
           cleanupMag();
       }
       
       return () => { cleanupMag(); }
-  }, [isTrackingView, hostId, isLandscape, appStateVisible, settings.gpsUpdateInterval]); 
+      // CRITICAL FIX: Removed 'isLandscape' from dependencies to prevent service restart on rotation
+  }, [isTrackingView, hostId, appStateVisible, settings.gpsUpdateInterval]); 
 
   const handleConnectivityEvent = (event: ConnectivityEvent) => {
       switch (event.type) {
@@ -719,7 +735,6 @@ const App: React.FC = () => {
                       pingMode={isPingMode} nightOpsMode={nightOpsMode} 
                       initialCenter={mapState} 
                       isLandscape={isLandscape} 
-                      // AJOUT ICI : passage du paramètre de config max trails (Présent dans Code 1, absent dans Code 2)
                       maxTrailsPerUser={settings.maxTrailsPerUser}
                       onPing={(loc) => { setTempPingLoc(loc); setShowPingMenu(true); }}
                       onPingMove={(p) => { 
@@ -800,7 +815,6 @@ const App: React.FC = () => {
                 setSettings(s); 
                 setUser(u => ({...u, paxColor: s.userArrowColor})); 
                 connectivityService.updateUser({paxColor: s.userArrowColor}); 
-                // Note : On ne met plus à jour locationService ici, configService s'en charge
             }} 
          />
       </Modal>
