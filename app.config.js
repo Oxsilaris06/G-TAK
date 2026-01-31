@@ -1,5 +1,5 @@
-// LE VRAI ID DU PROJET (Celui du début)
-const PROJECT_ID = "f55fd8e2-57c6-4432-a64c-fae41bb16a3e";
+// RETOUR AU VRAI ID DU PROJET (Celui qui est correct)
+const PROJECT_ID = "f55fd8e2-57c6-4432-a64c-fae41bb16a3e"; 
 const VERSION = "4.1.0";
 
 export default {
@@ -11,11 +11,9 @@ export default {
     icon: "./assets/icon.png",
     userInterfaceStyle: "dark",
     
-    // Runtime version alignée
     runtimeVersion: VERSION,
     
-    // --- CORRECTION CRITIQUE (GARDÉE) ---
-    // Inclusion de tous les fichiers assets pour éviter "Failed to download"
+    // Inclusion des assets (Vital pour éviter les erreurs de téléchargement)
     assetBundlePatterns: [
       "**/*"
     ],
@@ -46,6 +44,13 @@ export default {
       adaptiveIcon: {
         foregroundImage: "./assets/adaptive-icon.png",
         backgroundColor: "#000000"
+      },
+      // --- AJOUT CRITIQUE : FORÇAGE NATIF DU CANAL ---
+      // Cela garantit que le code natif Android sait où chercher AVANT de charger le JS
+      metaData: {
+        "expo.modules.updates.EXPO_UPDATES_CHANNEL_NAME": "production",
+        "expo.modules.updates.EXPO_UPDATES_CHECK_ON_LAUNCH": "ALWAYS",
+        "expo.modules.updates.EXPO_UPDATES_LAUNCH_WAIT_MS": "30000"
       },
       permissions: [
         "ACCESS_FINE_LOCATION",
