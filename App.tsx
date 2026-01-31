@@ -3,7 +3,7 @@ import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { 
   StyleSheet, View, Text, TextInput, TouchableOpacity, 
   SafeAreaView, Platform, Modal, StatusBar as RNStatusBar, Alert, ScrollView, ActivityIndicator,
-  KeyboardAvoidingView, AppState, Image, FlatList
+  KeyboardAvoidingView, AppState, Image, FlatList, useWindowDimensions
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import QRCode from 'react-native-qrcode-svg';
@@ -47,7 +47,9 @@ Notifications.setNotificationHandler({
 
 const App: React.FC = () => {
   useKeepAwake();
-  
+  const { width, height } = useWindowDimensions();
+  const isLandscape = width > height;
+
   const [isAppReady, setIsAppReady] = useState(false);
   const [activeNotif, setActiveNotif] = useState<{ id: string, msg: string, type: 'alert' | 'info' | 'success' | 'warning' } | null>(null);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
@@ -318,7 +320,7 @@ const triggerTacticalNotification = async (title: string, body: string) => {
             triggerTacticalNotification(`${senderName} - Info`, `${data.ping.msg}`);
         }
     }
-       else if (data.type === 'LOG_UPDATE' && Array.isArray(data.logs)) {
+        else if (data.type === 'LOG_UPDATE' && Array.isArray(data.logs)) {
         const oldLogs = logsRef.current;
         const newLogs = data.logs;
 
@@ -520,6 +522,25 @@ const triggerTacticalNotification = async (title: string, body: string) => {
       } else { setView('login'); }
   };
 
+  // --- HELPER STYLES FOR LANDSCAPE UI ---
+  const isLandscapeMap = isLandscape && view === 'map';
+  
+  // Fonction pour obtenir le style des boutons (transparence en paysage)
+  const getLandscapeStyle = (baseStyle: any = {}) => {
+    if (isLandscapeMap) {
+       return [baseStyle, { opacity: 0.3 }];
+    }
+    return baseStyle;
+  };
+
+  // Fonction pour les propriétés des boutons (accentuation au toucher)
+  const getLandscapeProps = () => {
+      if (isLandscapeMap) {
+          return { activeOpacity: 1 }; // Devient opaque quand touché
+      }
+      return { activeOpacity: 0.5 };
+  };
+
   // --- RENDER HEADER & NAVIGATION ---
   useEffect(() => {
       if (navTargetId && peers[navTargetId] && user.lat && peers[navTargetId].lat) {
@@ -550,9 +571,11 @@ const triggerTacticalNotification = async (title: string, body: string) => {
   }, [navTargetId, user.lat, user.lng, peers, navMode]);
 
   const renderHeader = () => {
+      const headerContainerStyle = isLandscapeMap ? styles.headerContentLandscape : styles.headerContent;
+
       if (navTargetId && navInfo) {
           return (
-              <View style={styles.headerContent}>
+              <View style={headerContainerStyle}>
                   <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
                       <MaterialIcons name="navigation" size={24} color="#06b6d4" />
                       <View>
@@ -561,13 +584,13 @@ const triggerTacticalNotification = async (title: string, body: string) => {
                       </View>
                   </View>
                   <View style={{flexDirection:'row', gap: 15, alignItems:'center'}}>
-                      <TouchableOpacity onPress={() => setNavMode('pedestrian')}>
+                      <TouchableOpacity onPress={() => setNavMode('pedestrian')} {...getLandscapeProps()} style={getLandscapeStyle()}>
                          <MaterialIcons name="directions-walk" size={26} color={navMode === 'pedestrian' ? '#22c55e' : '#52525b'} />
                       </TouchableOpacity>
-                      <TouchableOpacity onPress={() => setNavMode('vehicle')}>
+                      <TouchableOpacity onPress={() => setNavMode('vehicle')} {...getLandscapeProps()} style={getLandscapeStyle()}>
                          <MaterialIcons name="directions-car" size={26} color={navMode === 'vehicle' ? '#22c55e' : '#52525b'} />
                       </TouchableOpacity>
-                      <TouchableOpacity onPress={() => setNavTargetId(null)} style={{padding: 8, marginLeft: 10}}>
+                      <TouchableOpacity onPress={() => setNavTargetId(null)} style={[getLandscapeStyle(), {padding: 8, marginLeft: 10}]} {...getLandscapeProps()}>
                           <MaterialIcons name="close" size={28} color="white" />
                       </TouchableOpacity>
                   </View>
@@ -575,17 +598,27 @@ const triggerTacticalNotification = async (title: string, body: string) => {
           );
       }
       return (
-          <View style={styles.headerContent}>
-              <TouchableOpacity onPress={handleBackPress}><MaterialIcons name="arrow-back" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
-              <Text style={[styles.headerTitle, nightOpsMode && {color: '#ef4444'}]}>Praxis</Text>
+          <View style={headerContainerStyle}>
+              <TouchableOpacity onPress={handleBackPress} {...getLandscapeProps()} style={getLandscapeStyle()}>
+                  <MaterialIcons name="arrow-back" size={24} color={nightOpsMode ? "#ef4444" : "white"} />
+              </TouchableOpacity>
+              
+              <Text style={[styles.headerTitle, nightOpsMode && {color: '#ef4444'}, isLandscapeMap && {opacity: 0.3}]}>Praxis</Text>
+              
               <View style={{flexDirection: 'row', gap: 15}}>
-                  <TouchableOpacity onPress={() => setShowLogs(true)}><MaterialIcons name="history-edu" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
-                  <TouchableOpacity onPress={() => setNightOpsMode(!nightOpsMode)}><MaterialIcons name="nightlight-round" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
-                  <TouchableOpacity onPress={() => setShowSettings(true)}><MaterialIcons name="settings" size={24} color={nightOpsMode ? "#ef4444" : "white"} /></TouchableOpacity>
+                  <TouchableOpacity onPress={() => setShowLogs(true)} {...getLandscapeProps()} style={getLandscapeStyle()}>
+                      <MaterialIcons name="history-edu" size={24} color={nightOpsMode ? "#ef4444" : "white"} />
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => setNightOpsMode(!nightOpsMode)} {...getLandscapeProps()} style={getLandscapeStyle()}>
+                      <MaterialIcons name="nightlight-round" size={24} color={nightOpsMode ? "#ef4444" : "white"} />
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => setShowSettings(true)} {...getLandscapeProps()} style={getLandscapeStyle()}>
+                      <MaterialIcons name="settings" size={24} color={nightOpsMode ? "#ef4444" : "white"} />
+                  </TouchableOpacity>
                   <TouchableOpacity onPress={() => { 
                       if(view === 'map') { setView('ops'); setLastOpsView('ops'); }
                       else { setView('map'); setLastOpsView('map'); }
-                  }}>
+                  }} {...getLandscapeProps()} style={getLandscapeStyle()}>
                       <MaterialIcons name={view === 'map' ? "list" : "map"} size={24} color={nightOpsMode ? "#ef4444" : "white"} />
                   </TouchableOpacity>
               </View>
@@ -667,11 +700,23 @@ const triggerTacticalNotification = async (title: string, body: string) => {
     }
   };
 
-  const renderMainContent = () => (
-      <View style={{flex: 1}}>
-          <SafeAreaView style={styles.header}>{renderHeader()}</SafeAreaView>
+  const renderMainContent = () => {
+    const isMapMode = view === 'map';
+    const isOpsMode = view === 'ops';
 
-          <View style={{ flex: 1, display: view === 'ops' ? 'flex' : 'none' }}>
+    // Styles conditionnels pour le layout
+    // Si paysage + map : header et footer sont absolute et transparents
+    // Sinon : flex layout normal
+    
+    return (
+      <View style={{flex: 1}}>
+          {/* HEADER */}
+          <View style={isLandscapeMap ? styles.headerLandscape : styles.header}>
+             <SafeAreaView>{renderHeader()}</SafeAreaView>
+          </View>
+
+          {/* CONTENT OPS (Liste) */}
+          <View style={{ flex: 1, display: isOpsMode ? 'flex' : 'none' }}>
               <ScrollView contentContainerStyle={styles.grid}>
                   <OperatorCard user={user} isMe style={{ width: '100%' }} isNightOps={nightOpsMode} />
                   {Object.values(peers).filter(p => p.id !== user.id).map(p => (
@@ -682,7 +727,9 @@ const triggerTacticalNotification = async (title: string, body: string) => {
               </ScrollView>
           </View>
 
-          <View style={{ flex: 1, display: view === 'map' ? 'flex' : 'none' }}>
+          {/* CONTENT MAP */}
+          {/* En mode paysage, la map prend tout l'espace (flex 1 dans le conteneur principal) et le header/footer sont au-dessus */}
+          <View style={{ flex: 1, display: isMapMode ? 'flex' : 'none', position: 'relative' }}>
               <View style={{flex: 1}}>
                   <TacticalMap 
                       me={user} peers={peers} pings={pings} 
@@ -693,6 +740,7 @@ const triggerTacticalNotification = async (title: string, body: string) => {
                       pingMode={isPingMode} navTargetId={navTargetId}
                       nightOpsMode={nightOpsMode} 
                       initialCenter={mapState} 
+                      isLandscape={isLandscape} // Prop pour ajuster la carte (boussole)
                       onPing={(loc) => { setTempPingLoc(loc); setShowPingMenu(true); }}
                       onPingMove={(p) => { 
                           setPings(prev => prev.map(pi => pi.id === p.id ? p : pi));
@@ -722,31 +770,46 @@ const triggerTacticalNotification = async (title: string, body: string) => {
                       onNavStop={() => setNavTargetId(null)} 
                       onMapMoveEnd={(center, zoom) => setMapState({...center, zoom})} 
                   />
-                  <View style={styles.mapControls}>
-                      <TouchableOpacity onPress={() => setMapMode(m => m === 'custom' ? 'dark' : m === 'dark' ? 'light' : m === 'light' ? 'satellite' : settings.customMapUrl ? 'custom' : 'dark')} style={[styles.mapBtn, nightOpsMode && {borderColor: '#7f1d1d', backgroundColor: '#000'}]}><MaterialIcons name={mapMode === 'dark' ? 'dark-mode' : mapMode === 'light' ? 'light-mode' : mapMode === 'custom' ? 'map' : 'satellite'} size={24} color={nightOpsMode ? "#ef4444" : "#d4d4d8"} /></TouchableOpacity>
-                      <TouchableOpacity onPress={() => setShowTrails(!showTrails)} style={[styles.mapBtn, nightOpsMode && {borderColor: '#7f1d1d', backgroundColor: '#000'}]}><MaterialIcons name={showTrails ? 'visibility' : 'visibility-off'} size={24} color={nightOpsMode ? "#ef4444" : "#d4d4d8"} /></TouchableOpacity>
-                      <TouchableOpacity onPress={() => setShowPings(!showPings)} style={[styles.mapBtn, nightOpsMode && {borderColor: '#7f1d1d', backgroundColor: '#000'}]}><MaterialIcons name={showPings ? 'location-on' : 'location-off'} size={24} color={nightOpsMode ? "#ef4444" : "#d4d4d8"} /></TouchableOpacity>
-                      <TouchableOpacity onPress={() => setIsPingMode(!isPingMode)} style={[styles.mapBtn, isPingMode ? {backgroundColor: '#dc2626', borderColor: '#f87171'} : null, nightOpsMode && {borderColor: '#7f1d1d', backgroundColor: isPingMode ? '#7f1d1d' : '#000'}]}><MaterialIcons name="ads-click" size={24} color="white" /></TouchableOpacity>
+                  
+                  {/* MAP CONTROLS (Flottant) */}
+                  <View style={[styles.mapControls, isLandscapeMap && { top: 60 }]}>
+                      <TouchableOpacity onPress={() => setMapMode(m => m === 'custom' ? 'dark' : m === 'dark' ? 'light' : m === 'light' ? 'satellite' : settings.customMapUrl ? 'custom' : 'dark')} {...getLandscapeProps()} style={[getLandscapeStyle(styles.mapBtn), nightOpsMode && {borderColor: '#7f1d1d', backgroundColor: '#000'}]}>
+                          <MaterialIcons name={mapMode === 'dark' ? 'dark-mode' : mapMode === 'light' ? 'light-mode' : mapMode === 'custom' ? 'map' : 'satellite'} size={24} color={nightOpsMode ? "#ef4444" : "#d4d4d8"} />
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => setShowTrails(!showTrails)} {...getLandscapeProps()} style={[getLandscapeStyle(styles.mapBtn), nightOpsMode && {borderColor: '#7f1d1d', backgroundColor: '#000'}]}>
+                          <MaterialIcons name={showTrails ? 'visibility' : 'visibility-off'} size={24} color={nightOpsMode ? "#ef4444" : "#d4d4d8"} />
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => setShowPings(!showPings)} {...getLandscapeProps()} style={[getLandscapeStyle(styles.mapBtn), nightOpsMode && {borderColor: '#7f1d1d', backgroundColor: '#000'}]}>
+                          <MaterialIcons name={showPings ? 'location-on' : 'location-off'} size={24} color={nightOpsMode ? "#ef4444" : "#d4d4d8"} />
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => setIsPingMode(!isPingMode)} {...getLandscapeProps()} style={[getLandscapeStyle(styles.mapBtn), isPingMode ? {backgroundColor: '#dc2626', borderColor: '#f87171'} : null, nightOpsMode && {borderColor: '#7f1d1d', backgroundColor: isPingMode ? '#7f1d1d' : '#000'}]}>
+                          <MaterialIcons name="ads-click" size={24} color="white" />
+                      </TouchableOpacity>
                   </View>
               </View>
           </View>
 
-          <View style={[styles.footer, nightOpsMode && {borderTopColor: '#7f1d1d'}]}>
+          {/* FOOTER */}
+          <View style={[isLandscapeMap ? styles.footerLandscape : styles.footer, nightOpsMode && {borderTopColor: '#7f1d1d'}]}>
                 <View style={styles.statusRow}>
                   {[OperatorStatus.PROGRESSION, OperatorStatus.CONTACT, OperatorStatus.CLEAR].map(s => (
                       <TouchableOpacity key={s} onPress={() => { 
                           setUser(u => ({...u, status:s})); 
                           connectivityService.updateUser({ status: s, paxColor: settings.userArrowColor }); 
-                      }} style={[styles.statusBtn, user.status === s ? { backgroundColor: STATUS_COLORS[s], borderColor: 'white' } : null, nightOpsMode && {borderColor: '#7f1d1d', backgroundColor: user.status === s ? '#7f1d1d' : '#000'}]}>
+                      }} {...getLandscapeProps()} style={[getLandscapeStyle(styles.statusBtn), user.status === s ? { backgroundColor: STATUS_COLORS[s], borderColor: 'white' } : null, nightOpsMode && {borderColor: '#7f1d1d', backgroundColor: user.status === s ? '#7f1d1d' : '#000'}]}>
                           <Text style={[styles.statusBtnText, user.status === s ? {color:'white'} : null, nightOpsMode && {color: '#ef4444'}]}>{s}</Text>
                       </TouchableOpacity>
                   ))}
-                  <TouchableOpacity onPress={() => setShowQuickMsgModal(true)} style={[styles.statusBtn, {borderColor: '#06b6d4'}, nightOpsMode && {borderColor: '#ef4444'}]}><Text style={[styles.statusBtnText, {color: '#06b6d4'}, nightOpsMode && {color: '#ef4444'}]}>MSG</Text></TouchableOpacity>
-                  <TouchableOpacity onPress={() => setShowQRModal(true)} style={[styles.statusBtn, {borderColor: '#d4d4d8'}, nightOpsMode && {borderColor: '#ef4444'}]}><MaterialIcons name="qr-code-2" size={16} color={nightOpsMode ? "#ef4444" : "#d4d4d8"} /></TouchableOpacity>
+                  <TouchableOpacity onPress={() => setShowQuickMsgModal(true)} {...getLandscapeProps()} style={[getLandscapeStyle(styles.statusBtn), {borderColor: '#06b6d4'}, nightOpsMode && {borderColor: '#ef4444'}]}>
+                      <Text style={[styles.statusBtnText, {color: '#06b6d4'}, nightOpsMode && {color: '#ef4444'}]}>MSG</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => setShowQRModal(true)} {...getLandscapeProps()} style={[getLandscapeStyle(styles.statusBtn), {borderColor: '#d4d4d8'}, nightOpsMode && {borderColor: '#ef4444'}]}>
+                      <MaterialIcons name="qr-code-2" size={16} color={nightOpsMode ? "#ef4444" : "#d4d4d8"} />
+                  </TouchableOpacity>
               </View>
           </View>
       </View>
-  );
+  )};
 
   if (!isAppReady) return <View style={{flex: 1, backgroundColor: '#000'}}><ActivityIndicator size="large" color="#2563eb" style={{marginTop: 50}} /></View>;
 
@@ -836,14 +899,28 @@ const styles = StyleSheet.create({
   inputBox: { backgroundColor: '#18181b', borderRadius: 16, padding: 20, fontSize: 20, color: 'white', borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)', marginBottom: 15 },
   joinBtn: { backgroundColor: '#27272a', padding: 20, borderRadius: 16, alignItems: 'center' },
   joinBtnText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
+  
+  // Header Standard
   header: { backgroundColor: '#09090b', borderBottomWidth: 1, borderBottomColor: '#27272a', paddingTop: Platform.OS === 'android' ? RNStatusBar.currentHeight : 0, zIndex: 1000, elevation: 1000 },
   headerContent: { height: 60, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20 },
+  
+  // Header Landscape (Transparent & Absolute)
+  headerLandscape: { position: 'absolute', top: 0, left: 0, right: 0, backgroundColor: 'transparent', zIndex: 2000, borderBottomWidth: 0, paddingTop: Platform.OS === 'android' ? RNStatusBar.currentHeight : 0 },
+  headerContentLandscape: { height: 60, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20 },
+
   headerTitle: { color: 'white', fontWeight: '900', fontSize: 18 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', padding: 16, gap: 12 },
   scannerClose: { position: 'absolute', top: 50, right: 20, padding: 10, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 20 },
+  
   mapControls: { position: 'absolute', top: 16, right: 16, gap: 12, zIndex: 2000, elevation: 2000 },
   mapBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#18181b', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
+  
+  // Footer Standard
   footer: { backgroundColor: '#050505', borderTopWidth: 1, borderTopColor: '#27272a', paddingBottom: 20, zIndex: 2000, elevation: 2000 },
+  
+  // Footer Landscape (Transparent & Absolute)
+  footerLandscape: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: 'transparent', zIndex: 2000, paddingBottom: 10, borderTopWidth: 0 },
+  
   statusRow: { flexDirection: 'row', padding: 12, gap: 8, flexWrap: 'wrap', justifyContent: 'center' },
   statusBtn: { paddingHorizontal: 16, paddingVertical: 12, borderRadius: 8, backgroundColor: '#18181b', borderWidth: 1, borderColor: '#27272a' },
   statusBtnText: { color: '#71717a', fontSize: 12, fontWeight: 'bold' },
