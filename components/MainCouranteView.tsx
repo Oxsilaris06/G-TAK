@@ -191,24 +191,44 @@ const MainCouranteView: React.FC<Props> = ({ visible, logs, role, onClose, onAdd
 
     return (
         <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-            <View style={styles.container}>
-                {/* HEADER */}
-                <View style={styles.header}>
-                    <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-                        <MaterialIcons name="close" size={24} color="#a1a1aa" />
-                    </TouchableOpacity>
-                    <View style={styles.headerTitleContainer}>
-                        <Text style={styles.headerTitle}>MAIN COURANTE</Text>
-                        <Text style={styles.headerSubtitle}>{logs.length} Entrées • {isHost ? (editingLog ? 'MODIFICATION' : 'ÉDITION') : 'LECTURE'}</Text>
-                    </View>
-                    <TouchableOpacity onPress={handleExportPDF} style={styles.shareBtn}>
-                        <MaterialIcons name="picture-as-pdf" size={24} color="#ef4444" />
-                    </TouchableOpacity>
-                </View>
-
-                {/* CONTENT AREA (Split for Landscape) */}
-                <View style={[styles.contentContainer, isSideBySide && { flexDirection: 'row' }]}>
+            <View style={[styles.container, isSideBySide && { flexDirection: 'row' }]}>
+                
+                {/* PARTIE GAUCHE (Header + Liste) ou VUE GLOBALE en Portrait */}
+                <View style={{ flex: 1, flexDirection: 'column' }}>
                     
+                    {/* HEADER */}
+                    <View style={[styles.header, isSideBySide && styles.headerLandscape]}>
+                        {isSideBySide ? (
+                             // Header Paysage : Compacté à gauche
+                             <View style={styles.headerLeftGroup}>
+                                 <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
+                                     <MaterialIcons name="close" size={24} color="#a1a1aa" />
+                                 </TouchableOpacity>
+                                 <TouchableOpacity onPress={handleExportPDF} style={styles.shareBtn}>
+                                     <MaterialIcons name="picture-as-pdf" size={24} color="#ef4444" />
+                                 </TouchableOpacity>
+                                 <View style={styles.headerTitleContainerLandscape}>
+                                     <Text style={styles.headerTitle}>MAIN COURANTE</Text>
+                                     <Text style={styles.headerSubtitle}>{logs.length} Entrées</Text>
+                                 </View>
+                             </View>
+                        ) : (
+                             // Header Portrait : Standard
+                             <>
+                                <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
+                                    <MaterialIcons name="close" size={24} color="#a1a1aa" />
+                                </TouchableOpacity>
+                                <View style={styles.headerTitleContainer}>
+                                    <Text style={styles.headerTitle}>MAIN COURANTE</Text>
+                                    <Text style={styles.headerSubtitle}>{logs.length} Entrées • {isHost ? (editingLog ? 'MODIFICATION' : 'ÉDITION') : 'LECTURE'}</Text>
+                                </View>
+                                <TouchableOpacity onPress={handleExportPDF} style={styles.shareBtn}>
+                                    <MaterialIcons name="picture-as-pdf" size={24} color="#ef4444" />
+                                </TouchableOpacity>
+                             </>
+                        )}
+                    </View>
+
                     {/* LISTE DES LOGS */}
                     <View style={{ flex: 1 }}>
                         <FlatList
@@ -217,7 +237,8 @@ const MainCouranteView: React.FC<Props> = ({ visible, logs, role, onClose, onAdd
                             keyExtractor={item => item.id}
                             contentContainerStyle={{ 
                                 padding: 16, 
-                                // Padding bottom depends on whether form is overlay (Portrait) or side-by-side (Landscape)
+                                // Padding bottom en portrait : place pour le formulaire overlay
+                                // Padding bottom en paysage : standard
                                 paddingBottom: isSideBySide ? 16 : (isHost ? 280 : 40) 
                             }}
                             renderItem={({ item }) => (
@@ -259,72 +280,72 @@ const MainCouranteView: React.FC<Props> = ({ visible, logs, role, onClose, onAdd
                             }
                         />
                     </View>
+                </View>
 
-                    {/* FORMULAIRE (Unique pour Ajout ET Modification) */}
-                    {isHost && (
-                        <KeyboardAvoidingView 
-                            behavior={Platform.OS === "ios" ? "padding" : undefined} 
-                            style={isSideBySide ? [styles.formWrapperLandscape, { width: formWidth }] : styles.formWrapperPortrait}
+                {/* FORMULAIRE (Droite en Paysage, Bas en Portrait) */}
+                {isHost && (
+                    <KeyboardAvoidingView 
+                        behavior={Platform.OS === "ios" ? "padding" : undefined} 
+                        style={isSideBySide ? [styles.formWrapperLandscape, { width: formWidth }] : styles.formWrapperPortrait}
+                    >
+                        <ScrollView 
+                            contentContainerStyle={{ flexGrow: 1 }}
+                            scrollEnabled={isSideBySide} // Scroll seulement en paysage si besoin
+                            keyboardShouldPersistTaps="handled"
                         >
-                            <ScrollView 
-                                contentContainerStyle={{ flexGrow: 1 }}
-                                scrollEnabled={isSideBySide} // Only scroll form in landscape if needed
-                                keyboardShouldPersistTaps="handled"
-                            >
-                                <View style={[
-                                    styles.formContainer, 
-                                    isSideBySide && styles.formContainerLandscape,
-                                    editingLog && { borderColor: '#eab308', borderWidth: 1 }
-                                ]}>
-                                    <View style={styles.formHeader}>
-                                        <Text style={[styles.formLabel, editingLog && {color: '#eab308'}]}>
-                                            {editingLog ? 'MODIFICATION' : 'NOUVELLE ENTRÉE'}
-                                        </Text>
-                                        <View style={{flexDirection: 'row', alignItems: 'center'}}>
-                                            {editingLog && (
-                                                <TouchableOpacity onPress={handleCancelEdit} style={{marginRight: 10, padding: 4}}>
-                                                    <Text style={{color: '#ef4444', fontSize: 10, fontWeight:'bold'}}>ANNULER</Text>
-                                                </TouchableOpacity>
-                                            )}
-                                            <MaterialIcons name="access-time" size={14} color="#555" style={{marginRight: 4}}/>
-                                            <TextInput 
-                                                style={styles.timeInput} 
-                                                value={manualTime} 
-                                                onChangeText={setManualTime} 
-                                                placeholder="HH:MM"
-                                                placeholderTextColor="#555"
-                                            />
-                                        </View>
-                                    </View>
-
-                                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.typeScroller}>
-                                        {PAX_TYPES.map((t, idx) => (
-                                            <TouchableOpacity 
-                                                key={idx} 
-                                                style={[styles.typeBtn, paxType.label === t.label && styles.typeBtnSelected, { borderColor: t.color, backgroundColor: paxType.label === t.label ? t.color : 'transparent' }]} 
-                                                onPress={() => { setPaxType(t); setCustomPax(''); }}
-                                            >
-                                                <Text style={[styles.typeBtnText, { color: paxType.label === t.label ? (t.color === '#f1c40f' ? 'black' : 'white') : t.color }]}>{t.label}</Text>
+                            <View style={[
+                                styles.formContainer, 
+                                isSideBySide && styles.formContainerLandscape,
+                                editingLog && { borderColor: '#eab308', borderWidth: 1 }
+                            ]}>
+                                <View style={styles.formHeader}>
+                                    <Text style={[styles.formLabel, editingLog && {color: '#eab308'}]}>
+                                        {editingLog ? 'MODIFICATION' : 'NOUVELLE ENTRÉE'}
+                                    </Text>
+                                    <View style={{flexDirection: 'row', alignItems: 'center'}}>
+                                        {editingLog && (
+                                            <TouchableOpacity onPress={handleCancelEdit} style={{marginRight: 10, padding: 4}}>
+                                                <Text style={{color: '#ef4444', fontSize: 10, fontWeight:'bold'}}>ANNULER</Text>
                                             </TouchableOpacity>
-                                        ))}
-                                    </ScrollView>
-
-                                    <View style={inputRowStyle}>
-                                        <TextInput style={[styles.input, { flex: 1 }]} placeholder="Lieu..." placeholderTextColor="#52525b" value={lieu} onChangeText={setLieu} />
-                                        <TextInput style={[styles.input, { flex: isSideBySide ? 1 : 1.5 }]} placeholder="Action / Événement" placeholderTextColor="#52525b" value={action} onChangeText={setAction} />
-                                    </View>
-                                    
-                                    <View style={inputRowStyle}>
-                                        <TextInput style={[styles.input, { flex: 1 }]} placeholder="Remarques..." placeholderTextColor="#52525b" value={remarques} onChangeText={setRemarques} />
-                                        <TouchableOpacity onPress={handleSubmit} style={[styles.submitBtn, editingLog && {backgroundColor: '#eab308'}, isSideBySide && { width: '100%' }]}>
-                                            <MaterialIcons name={editingLog ? "check" : "send"} size={24} color={editingLog ? "black" : "white"} />
-                                        </TouchableOpacity>
+                                        )}
+                                        <MaterialIcons name="access-time" size={14} color="#555" style={{marginRight: 4}}/>
+                                        <TextInput 
+                                            style={styles.timeInput} 
+                                            value={manualTime} 
+                                            onChangeText={setManualTime} 
+                                            placeholder="HH:MM"
+                                            placeholderTextColor="#555"
+                                        />
                                     </View>
                                 </View>
-                            </ScrollView>
-                        </KeyboardAvoidingView>
-                    )}
-                </View>
+
+                                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.typeScroller}>
+                                    {PAX_TYPES.map((t, idx) => (
+                                        <TouchableOpacity 
+                                            key={idx} 
+                                            style={[styles.typeBtn, paxType.label === t.label && styles.typeBtnSelected, { borderColor: t.color, backgroundColor: paxType.label === t.label ? t.color : 'transparent' }]} 
+                                            onPress={() => { setPaxType(t); setCustomPax(''); }}
+                                        >
+                                            <Text style={[styles.typeBtnText, { color: paxType.label === t.label ? (t.color === '#f1c40f' ? 'black' : 'white') : t.color }]}>{t.label}</Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </ScrollView>
+
+                                <View style={inputRowStyle}>
+                                    <TextInput style={[styles.input, { flex: 1 }]} placeholder="Lieu..." placeholderTextColor="#52525b" value={lieu} onChangeText={setLieu} />
+                                    <TextInput style={[styles.input, { flex: isSideBySide ? 1 : 1.5 }]} placeholder="Action / Événement" placeholderTextColor="#52525b" value={action} onChangeText={setAction} />
+                                </View>
+                                
+                                <View style={inputRowStyle}>
+                                    <TextInput style={[styles.input, { flex: 1 }]} placeholder="Remarques..." placeholderTextColor="#52525b" value={remarques} onChangeText={setRemarques} />
+                                    <TouchableOpacity onPress={handleSubmit} style={[styles.submitBtn, editingLog && {backgroundColor: '#eab308'}, isSideBySide && { width: '100%' }]}>
+                                        <MaterialIcons name={editingLog ? "check" : "send"} size={24} color={editingLog ? "black" : "white"} />
+                                    </TouchableOpacity>
+                                </View>
+                            </View>
+                        </ScrollView>
+                    </KeyboardAvoidingView>
+                )}
             </View>
         </Modal>
     );
@@ -332,10 +353,17 @@ const MainCouranteView: React.FC<Props> = ({ visible, logs, role, onClose, onAdd
 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: '#09090b' },
+    
+    // Header Styles
     header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: '#27272a', backgroundColor: '#18181b' },
+    headerLandscape: { justifyContent: 'flex-start', paddingHorizontal: 12 }, // En paysage, items groupés à gauche
+    headerLeftGroup: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    
     closeBtn: { padding: 8 },
     shareBtn: { padding: 8 },
+    
     headerTitleContainer: { alignItems: 'center' },
+    headerTitleContainerLandscape: { marginLeft: 12, justifyContent: 'center' },
     headerTitle: { color: 'white', fontWeight: '900', fontSize: 16, letterSpacing: 1 },
     headerSubtitle: { color: '#71717a', fontSize: 10, fontWeight: 'bold' },
     
