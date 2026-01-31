@@ -9,9 +9,10 @@ permissions:
 jobs:
   build-ios:
     name: Build iOS IPA
-    # UTILISATION DE MACOS 13 (Xcode 15) POUR LA STABILITÉ
-    # Xcode 16+ (macos-latest) est trop agressif avec les anciennes libs React Native
-    runs-on: macos-13
+    # UTILISATION DE MACOS 14 (Sonoma - ARM64)
+    # Xcode 15.x est le défaut sur cette image, ce qui est plus stable que Xcode 16 (macos-15)
+    # pour les anciennes dépendances React Native.
+    runs-on: macos-14
     timeout-minutes: 60
 
     steps:
