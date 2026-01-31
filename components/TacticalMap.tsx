@@ -96,7 +96,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
             zoomControl: false, 
             attributionControl: false, 
             doubleClickZoom: false,
-            // FIX DRAG: tap=false est often necessary in hybrid WebViews
             tap: false 
         }).setView([${startLat}, ${startLng}], ${startZoom});
         
@@ -125,13 +124,12 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         currentLayer.addTo(map);
 
         // --- Z-INDEX FIX ---
-        // Layers order (bottom to top)
+        // Pane creation to manage depth
         map.createPane('trailPane'); map.getPane('trailPane').style.zIndex = 400;
         map.createPane('userPane'); map.getPane('userPane').style.zIndex = 600;
-        map.createPane('pingPane'); map.getPane('pingPane').style.zIndex = 2000; // Pings always on top
+        map.createPane('pingPane'); map.getPane('pingPane').style.zIndex = 2000; // Pings definitely on top
 
         const markers = {};
-        // trails[userId] = [ L.Polyline(segment1), L.Polyline(segment2) ... ]
         const trails = {}; 
         
         const pingLayer = L.layerGroup({ pane: 'pingPane' }).addTo(map);
@@ -275,7 +273,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                     markers[u.id] = L.marker([u.lat, u.lng], { icon: icon, pane: 'userPane' }).addTo(map); 
                 }
 
-                // --- TRAIL SEGMENT LOGIC (COLOR HANDLING) ---
+                // --- TRAIL SEGMENT LOGIC ---
                 if (showTrails) {
                     if (!trails[u.id]) trails[u.id] = [];
                     const userSegments = trails[u.id];
@@ -287,18 +285,14 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                         if (latlngs.length > 0) lastPt = latlngs[latlngs.length - 1];
                     }
 
-                    // Avoid duplicate points
                     const moved = !lastPt || (Math.abs(lastPt.lat - newPt[0]) > 0.00005 || Math.abs(lastPt.lng - newPt[1]) > 0.00005);
 
                     if (moved) {
                         const currentColor = colorHex; 
                         let currentSegment = userSegments.length > 0 ? userSegments[userSegments.length - 1] : null;
                         
-                        // Check if color changed. Note: we access options.color from Leaflet
                         if (!currentSegment || currentSegment.options.color !== currentColor) {
-                            // CREATE NEW SEGMENT
                             let segmentPoints = [newPt];
-                            // Connect to previous segment to avoid gaps
                             if (lastPt) {
                                 segmentPoints.unshift(lastPt);
                             }
@@ -313,28 +307,22 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                             
                             userSegments.push(newPoly);
                         } else {
-                            // EXTEND EXISTING SEGMENT
                             currentSegment.addLatLng(newPt);
                         }
                         
-                        // --- PRUNING (MAX TRAILS) ---
-                        // Check total points count across all segments
                         let totalPoints = 0;
                         userSegments.forEach(seg => totalPoints += seg.getLatLngs().length);
                         
                         if (totalPoints > maxTrails) {
-                            // Remove points/segments from the oldest
                             while (totalPoints > maxTrails && userSegments.length > 0) {
                                 const firstSeg = userSegments[0];
                                 const pts = firstSeg.getLatLngs();
                                 
                                 if (pts.length <= (totalPoints - maxTrails)) {
-                                    // Remove entire segment
                                     map.removeLayer(firstSeg);
                                     userSegments.shift();
                                     totalPoints -= pts.length;
                                 } else {
-                                    // Trim points from segment start
                                     const toRemove = totalPoints - maxTrails;
                                     const newPts = pts.slice(toRemove);
                                     firstSeg.setLatLngs(newPts);
@@ -342,11 +330,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                                 }
                             }
                         }
-                    }
-                } else {
-                    // Ensure visibility if just switched back to showTrails
-                    if (trails[u.id]) {
-                        // Normally handled by next update or clear, but good safety
                     }
                 }
             });
@@ -405,13 +388,14 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                         if (pings[p.id].dragging.enabled()) pings[p.id].dragging.disable();
                     }
                 } else {
-                    const icon = L.divIcon({ className: 'custom-div-icon', html: iconHtml, iconSize: [100, 60], iconAnchor: [50, 50] });
+                    // FIX: Variable name corrected from iconHtml to html
+                    const icon = L.divIcon({ className: 'custom-div-icon', html: html, iconSize: [100, 60], iconAnchor: [50, 50] });
                     
                     const m = L.marker([p.lat, p.lng], { 
                         icon: icon, 
                         draggable: true, 
                         autoPan: true,
-                        pane: 'pingPane'
+                        pane: 'pingPane' // Uses zIndex 2000 defined at top
                     });
                     
                     if (!canDrag) m.dragging.disable();
