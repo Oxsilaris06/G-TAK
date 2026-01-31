@@ -216,8 +216,8 @@ const triggerTacticalNotification = async (title: string, body: string) => {
           locationService.updateOptions({ 
               timeInterval: settings.gpsUpdateInterval,
               foregroundService: {
-                  notificationTitle: "PRAXIS ACTIF",
-                  notificationBody: "Lien Tactique Maintenu",
+                  notificationTitle: "PRAXIS",
+                  notificationBody: "🛰️ Suivi GPS en arrière plan",
                   notificationColor: "#000000"
               }
           });
