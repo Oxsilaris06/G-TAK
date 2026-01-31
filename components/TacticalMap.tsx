@@ -96,7 +96,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
             zoomControl: false, 
             attributionControl: false, 
             doubleClickZoom: false,
-            // FIX DRAG: tap=false est souvent nécessaire dans les WebViews hybrides
+            // FIX DRAG: tap=false est often necessary in hybrid WebViews
             tap: false 
         }).setView([${startLat}, ${startLng}], ${startZoom});
         
@@ -405,7 +405,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                         if (pings[p.id].dragging.enabled()) pings[p.id].dragging.disable();
                     }
                 } else {
-                    const icon = L.divIcon({ className: 'custom-div-icon', html: html, iconSize: [100, 60], iconAnchor: [50, 50] });
+                    const icon = L.divIcon({ className: 'custom-div-icon', html: iconHtml, iconSize: [100, 60], iconAnchor: [50, 50] });
                     
                     const m = L.marker([p.lat, p.lng], { 
                         icon: icon, 
