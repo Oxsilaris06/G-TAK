@@ -895,16 +895,17 @@ const triggerTacticalNotification = async (title: string, body: string) => {
 
       <Modal visible={showPingMenu} transparent animationType="fade"><View style={styles.modalOverlay}><View style={styles.pingMenuContainer}><Text style={styles.modalTitle}>TYPE DE MARQUEUR</Text><View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 15, justifyContent: 'center'}}><TouchableOpacity onPress={() => { setCurrentPingType('HOSTILE'); setShowPingMenu(false); setPingMsgInput(''); setHostileDetails({position: tempPingLoc ? `${tempPingLoc.lat.toFixed(5)}, ${tempPingLoc.lng.toFixed(5)}` : '', nature: '', attitude: '', volume: '', armes: '', substances: ''}); setShowPingForm(true); }} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(239, 68, 68, 0.2)', borderColor: '#ef4444'}]}><MaterialIcons name="warning" size={30} color="#ef4444" /><Text style={{color: '#ef4444', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>ADVERSAIRE</Text></TouchableOpacity><TouchableOpacity onPress={() => { setCurrentPingType('FRIEND'); setShowPingMenu(false); setPingMsgInput(''); setShowPingForm(true); }} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(34, 197, 94, 0.2)', borderColor: '#22c55e'}]}><MaterialIcons name="shield" size={30} color="#22c55e" /><Text style={{color: '#22c55e', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>AMI</Text></TouchableOpacity><TouchableOpacity onPress={() => { setCurrentPingType('INTEL'); setShowPingMenu(false); setPingMsgInput(''); setShowPingForm(true); }} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(234, 179, 8, 0.2)', borderColor: '#eab308'}]}><MaterialIcons name="visibility" size={30} color="#eab308" /><Text style={{color: '#eab308', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>RENS</Text></TouchableOpacity></View><TouchableOpacity onPress={() => setShowPingMenu(false)} style={[styles.closeBtn, {marginTop: 20, backgroundColor: '#27272a'}]}><Text style={{color:'white'}}>ANNULER</Text></TouchableOpacity></View></View></Modal>
       
-      {/* MODALE CRÉATION PING (ADVERSAIRE) - CORRIGÉE POUR PAYSAGE/PORTRAIT AVEC SCROLL */}
+      {/* MODALE CRÉATION PING (ADVERSAIRE) - Adaptée PAYSAGE */}
       <Modal visible={showPingForm} transparent animationType="slide">
-        <KeyboardAvoidingView 
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
-            style={styles.modalOverlay}
-            keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : -50} // Ajustement pour éviter que le clavier cache le contenu
-        >
-            <View style={[styles.modalContent, isLandscape ? styles.modalContentLandscape : {}]}>
-                
-                {/* Header Fixe */}
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
+            <View style={[styles.modalContent, {
+                width: isLandscape ? '100%' : '90%', 
+                height: isLandscape ? '100%' : undefined,
+                maxHeight: isLandscape ? '100%' : '80%', 
+                borderRadius: isLandscape ? 0 : 24,
+                justifyContent: 'space-between',
+                paddingVertical: 20
+            }]}>
                 <View style={styles.modalHeader}>
                     <Text style={[styles.modalTitle, {
                         color: currentPingType === 'HOSTILE' ? '#ef4444' : currentPingType === 'FRIEND' ? '#22c55e' : '#eab308', 
@@ -966,14 +967,17 @@ const triggerTacticalNotification = async (title: string, body: string) => {
         </KeyboardAvoidingView>
       </Modal>
       
-      {/* MODALE ÉDITION PING (HOSTILE) - CORRIGÉE */}
+      {/* MODALE ÉDITION PING (HOSTILE) - Adaptée PAYSAGE */}
       <Modal visible={!!editingPing && !showPingForm} transparent animationType="slide">
-        <KeyboardAvoidingView 
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
-            style={styles.modalOverlay}
-            keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : -50}
-        >
-            <View style={[styles.modalContent, isLandscape ? styles.modalContentLandscape : {}]}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
+            <View style={[styles.modalContent, {
+                width: isLandscape ? '100%' : '90%', 
+                height: isLandscape ? '100%' : undefined,
+                maxHeight: isLandscape ? '100%' : '80%', 
+                borderRadius: isLandscape ? 0 : 24,
+                justifyContent: 'space-between',
+                paddingVertical: 20
+            }]}>
                 <View style={styles.modalHeader}>
                     <Text style={[styles.modalTitle, {marginBottom: 0}]}>MODIFICATION</Text>
                 </View>
