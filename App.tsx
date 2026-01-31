@@ -208,10 +208,20 @@ const App: React.FC = () => {
   }, []);
 
   // --- GESTION DU MAGNÉTOMÈTRE (BOUSSOLE) & DÉMARRAGE GPS ---
+  // CORRECTION: Utilisation de isTrackingView pour éviter de redémarrer le capteur
+  // lors du switch Map <-> Ops ou settings change
+  const isTrackingView = view === 'map' || view === 'ops';
+
   useEffect(() => {
-      if (view === 'map' || view === 'ops') { 
+      const cleanupMag = () => {
+          if (magSubscription.current) {
+              magSubscription.current.remove();
+              magSubscription.current = null;
+          }
+      };
+
+      if (isTrackingView) { 
           // On s'assure juste que les notifications de premier plan sont correctes
-          // Les paramètres techniques (intervalle, précision) sont gérés par configService
           locationService.updateOptions({ 
               foregroundService: {
                   notificationTitle: "PRAXIS ACTIF",
@@ -221,9 +231,10 @@ const App: React.FC = () => {
           });
           locationService.startTracking();
 
-          if (magSubscription.current) magSubscription.current.remove();
+          // Démarrage propre du Magnétomètre
+          cleanupMag();
           Magnetometer.setUpdateInterval(100);
-          magSubscription.current = Magnetometer.addListener(data => {
+          const sub = Magnetometer.addListener(data => {
               const { x, y } = data;
               let angle = Math.atan2(y, x) * (180 / Math.PI);
               angle = angle - 90; 
@@ -238,13 +249,15 @@ const App: React.FC = () => {
                   connectivityService.updateUserPosition(userRef.current.lat, userRef.current.lng, heading);
               }
           });
+          magSubscription.current = sub;
 
       } else {
+          // Arrêt si on n'est plus en vue tactique
           if (!hostId) locationService.stopTracking();
-          if (magSubscription.current) magSubscription.current.remove();
+          cleanupMag();
       }
-      return () => { if (magSubscription.current) magSubscription.current.remove(); }
-  }, [view, hostId, isLandscape]); 
+      return () => { cleanupMag(); }
+  }, [isTrackingView, hostId, isLandscape]); 
 
   const handleConnectivityEvent = (event: ConnectivityEvent) => {
       switch (event.type) {
