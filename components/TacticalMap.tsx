@@ -70,6 +70,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         /* Compass Styles */
         #compass { position: absolute; top: 20px; left: 20px; width: 60px; height: 60px; z-index: 9999; background: rgba(0,0,0,0.6); border-radius: 50%; border: 2px solid rgba(255,255,255,0.2); display: flex; justify-content: center; align-items: center; backdrop-filter: blur(2px); pointer-events: none; transition: top 0.3s, left 0.3s, bottom 0.3s; }
         
+        /* Landscape Compass Position */
         body.landscape #compass { top: auto; bottom: 20px; left: 20px; }
 
         #compass-indicator { position: absolute; top: -5px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 8px solid #ef4444; z-index: 20; }
@@ -413,7 +414,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                         if (pings[p.id].dragging.enabled()) pings[p.id].dragging.disable();
                     }
                 } else {
-                    const icon = L.divIcon({ className: 'custom-div-icon', html: iconHtml, iconSize: [100, 60], iconAnchor: [50, 50] });
+                    const icon = L.divIcon({ className: 'custom-div-icon', html: html, iconSize: [100, 60], iconAnchor: [50, 50] });
                     
                     // Fixed Draggable Logic
                     const m = L.marker([p.lat, p.lng], { 
@@ -440,21 +441,15 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
   `;
   }, []); 
 
-  // PERFORMANCE FIX: Use useMemo to avoid sending duplicate JSON messages to WebView
-  // This prevents the JS thread from overloading the Bridge
-  const mapUpdateMessage = useMemo(() => {
-      return JSON.stringify({
+  useEffect(() => {
+    if (webViewRef.current) {
+      webViewRef.current.postMessage(JSON.stringify({
         type: 'UPDATE_MAP', me, peers, pings, mode: mapMode, customMapUrl,
         showTrails, showPings, isHost,
         userArrowColor, navTargetId, pingMode, nightOpsMode, isLandscape, maxTrailsPerUser
-      });
-  }, [me, peers, pings, mapMode, customMapUrl, showTrails, showPings, isHost, userArrowColor, navTargetId, pingMode, nightOpsMode, isLandscape, maxTrailsPerUser]);
-
-  useEffect(() => {
-    if (webViewRef.current) {
-      webViewRef.current.postMessage(mapUpdateMessage);
+      }));
     }
-  }, [mapUpdateMessage]);
+  }, [me, peers, pings, mapMode, customMapUrl, showTrails, showPings, isHost, userArrowColor, navTargetId, pingMode, nightOpsMode, isLandscape, maxTrailsPerUser]);
 
   const handleMessage = (event: any) => {
     try {
