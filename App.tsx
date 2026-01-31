@@ -3,7 +3,7 @@ import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { 
   StyleSheet, View, Text, TextInput, TouchableOpacity, 
   SafeAreaView, Platform, Modal, StatusBar as RNStatusBar, Alert, ScrollView, ActivityIndicator,
-  KeyboardAvoidingView, AppState, FlatList, useWindowDimensions
+  KeyboardAvoidingView, AppState, FlatList, useWindowDimensions, AppStateStatus
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import QRCode from 'react-native-qrcode-svg';
@@ -77,6 +77,10 @@ const App: React.FC = () => {
   
   const magSubscription = useRef<any>(null);
   const lastSentHead = useRef<number>(0);
+  
+  // Optimisation : Limite les rafraîchissements React dus à la boussole
+  const lastLocalHeadUpdate = useRef<number>(0); 
+  const appState = useRef<AppStateStatus>(AppState.currentState);
 
   useEffect(() => { pingsRef.current = pings; }, [pings]);
   useEffect(() => { logsRef.current = logs; }, [logs]);
@@ -114,6 +118,7 @@ const App: React.FC = () => {
   const [navMode, setNavMode] = useState<'pedestrian' | 'vehicle'>('pedestrian');
 
   const [gpsStatus, setGpsStatus] = useState<'WAITING' | 'OK' | 'ERROR'>('WAITING');
+  const [appStateVisible, setAppStateVisible] = useState(appState.current);
 
   const showToast = useCallback((msg: string, type: 'info' | 'error' | 'success' | 'warning' = 'info') => {
       setActiveNotif({ id: Date.now().toString(), msg, type });
@@ -130,7 +135,7 @@ const App: React.FC = () => {
               body, 
               sound: true, 
               priority: Notifications.AndroidNotificationPriority.HIGH,
-              color: "#000000"
+              color: "#000000" // Fond noir pour la notif (Android)
           },
           trigger: null, 
       });
@@ -180,6 +185,9 @@ const App: React.FC = () => {
     });
 
     const appStateSub = AppState.addEventListener('change', async nextAppState => {
+      appState.current = nextAppState;
+      setAppStateVisible(nextAppState);
+      
       if (nextAppState === 'active') {
         connectivityService.handleAppStateChange('active');
         await Notifications.dismissAllNotificationsAsync();
@@ -193,7 +201,6 @@ const App: React.FC = () => {
     });
     
     // GPS : Met à jour Lat/Lng UNIQUEMENT
-    // Pas de logique ici, configService gère les options GPS en amont
     const locSub = locationService.subscribe((loc) => {
         setGpsStatus('OK');
         setUser(prev => ({ ...prev, lat: loc.latitude, lng: loc.longitude }));
@@ -207,9 +214,7 @@ const App: React.FC = () => {
     };
   }, []);
 
-  // --- GESTION DU MAGNÉTOMÈTRE (BOUSSOLE) & DÉMARRAGE GPS ---
-  // CORRECTION: Utilisation de isTrackingView pour éviter de redémarrer le capteur
-  // lors du switch Map <-> Ops ou settings change
+  // --- GESTION ROBUSTE DES CAPTEURS ---
   const isTrackingView = view === 'map' || view === 'ops';
 
   useEffect(() => {
@@ -220,20 +225,19 @@ const App: React.FC = () => {
           }
       };
 
-      if (isTrackingView) { 
-          // On s'assure juste que les notifications de premier plan sont correctes
+      if (isTrackingView && appStateVisible === 'active') { 
           locationService.updateOptions({ 
               foregroundService: {
                   notificationTitle: "PRAXIS ACTIF",
                   notificationBody: "Lien Tactique Maintenu",
-                  notificationColor: "#2563eb"
+                  notificationColor: "#000000"
               }
           });
           locationService.startTracking();
 
-          // Démarrage propre du Magnétomètre
           cleanupMag();
-          Magnetometer.setUpdateInterval(100);
+          Magnetometer.setUpdateInterval(100); 
+          
           const sub = Magnetometer.addListener(data => {
               const { x, y } = data;
               let angle = Math.atan2(y, x) * (180 / Math.PI);
@@ -242,7 +246,12 @@ const App: React.FC = () => {
               if (angle < 0) angle = angle + 360;
               const heading = Math.floor(angle);
 
-              setUser(prev => ({ ...prev, head: heading }));
+              const now = Date.now();
+              // Throttle: Limite la mise à jour de l'état local pour fluidifier l'UI
+              if (now - lastLocalHeadUpdate.current > 150 || Math.abs(heading - userRef.current.head) > 2) {
+                  lastLocalHeadUpdate.current = now;
+                  setUser(prev => ({ ...prev, head: heading }));
+              }
 
               if (Math.abs(heading - lastSentHead.current) > 5) {
                   lastSentHead.current = heading;
@@ -252,12 +261,12 @@ const App: React.FC = () => {
           magSubscription.current = sub;
 
       } else {
-          // Arrêt si on n'est plus en vue tactique
           if (!hostId) locationService.stopTracking();
           cleanupMag();
       }
+      
       return () => { cleanupMag(); }
-  }, [isTrackingView, hostId, isLandscape]); 
+  }, [isTrackingView, hostId, isLandscape, appStateVisible, settings.gpsUpdateInterval]); 
 
   const handleConnectivityEvent = (event: ConnectivityEvent) => {
       switch (event.type) {
@@ -706,10 +715,12 @@ const App: React.FC = () => {
                       showTrails={showTrails} showPings={showPings} 
                       isHost={user.role === OperatorRole.HOST} 
                       userArrowColor={settings.userArrowColor}
-                      pingMode={isPingMode} navTargetId={navTargetId}
-                      nightOpsMode={nightOpsMode} 
+                      navTargetId={navTargetId}
+                      pingMode={isPingMode} nightOpsMode={nightOpsMode} 
                       initialCenter={mapState} 
                       isLandscape={isLandscape} 
+                      // AJOUT ICI : passage du paramètre de config max trails (Présent dans Code 1, absent dans Code 2)
+                      maxTrailsPerUser={settings.maxTrailsPerUser}
                       onPing={(loc) => { setTempPingLoc(loc); setShowPingMenu(true); }}
                       onPingMove={(p) => { 
                           setPings(prev => prev.map(pi => pi.id === p.id ? p : pi));
