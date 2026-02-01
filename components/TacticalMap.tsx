@@ -439,26 +439,45 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                     
                     if (!canDrag) m.dragging.disable();
 
-                    // Méthode la plus efficace : Désactiver le drag de la map quand on drag le marker
-                    // Cela évite que le navigateur confonde les gestes
-                    m.on('dragstart', () => {
-                         map.dragging.disable();
+                    // --- METHODE HARD LOCK POUR DRAG MOBILE ---
+                    
+                    // 1. Désactiver le drag de la map dès qu'on touche le marqueur (icône ou label)
+                    // On utilise 'add' pour être sûr que l'élément DOM existe
+                    m.on('add', () => {
+                         const el = m.getElement();
+                         if(el) {
+                             // Empêcher la propagation pour que la map ne reçoive pas le touchstart
+                             el.addEventListener('touchstart', (e) => {
+                                 map.dragging.disable();
+                             }, { passive: false });
+                             
+                             el.addEventListener('mousedown', (e) => {
+                                 map.dragging.disable();
+                             });
+                         }
                     });
 
+                    // 2. Réactiver la map à la fin du drag
                     m.on('dragend', (e) => {
-                        map.dragging.enable(); // Réactiver le drag de la map
+                        setTimeout(() => map.dragging.enable(), 100); // Petit délai de sécurité
                         const newPos = e.target.getLatLng();
                         sendToApp({ type: 'PING_MOVE', id: p.id, lat: newPos.lat, lng: newPos.lng });
                     });
+                    
+                    // Sécurité : Réactiver si le drag est annulé ou finit bizarrement
+                    m.on('dragend', () => map.dragging.enable());
 
-                    // Detection précise du clic pour édition
+                    // 3. Gestion précise du CLIC vs DRAG
                     m.on('click', (e) => {
-                        // On vérifie la cible réelle de l'événement DOM
+                        // Réactiver le drag map au cas où
+                        map.dragging.enable();
+                        
                         const target = e.originalEvent.target;
                         
-                        // Si on touche le LABEL (texte) -> Mode Édition
+                        // Détection stricte : On n'ouvre la modale QUE si on a cliqué sur le LABEL
+                        // Si on a cliqué sur l'icône (qui sert de poignée), on ne fait rien (ou on drag)
                         if (target && target.classList && target.classList.contains('ping-label')) {
-                             L.DomEvent.stopPropagation(e); // Empêche la map de recevoir le clic
+                             L.DomEvent.stopPropagation(e);
                              sendToApp({ type: 'PING_CLICK', id: p.id });
                         }
                     });
