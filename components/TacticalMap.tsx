@@ -415,7 +415,10 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                     if (!canDrag) m.dragging.disable();
 
                     m.on('click', () => sendToApp({ type: 'PING_CLICK', id: p.id }));
-                    m.on('contextmenu', () => sendToApp({ type: 'PING_LONG_PRESS', id: p.id }));
+                    
+                    // SUPPRIMÉ POUR ÉVITER CONFLIT AVEC LE DRAG & DROP
+                    // m.on('contextmenu', () => sendToApp({ type: 'PING_LONG_PRESS', id: p.id }));
+                    
                     m.on('dragend', (e) => sendToApp({ type: 'PING_MOVE', id: p.id, lat: e.target.getLatLng().lat, lng: e.target.getLatLng().lng }));
                     
                     pings[p.id] = m;
