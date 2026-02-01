@@ -1,34 +1,23 @@
-import 'dotenv/config';
-
-// --- CONSTANTES GLOBALES ---
-// ID du projet G-TAK (Assurez-vous que c'est le bon ID EAS pour G-TAK)
-const PROJECT_ID = "41321365-3a31-43e4-9706-a5e5739e0400";
-// Version unique pour synchroniser le binaire et le JS
-const VERSION = "4.1.0"; 
+// ID PROJET VALIDE
+const PROJECT_ID = "f55fd8e2-57c6-4432-a64c-fae41bb16a3e";
+const VERSION = "4.1.0";
 
 export default {
   expo: {
-    name: "G-TAK",
-    slug: "g-tak",
+    name: "Praxis",
+    slug: "praxis",
     version: VERSION,
-    orientation: "portrait",
+    orientation: "default",
     icon: "./assets/icon.png",
     userInterfaceStyle: "dark",
     
-    // 1. VERSION DU RUNTIME
-    // Fixée pour garantir la compatibilité entre le code JS et le code natif
     runtimeVersion: VERSION,
-
-    splash: {
-      image: "./assets/splash.png",
-      resizeMode: "contain",
-      backgroundColor: "#1a1a1a"
-    },
+    
+    // Inclusion des assets
     assetBundlePatterns: [
       "**/*"
     ],
-
-    // 2. CONFIGURATION CENTRALE DES MISES À JOUR (EAS UPDATE)
+    
     updates: {
       url: `https://u.expo.dev/${PROJECT_ID}`,
       requestHeaders: {
@@ -44,73 +33,54 @@ export default {
         projectId: PROJECT_ID
       }
     },
-    owner: "oxsilaris06",
 
-    // 3. CONFIGURATION IOS (Avec correctif "Forçage")
+    // --- AJOUT CORRECTIF POUR IOS ---
     ios: {
+      bundleIdentifier: "com.praxis.app",
       supportsTablet: true,
-      bundleIdentifier: "com.oxsilaris.gtak",
-      config: {
-        usesNonExemptEncryption: false
-      },
       infoPlist: {
-        NSLocationWhenInUseUsageDescription: "G-TAK a besoin de votre position pour afficher votre emplacement sur la carte tactique et le partager avec votre équipe.",
-        NSLocationAlwaysAndWhenInUseUsageDescription: "G-TAK a besoin de votre position en arrière-plan pour le suivi des opérations tactiques.",
-        UIBackgroundModes: [
-          "location",
-          "fetch"
-        ],
-        // --- FORÇAGE DES UPDATES DANS INFO.PLIST ---
-        // Ces valeurs sont gravées dans le binaire iOS
-        EXUpdatesURL: `https://u.expo.dev/${PROJECT_ID}`,
-        EXUpdatesChannelName: "production",
-        EXUpdatesRuntimeVersion: VERSION,
-        EXUpdatesCheckOnLaunch: "ALWAYS",
-        EXUpdatesLaunchWaitMs: 30000
+        UIBackgroundModes: ["location", "fetch"],
+        NSLocationWhenInUseUsageDescription: "Cette application a besoin de votre position pour le suivi tactique.",
+        NSLocationAlwaysAndWhenInUseUsageDescription: "Cette application a besoin de votre position même en arrière-plan pour le suivi tactique continu."
       }
     },
 
-    // 4. CONFIGURATION ANDROID (Avec correctif "Forçage")
+    splash: {
+      image: "./assets/icon2.png",
+      resizeMode: "contain",
+      backgroundColor: "#000000"
+    },
     android: {
+      package: "com.praxis.app",
       adaptiveIcon: {
         foregroundImage: "./assets/adaptive-icon.png",
-        backgroundColor: "#1a1a1a"
+        backgroundColor: "#000000"
       },
-      package: "com.oxsilaris.gtak",
-      permissions: [
-        "ACCESS_COARSE_LOCATION",
-        "ACCESS_FINE_LOCATION",
-        "FOREGROUND_SERVICE",
-        "ACCESS_BACKGROUND_LOCATION",
-        "FOREGROUND_SERVICE_LOCATION", // Nécessaire pour Android 14+
-        "INTERNET",
-        "WAKE_LOCK"
-      ],
-      // --- FORÇAGE DES UPDATES DANS ANDROIDMANIFEST ---
-      // Ces valeurs sont gravées dans le binaire Android
+      // --- SECTION CRITIQUE : FORÇAGE DES HEADERS ---
+      // On inscrit ces valeurs directement dans le coeur d'Android
       metaData: {
         "expo.modules.updates.EXPO_UPDATES_CHECK_ON_LAUNCH": "ALWAYS",
         "expo.modules.updates.EXPO_UPDATES_LAUNCH_WAIT_MS": "30000",
+        // Force l'URL (évite les erreurs de construction)
         "expo.modules.updates.EXPO_UPDATES_URL": `https://u.expo.dev/${PROJECT_ID}`,
+        // Force le canal
         "expo.modules.updates.EXPO_UPDATES_CHANNEL_NAME": "production",
+        // Force la version (Règle l'erreur "runtime-version: Required")
         "expo.modules.updates.EXPO_RUNTIME_VERSION": VERSION
-      }
+      },
+      permissions: [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION",
+        "INTERNET",
+        "WAKE_LOCK",
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE"
+      ]
     },
-
-    web: {
-      favicon: "./assets/icon.png"
-    },
-    
-    // 5. PLUGINS (Incluant les propriétés de build critiques)
     plugins: [
-      "expo-font",
-      [
-        "expo-location",
-        {
-          locationAlwaysAndWhenInUsePermission: "Allow $(PRODUCT_NAME) to use your location."
-        }
-      ],
-      // Plugin critique pour la stabilité du build Android/iOS
       [
         "expo-build-properties",
         {
@@ -119,16 +89,31 @@ export default {
             compileSdkVersion: 34,
             targetSdkVersion: 34,
             buildToolsVersion: "34.0.0",
-            // Augmentation de la mémoire pour éviter les crashs de build Gradle
+            newArchEnabled: false,
             gradleProperties: [
               { key: 'org.gradle.jvmargs', value: '-Xmx4608m -XX:MaxMetaspaceSize=512m' }
             ]
-          },
-          ios: {
-            deploymentTarget: "13.4"
           }
         }
-      ]
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Nécessaire pour scanner les QR Codes de session.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "@config-plugins/react-native-webrtc",
+        {
+          cameraPermission: false, 
+          microphonePermission: false
+        }
+      ],
+      "expo-location",
+      "expo-notifications",
+      "expo-task-manager"
     ]
   }
 };
