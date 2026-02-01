@@ -77,13 +77,11 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            /* Le centrage est géré par la marge ou le translate. Ici on utilise translate pour centrer sur le point */
             transform: translate(-50%, -50%) scale(var(--ping-scale, 1));
             transform-origin: center center;
-            /* Suppression de la transition sur transform pour éviter le "drift" pendant le zoom */
             pointer-events: auto;
             -webkit-tap-highlight-color: transparent;
-            touch-action: none;
+            touch-action: none; /* Important pour que Leaflet ne capture pas tout */
         }
 
         /* Label */
@@ -109,9 +107,9 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
             font-size: 32px; 
             filter: drop-shadow(0px 3px 3px rgba(0,0,0,0.8)); 
             pointer-events: auto;
-            padding: 20px; /* Padding généreux pour la zone tactile */
+            padding: 20px; /* Zone tactile élargie */
             margin: -20px; 
-            transition: transform 0.2s, filter 0.2s; /* Animation fluide seulement pour l'état drag */
+            transition: transform 0.2s, filter 0.2s; 
         }
 
         /* Etat "Dragging" */
@@ -197,7 +195,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         let maxTrails = 500;
         
         // --- DRAG STATE ---
-        let isDraggingPing = false; 
+        let isDraggingPing = null; // ID du ping ou null
         let longPressTimer = null;
         let startX = 0;
         let startY = 0;
@@ -224,6 +222,8 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         });
 
         map.on('click', (e) => {
+            // Un click sur la carte ne doit pas déclencher si on vient de lâcher un ping
+            if (isDraggingPing) return;
             if (pingMode) sendToApp({ type: 'MAP_CLICK', lat: e.latlng.lat, lng: e.latlng.lng });
         });
 
@@ -374,11 +374,11 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                       const dLat = Math.abs(p.lat - pending.lat);
                       const dLng = Math.abs(p.lng - pending.lng);
                       
-                      // Si la position serveur est "proche" de notre local, c'est bon, le serveur est à jour
+                      // Si le serveur a rattrapé notre position locale (à peu près), on arrête d'ignorer
                       if (dLat < 0.0001 && dLng < 0.0001) {
                           delete pendingUpdates[p.id];
                       } else {
-                          // Sinon, on garde notre position locale et on ignore l'update serveur
+                          // Sinon, on garde notre position locale
                           return;
                       }
                 }
@@ -408,10 +408,9 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                         iconAnchor: [0, 0] 
                     });
                     
-                    // IMPORTANT: draggable: false pour ne pas confliter avec notre logique custom
                     const m = L.marker([p.lat, p.lng], { 
                         icon: icon, 
-                        draggable: false, 
+                        draggable: false, // On gère le drag nous-mêmes
                         autoPan: false,
                         pane: 'pingPane', 
                         interactive: true,
@@ -426,53 +425,76 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                         const el = m.getElement();
                         if(!el) return;
                         
+                        // CRUCIAL: Empêche le clic de traverser vers la map (évite de fermer les modales ou de créer un ping par erreur)
+                        L.DomEvent.disableClickPropagation(el);
+                        L.DomEvent.disableScrollPropagation(el); // Pour éviter le zoom molette accidentel si sur PC, moins utile sur mobile mais bonne pratique
+
                         const iconEl = el.querySelector('.ping-icon');
                         const labelEl = el.querySelector('.ping-label');
 
-                        // --- LOGIQUE TACTILE ---
+                        // --- LOGIQUE TACTILE ROBUSTE ---
+                        
                         if (iconEl) {
+                            // Empêcher le menu contextuel natif (copier/coller etc) sur long press
+                            iconEl.addEventListener('contextmenu', (e) => { e.preventDefault(); e.stopPropagation(); }, false);
+
                             iconEl.addEventListener('touchstart', (e) => {
-                                // Reset des variables de tracking
+                                // On ne stoppe PAS la propagation ici pour laisser la possibilité de scroller la map SI on n'active pas le drag
+                                // Mais on capture les coordonnées de départ
                                 if (e.touches.length > 0) {
                                     startX = e.touches[0].clientX;
                                     startY = e.touches[0].clientY;
                                 }
                                 
+                                // On lance le timer
                                 longPressTimer = setTimeout(() => {
-                                    // LONG PRESS -> DRAG
+                                    // TIMER ATTEINT -> MODE DRAG ACTIVÉ
                                     isDraggingPing = p.id;
-                                    map.dragging.disable(); 
-                                    if(el) el.classList.add('ping-dragging');
-                                    sendToApp({ type: 'PING_LONG_PRESS', id: p.id });
-                                }, 300); 
+                                    longPressTimer = null;
+                                    
+                                    // On désactive le pan de la map pour que le doigt ne bouge QUE le ping
+                                    map.dragging.disable();
+                                    
+                                    if(el) {
+                                        el.classList.add('ping-dragging');
+                                        el.style.zIndex = 9999; // Au dessus de tout
+                                    }
+                                    
+                                    sendToApp({ type: 'PING_LONG_PRESS', id: p.id }); // Haptic feedback côté RN
+                                }, 400); // 400ms pour déclencher le drag
                             }, {passive: false});
 
                             iconEl.addEventListener('touchmove', (e) => {
-                                if (!isDraggingPing && longPressTimer) {
-                                    // Si on bouge significativement avant le timer -> Annulation Long Press (c'est un pan ou scroll)
-                                    let x = e.touches[0].clientX;
-                                    let y = e.touches[0].clientY;
+                                // Si on bouge ALORS que le timer tourne encore (donc pas encore en mode drag)
+                                if (longPressTimer && !isDraggingPing) {
+                                    const x = e.touches[0].clientX;
+                                    const y = e.touches[0].clientY;
+                                    
+                                    // Si on a bougé de plus de 10 pixels, c'est que l'utilisateur veut scroller la carte, pas draguer le ping
                                     if (Math.abs(x - startX) > 10 || Math.abs(y - startY) > 10) {
                                         clearTimeout(longPressTimer);
                                         longPressTimer = null;
+                                        // On laisse l'événement se propager à la map pour qu'elle scrolle
                                     }
                                 }
                             }, {passive: true});
 
                             iconEl.addEventListener('touchend', (e) => {
                                 if (longPressTimer) {
-                                    // Timer encore actif = on a relâché AVANT le délai -> CLICK (EDIT)
+                                    // Le timer tournait encore, donc on a relâché AVANT les 400ms -> C'EST UN CLIC SIMPLE
                                     clearTimeout(longPressTimer);
                                     longPressTimer = null;
                                     
+                                    // On empêche tout autre comportement
                                     e.preventDefault(); 
                                     e.stopPropagation();
+                                    
                                     sendToApp({ type: 'PING_CLICK', id: p.id });
                                 }
                             });
                         }
                         
-                        // Label Click
+                        // Clic sur Label = Clic simple direct
                         if (labelEl) {
                             const handleLabelClick = (e) => {
                                 L.DomEvent.stopPropagation(e);
@@ -488,10 +510,14 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         }
         
         // --- GESTIONNAIRES GLOBAUX DRAG ---
+        // Une fois que isDraggingPing est activé, on écoute tout le document pour ne pas perdre le "focus" si le doigt sort de l'icône
         
         const handleGlobalMove = (e) => {
             if (!isDraggingPing) return;
+            
+            // On consomme l'événement pour être sûr que rien d'autre ne bouge
             e.preventDefault(); 
+            e.stopPropagation();
 
             let clientX, clientY;
             if (e.touches && e.touches.length > 0) {
@@ -503,17 +529,20 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
             }
             
             if (clientX && clientY) {
+                // Conversion écran -> LatLng Leaflet
                 const point = L.point(clientX, clientY);
                 const latlng = map.containerPointToLatLng(point);
+                
                 const marker = activePings[isDraggingPing];
                 if (marker) {
+                    // Mise à jour visuelle directe
                     marker.setLatLng(latlng);
                 }
             }
         };
 
         const handleGlobalEnd = (e) => {
-            // Nettoyage timer de sécurité
+            // Nettoyage de sécurité
             if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
 
             if (!isDraggingPing) return;
@@ -523,26 +552,30 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
             
             if (marker) {
                 const el = marker.getElement();
-                if (el) el.classList.remove('ping-dragging');
+                if (el) {
+                    el.classList.remove('ping-dragging');
+                    el.style.zIndex = ''; // Reset z-index
+                }
                 
                 const newPos = marker.getLatLng();
                 
-                // STOCKAGE OPTIMISTE : On force la position locale
+                // STOCKAGE OPTIMISTE : On force la position locale pour éviter le saut en arrière
                 pendingUpdates[id] = { lat: newPos.lat, lng: newPos.lng };
-                
-                // Sécurité
                 setTimeout(() => { if(pendingUpdates[id]) delete pendingUpdates[id]; }, 5000);
 
                 sendToApp({ type: 'PING_MOVE', id: id, lat: newPos.lat, lng: newPos.lng });
             }
             
             isDraggingPing = null;
+            // On réactive le drag de la map
             map.dragging.enable();
         };
         
-        // Listeners globaux pour suivre le doigt même hors de l'icone
+        // Listeners globaux (option passive: false indispensable pour preventDefault sur mobile)
         document.addEventListener('touchmove', handleGlobalMove, {passive: false});
-        document.addEventListener('touchend', handleGlobalEnd);
+        document.addEventListener('touchend', handleGlobalEnd, {passive: false});
+        
+        // Support souris pour le dev
         document.addEventListener('mousemove', handleGlobalMove);
         document.addEventListener('mouseup', handleGlobalEnd);
 
