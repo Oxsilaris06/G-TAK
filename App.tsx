@@ -108,7 +108,9 @@ const App: React.FC = () => {
   const [hostileDetails, setHostileDetails] = useState<HostileDetails>({ position: '', nature: '', attitude: '', volume: '', armes: '', substances: '' });
   
   const [editingPing, setEditingPing] = useState<PingData | null>(null);
-  const [viewingPing, setViewingPing] = useState<PingData | null>(null); // Pour la lecture seule
+  
+  // Suppression de viewingPing : tout le monde édite tout
+  // const [viewingPing, setViewingPing] = useState<PingData | null>(null);
 
   const [selectedOperatorId, setSelectedOperatorId] = useState<string | null>(null);
   const [navTargetId, setNavTargetId] = useState<string | null>(null);
@@ -160,7 +162,7 @@ const triggerTacticalNotification = async (title: string, body: string) => {
            const permResult = await permissionService.requestAllPermissions();
            if (!permResult.location) setGpsStatus('ERROR');
            
-           // --- CORRECTION : DEMANDE PERMISSION CAMERA AU LANCEMENT ---
+           // --- DEMANDE PERMISSION CAMERA AU LANCEMENT ---
            await Camera.requestCameraPermissionsAsync();
            // ------------------------------------------------------------
 
@@ -772,21 +774,13 @@ const triggerTacticalNotification = async (title: string, body: string) => {
                           const p = pings.find(ping => ping.id === id);
                           if (!p) return;
                           
-                          // MODIFICATION: Priorité à l'édition si droits (Clic simple)
-                          if (user.role === OperatorRole.HOST || p.sender === user.callsign) {
-                             setEditingPing(p); 
-                             setPingMsgInput(p.msg); 
-                             if(p.details) setHostileDetails(p.details);
-                          } else {
-                              if (p.type === 'HOSTILE') {
-                                  setViewingPing(p);
-                              } else if (p.type === 'INTEL' || p.type === 'FRIEND') {
-                                  showToast(`Ping de ${p.sender} : ${p.msg}`, 'info');
-                              }
-                          }
+                          // TOUT LE MONDE PEUT EDITER ET VOIR - Clic simple ouvre l'édition
+                          setEditingPing(p); 
+                          setPingMsgInput(p.msg); 
+                          if(p.details) setHostileDetails(p.details);
                       }}
                       onPingLongPress={(id) => {
-                          // Désactivé pour éviter conflit avec le Drag & Drop
+                          // Désactivé pour éviter conflit avec le Drag & Drop natif de Leaflet
                       }}
                       onNavStop={() => setNavTargetId(null)} 
                       onMapMoveEnd={(center, zoom) => setMapState({...center, zoom})} 
@@ -977,12 +971,14 @@ const triggerTacticalNotification = async (title: string, body: string) => {
         </KeyboardAvoidingView>
       </Modal>
       
-      {/* MODALE ÉDITION PING (TOUS TYPES) */}
+      {/* MODALE ÉDITION PING (TOUS TYPES) - UNIFIÉE */}
       <Modal visible={!!editingPing && !showPingForm} transparent animationType="slide">
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
             <View style={[styles.modalContent, isLandscape && styles.modalContentLandscape, { height: '80%' }]}>
                 <View style={styles.modalHeader}>
-                    <Text style={[styles.modalTitle, {marginBottom: 0}]}>MODIFICATION</Text>
+                    <Text style={[styles.modalTitle, {marginBottom: 5}]}>MODIFICATION</Text>
+                    {/* Ajout du champ "Émis par" en lecture seule */}
+                    <Text style={{color: '#71717a', fontSize: 12}}>Émis par : <Text style={{fontWeight:'bold', color:'white'}}>{editingPing?.sender}</Text></Text>
                 </View>
                 
                 <ScrollView 
@@ -1028,41 +1024,6 @@ const triggerTacticalNotification = async (title: string, body: string) => {
                 </View>
             </View>
         </KeyboardAvoidingView>
-      </Modal>
-      
-      {/* MODALE LECTURE SEULE PING (HOSTILE) - Adaptée PAYSAGE */}
-      <Modal visible={!!viewingPing} transparent animationType="slide">
-          <View style={styles.modalOverlay}>
-              <View style={[styles.modalContent, {
-                  width: isLandscape ? '60%' : '90%', 
-                  borderColor: '#ef4444', 
-                  maxHeight: '80%'
-              }]}>
-                  <View style={styles.modalHeader}>
-                      <Text style={[styles.modalTitle, {color: '#ef4444', marginBottom: 0}]}>ADVERSAIRE</Text>
-                  </View>
-                  
-                  <ScrollView style={styles.modalBody} contentContainerStyle={styles.modalBodyContent}>
-                      <Text style={{color: 'white', fontSize: 18, fontWeight: 'bold', marginBottom: 15}}>{viewingPing?.msg}</Text>
-                      {viewingPing?.details && (
-                          <View style={{width: '100%'}}>
-                              <View style={styles.readOnlyRow}><Text style={styles.readOnlyLabel}>Pos:</Text><Text style={styles.readOnlyVal}>{viewingPing.details.position}</Text></View>
-                              <View style={styles.readOnlyRow}><Text style={styles.readOnlyLabel}>Nat:</Text><Text style={styles.readOnlyVal}>{viewingPing.details.nature}</Text></View>
-                              <View style={styles.readOnlyRow}><Text style={styles.readOnlyLabel}>Att:</Text><Text style={styles.readOnlyVal}>{viewingPing.details.attitude}</Text></View>
-                              <View style={styles.readOnlyRow}><Text style={styles.readOnlyLabel}>Vol:</Text><Text style={styles.readOnlyVal}>{viewingPing.details.volume}</Text></View>
-                              <View style={styles.readOnlyRow}><Text style={styles.readOnlyLabel}>Arm:</Text><Text style={styles.readOnlyVal}>{viewingPing.details.armes}</Text></View>
-                              <View style={styles.readOnlyRow}><Text style={styles.readOnlyLabel}>Div:</Text><Text style={styles.readOnlyVal}>{viewingPing.details.substances}</Text></View>
-                          </View>
-                      )}
-                  </ScrollView>
-                  
-                  <View style={styles.modalFooter}>
-                      <TouchableOpacity onPress={() => setViewingPing(null)} style={[styles.closeBtn, {backgroundColor: '#27272a', marginTop: 0}]}>
-                          <Text style={{color: 'white'}}>FERMER</Text>
-                      </TouchableOpacity>
-                  </View>
-              </View>
-          </View>
       </Modal>
 
       {/* MODALE QR CODE - REFONDUE POUR PAYSAGE */}
