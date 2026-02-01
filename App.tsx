@@ -159,6 +159,11 @@ const triggerTacticalNotification = async (title: string, body: string) => {
         try {
            const permResult = await permissionService.requestAllPermissions();
            if (!permResult.location) setGpsStatus('ERROR');
+           
+           // --- CORRECTION : DEMANDE PERMISSION CAMERA AU LANCEMENT ---
+           await Camera.requestCameraPermissionsAsync();
+           // ------------------------------------------------------------
+
         } catch (e) { console.log("Perm Error:", e); }
 
         try {
@@ -253,6 +258,8 @@ const triggerTacticalNotification = async (title: string, body: string) => {
           });
 
       } else {
+          // Pause du GPS si on n'est pas Host, mais on garde si Host pour maintenir la session active ?
+          // Ici on coupe si on n'est pas en vue Map/Ops
           if (!hostId) locationService.stopTracking();
           if (magSubscription.current) magSubscription.current.remove();
       }
@@ -392,6 +399,7 @@ const triggerTacticalNotification = async (title: string, body: string) => {
   const finishLogout = useCallback(() => {
       connectivityService.cleanup();
       locationService.stopTracking(); 
+      // NETTOYAGE STRICT MAGNÉTOMÈTRE
       if (magSubscription.current) {
           magSubscription.current.remove();
           magSubscription.current = null;
@@ -468,7 +476,9 @@ const triggerTacticalNotification = async (title: string, body: string) => {
           type: currentPingType, sender: user.callsign, timestamp: Date.now(),
           details: currentPingType === 'HOSTILE' ? hostileDetails : undefined
       };
+      // On l'ajoute localement
       setPings(prev => [...prev, newPing]);
+      // On diffuse à tout le monde
       connectivityService.broadcast({ type: 'PING', ping: newPing });
       setShowPingForm(false); setTempPingLoc(null); setIsPingMode(false);
   };
@@ -762,23 +772,24 @@ const triggerTacticalNotification = async (title: string, body: string) => {
                           const p = pings.find(ping => ping.id === id);
                           if (!p) return;
                           
-                          if (p.type === 'HOSTILE') {
-                              // Click simple sur Hostile : Voir les détails en lecture seule
-                              setViewingPing(p);
-                          } else if (p.type === 'INTEL' || p.type === 'FRIEND') {
-                              // Click simple sur Rens ou Ami : Notification Toast
-                              showToast(`Ping de ${p.sender} : ${p.msg}`, 'info');
-                          }
-                      }}
-                      onPingLongPress={(id) => {
-                          const p = pings.find(ping => ping.id === id);
-                          if (!p) return;
-                          // Appui long : Editer si on a les droits
+                          // --- CORRECTION : LOGIQUE DE CLIC POUR ÉDITION ---
+                          // Priorité à l'édition si droits (Clic simple)
+                          // Sinon simple affichage
                           if (user.role === OperatorRole.HOST || p.sender === user.callsign) {
                              setEditingPing(p); 
                              setPingMsgInput(p.msg); 
                              if(p.details) setHostileDetails(p.details);
+                          } else {
+                              if (p.type === 'HOSTILE') {
+                                  setViewingPing(p);
+                              } else if (p.type === 'INTEL' || p.type === 'FRIEND') {
+                                  showToast(`Ping de ${p.sender} : ${p.msg}`, 'info');
+                              }
                           }
+                          // ------------------------------------------------
+                      }}
+                      onPingLongPress={(id) => {
+                          // Désactivé pour éviter conflit avec le Drag & Drop
                       }}
                       onNavStop={() => setNavTargetId(null)} 
                       onMapMoveEnd={(center, zoom) => setMapState({...center, zoom})} 
