@@ -1,11 +1,3 @@
-/**
- * LOCATION SERVICE - VERSION AMÉLIORÉE
- * * Améliorations:
- * - Filtre Kalman pour lissage positions
- * - Détection de mouvement
- * - Validation des données GPS
- */
-
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 
@@ -20,10 +12,10 @@ export interface LocationData {
     accuracy: number | null;
 }
 
-// ============ FILTRE KALMAN ============\n
+// ============ FILTRE KALMAN POUR LISSAGE ============\n
 class KalmanFilter {
-    private q: number; 
-    private r: number; 
+    private q: number; // process noise
+    private r: number; // measurement noise
     private p: number = 1;
     private x: number = 0;
     private k: number = 0;
@@ -52,7 +44,7 @@ class LocationService {
     private lastLocation: LocationData | null = null;
     private isTracking = false;
 
-    // Kalman filters for Lat/Lng
+    // Filtres Kalman pour Lat/Lng
     private latFilter = new KalmanFilter();
     private lngFilter = new KalmanFilter();
     private isFiltersInitialized = false;
@@ -146,6 +138,7 @@ class LocationService {
     }
 
     private processLocation(rawLoc: any) {
+        // Filtre les points aberrants
         if (rawLoc.coords.accuracy && rawLoc.coords.accuracy > 50) return;
 
         if (!this.isFiltersInitialized) {
