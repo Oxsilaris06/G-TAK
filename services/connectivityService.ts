@@ -1,18 +1,10 @@
-/**
- * CONNECTIVITY SERVICE - VERSION AMÉLIORÉE MILSPEC
- * * Améliorations:
- * - Heartbeat actif bidirectionnel
- * - Système ACK pour garantie de livraison
- * - Queue offline avec retry
- * - Compression des payloads
- */
-
 import Peer, { DataConnection } from 'peerjs';
 import NetInfo from '@react-native-community/netinfo';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CONFIG } from '../constants';
 import { UserData, OperatorRole } from '../types';
 import { AppStateStatus } from 'react-native';
+// Nécessite: npm install lz-string
 import { compress, decompress } from 'lz-string';
 
 const STORAGE_KEY_ID = '@praxis_persistent_id';
@@ -102,6 +94,7 @@ class ConnectivityService {
       this.role = role;
       this.targetHostId = targetHostId;
       
+      // CRITICAL: L'hôte doit s'ajouter lui-même à la liste dès le départ
       if (this.role === OperatorRole.HOST && this.user) {
           this.peersMap = { [this.user.id]: this.user };
           this.notify({ type: 'PEERS_UPDATED', peers: this.peersMap });
@@ -201,6 +194,10 @@ class ConnectivityService {
           if (isOutgoingToHost) {
               this.notify({ type: 'HOST_CONNECTED', hostId: conn.peer });
               this.sendTo(conn.peer, { type: 'HELLO', user: this.user });
+          } else if (this.role === OperatorRole.HOST) {
+              // Si je suis l'hôte et qu'un client se connecte, je lui envoie tout de suite la situation tactique
+              // Pas besoin d'attendre son HELLO pour sync les peers connus, mais on attend HELLO pour l'ajouter lui.
+              // On peut envoyer un ACK de connexion.
           }
       });
 
@@ -214,6 +211,7 @@ class ConnectivityService {
           if (this.role === OperatorRole.HOST) {
               if (this.peersMap[conn.peer]) {
                   delete this.peersMap[conn.peer];
+                  // Diffusion de la liste mise à jour à tout le monde
                   this.broadcast({ type: 'SYNC_PEERS', peers: this.peersMap });
                   this.notify({ type: 'PEERS_UPDATED', peers: this.peersMap });
               }
@@ -267,14 +265,19 @@ class ConnectivityService {
       if (this.role === OperatorRole.HOST) {
           if (data.type === 'HELLO' || data.type === 'UPDATE_USER' || data.type === 'UPDATE') {
               if (data.user) {
+                  // Mise à jour de la fiche du pair
                   this.peersMap[fromId] = { ...data.user, id: fromId };
+                  
                   this.notify({ type: 'PEERS_UPDATED', peers: this.peersMap });
+                  
+                  // CRITICAL: Rediffuser la liste complète à TOUS les clients (dont celui qui vient d'arriver)
                   this.broadcast({ type: 'SYNC_PEERS', peers: this.peersMap });
               }
           }
+          // Relayer les autres types de messages
           else if (['PING', 'PING_MOVE', 'PING_UPDATE', 'PING_DELETE', 'LOG_UPDATE'].includes(data.type)) {
               this.notify({ type: 'DATA_RECEIVED', data, from: fromId });
-              // Relayer aux autres
+              // Relayer à tout le monde SAUF l'émetteur
               Object.values(this.connections).forEach(conn => {
                   if (conn.open && conn.peer !== fromId) {
                       this.sendInternal(conn, data);
@@ -285,6 +288,7 @@ class ConnectivityService {
       // --- LOGIQUE CLIENT ---
       else {
           if (data.type === 'SYNC_PEERS') {
+              // Mise à jour de la liste locale avec celle de l'hôte
               this.peersMap = data.peers;
               this.notify({ type: 'PEERS_UPDATED', peers: this.peersMap });
           } else {
@@ -302,13 +306,11 @@ class ConnectivityService {
       }
   }
 
-  // Envoi sécurisé avec ACK (Promise)
   public async sendToWithAck(targetId: string, data: any): Promise<void> {
       const msgId = Math.random().toString(36).substr(2, 9);
       const payload = { ...data, _msgId: msgId, _needsAck: true };
 
       return new Promise((resolve) => {
-        // Mise en queue
         this.pendingMessages.set(msgId, {
              id: msgId,
              data: { targetId, payload },
@@ -316,12 +318,8 @@ class ConnectivityService {
              retryCount: 0,
              lastRetry: Date.now()
         });
-
-        // Envoi initial
         this.sendTo(targetId, payload);
-        
-        // Résolution optimiste pour ne pas bloquer l'UI
-        resolve(); 
+        resolve(); // Optimiste
       });
   }
 
@@ -349,7 +347,6 @@ class ConnectivityService {
 
   private sendInternal(conn: DataConnection, data: any) {
       try {
-          // Compression auto pour les gros payloads
           if (['SYNC_PEERS', 'LOG_UPDATE'].includes(data.type)) {
               const jsonStr = JSON.stringify(data);
               const compressed = compress(jsonStr);
@@ -375,7 +372,7 @@ class ConnectivityService {
                       this.sendTo(pending.data.targetId, pending.data.payload);
                   } else {
                       this.pendingMessages.delete(key);
-                      this.notify({ type: 'TOAST', msg: 'Message non délivré (Réseau)', level: 'warning' });
+                      // Silent fail or toast
                   }
               }
           });
@@ -391,6 +388,7 @@ class ConnectivityService {
           this.notify({ type: 'PEERS_UPDATED', peers: this.peersMap });
           this.broadcast({ type: 'SYNC_PEERS', peers: this.peersMap });
       } else {
+          // Client envoie update à l'hôte
           this.broadcast({ type: 'UPDATE_USER', user: this.user });
       }
   }
