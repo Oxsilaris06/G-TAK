@@ -1,8 +1,5 @@
 import React, { useEffect, useRef, useMemo } from 'react';
-import { View, StyleSheet, ActivityIndicator } from 'react-native';
-import { WebView } from 'react-native-webview';
 import { UserData, PingData } from '../types';
-
 interface TacticalMapProps {
   me: UserData;
   peers: Record<string, UserData>;
@@ -31,7 +28,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
   me, peers, pings, mapMode, customMapUrl, showTrails, showPings, isHost, userArrowColor, navTargetId, pingMode, nightOpsMode, initialCenter, isLandscape, maxTrailsPerUser = 500,
   onPing, onPingMove, onPingClick, onPingLongPress, onNavStop, onMapMoveEnd
 }) => {
-  const webViewRef = useRef<WebView>(null);
+  const webViewRef = useRef<any>(null);
 
   const leafletHTML = useMemo(() => {
       const startLat = initialCenter ? initialCenter.lat : 48.85;
@@ -219,6 +216,9 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
             const msg = JSON.stringify(data);
             if (window.ReactNativeWebView) {
                 window.ReactNativeWebView.postMessage(msg);
+            } else {
+                // Fallback for Web Preview
+                window.parent.postMessage(msg, '*');
             }
         }
 
@@ -382,16 +382,20 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                 if (isDraggingPing === p.id) return;
 
                 // CORRECTION SNAPBACK : Vérifier si une mise à jour locale est en attente
+                // Cette logique empêche l'app de "ramener" le ping à son ancienne position
+                // tant que la nouvelle position (envoyée) n'a pas été confirmée par le serveur.
                 if (pendingUpdates[p.id]) {
                      const pending = pendingUpdates[p.id];
                      const dLat = Math.abs(p.lat - pending.lat);
                      const dLng = Math.abs(p.lng - pending.lng);
                      
-                     // Si la position serveur est très proche de celle en attente (mise à jour réussie)
-                     if (dLat < 0.00001 && dLng < 0.00001) {
+                     // Seuil augmenté à 0.0001 (~11m) pour absorber les imprécisions
+                     if (dLat < 0.0001 && dLng < 0.0001) {
+                         // Le serveur est à jour (il a renvoyé la nouvelle position).
                          delete pendingUpdates[p.id];
                      } else {
-                         // Sinon, c'est probablement une "vieille" position qui revient -> on ignore pour ne pas faire sauter le marker
+                         // Le serveur renvoie encore l'ancienne position. 
+                         // ON IGNORE cette mise à jour pour que le marqueur reste là où on l'a lâché.
                          return;
                      }
                 }
