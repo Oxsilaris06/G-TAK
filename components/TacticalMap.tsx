@@ -1,39 +1,7 @@
 import React, { useEffect, useRef, useMemo } from 'react';
-import { UserData, PingData } from '../types';
-
-// ==================================================================================
-// ⚠️ COMPATIBILITY LAYER - DELETE FOR PRODUCTION ⚠️
-// This block mocks React Native components for the Web Preview.
-// For your actual App, UNCOMMENT the imports below and DELETE the mocks.
-// ==================================================================================
-
-/* import { View, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, StyleSheet, ActivityIndicator } from 'react-native';
 import { WebView } from 'react-native-webview';
-*/
-
-// --- MOCKS START ---
-const View = ({ style, children, ...props }: any) => <div style={{ display: 'flex', flexDirection: 'column', ...style }} {...props}>{children}</div>;
-const ActivityIndicator = ({ style }: any) => <div style={{...style, color: 'white'}}>Loading Map...</div>;
-const StyleSheet = { create: (styles: any) => styles };
-
-const WebView = React.forwardRef(({ source, onMessage, style, ...props }: any, ref: any) => {
-  const iframeRef = useRef<HTMLIFrameElement>(null);
-  React.useImperativeHandle(ref, () => ({
-    postMessage: (msg: string) => { iframeRef.current?.contentWindow?.postMessage(msg, '*'); }
-  }));
-  useEffect(() => {
-    const handleMessage = (event: MessageEvent) => {
-      if (typeof event.data === 'string' && event.data.startsWith('{')) {
-        onMessage({ nativeEvent: { data: event.data } });
-      }
-    };
-    window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
-  }, [onMessage]);
-  return <iframe ref={iframeRef} srcDoc={source.html} style={{ border: 'none', width: '100%', height: '100%', ...style }} sandbox="allow-scripts allow-same-origin" {...props} />;
-});
-// --- MOCKS END ---
-
+import { UserData, PingData } from '../types';
 
 interface TacticalMapProps {
   me: UserData;
@@ -63,7 +31,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
   me, peers, pings, mapMode, customMapUrl, showTrails, showPings, isHost, userArrowColor, navTargetId, pingMode, nightOpsMode, initialCenter, isLandscape, maxTrailsPerUser = 500,
   onPing, onPingMove, onPingClick, onPingLongPress, onNavStop, onMapMoveEnd
 }) => {
-  const webViewRef = useRef<any>(null);
+  const webViewRef = useRef<WebView>(null);
 
   const leafletHTML = useMemo(() => {
       const startLat = initialCenter ? initialCenter.lat : 48.85;
@@ -251,9 +219,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
             const msg = JSON.stringify(data);
             if (window.ReactNativeWebView) {
                 window.ReactNativeWebView.postMessage(msg);
-            } else {
-                // Fallback for Web Preview
-                window.parent.postMessage(msg, '*');
             }
         }
 
