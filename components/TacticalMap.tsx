@@ -49,7 +49,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
       <style>
         /* Base styles */
         body { margin: 0; padding: 0; background: #000; font-family: sans-serif; transition: filter 0.5s ease; overflow: hidden; }
-        #map { width: 100vw; height: 100vh; background: #000; }
+        #map { width: 100vw; height: 100vh; background: #000; touch-action: none; }
         
         /* Night Ops Mode */
         body.night-ops {
@@ -62,43 +62,54 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         .tac-circle-id { position: absolute; z-index: 10; width: 32px; height: 32px; border-radius: 50%; border: 2px solid white; display: flex; justify-content: center; align-items: center; box-shadow: 0 0 5px rgba(0,0,0,0.5); top: 50%; left: 50%; transform: translate(-50%, -50%); transition: all 0.3s ease; }
         .tac-circle-id span { color: white; font-family: monospace; font-size: 10px; font-weight: 900; text-shadow: 0 1px 2px black; }
         
-        /* --- DRAG & DROP FIX --- */
-        /* Crucial: disable default touch actions on markers to allow Leaflet to handle drag */
-        .leaflet-marker-icon, .leaflet-marker-shadow {
-            touch-action: none !important; 
-            -webkit-touch-callout: none !important;
-            -webkit-user-select: none !important;
-            user-select: none !important;
-        }
-        
-        /* Ensure Pings are on top */
         .leaflet-ping-pane { z-index: 2000 !important; }
 
         /* Animations */
         @keyframes heartbeat { 0% { transform: translate(-50%, -50%) scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); } 50% { transform: translate(-50%, -50%) scale(1.4); box-shadow: 0 0 20px 10px rgba(239, 68, 68, 0); } 100% { transform: translate(-50%, -50%) scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
         .tac-marker-heartbeat .tac-circle-id { animation: heartbeat 1.5s infinite ease-in-out !important; border-color: #ef4444 !important; background-color: rgba(239, 68, 68, 0.8) !important; z-index: 9999 !important; }
 
-        /* Ping Content Styles */
-        .ping-marker-box { display: flex; flex-direction: column; align-items: center; width: 100px; cursor: pointer; }
+        /* PING MARKER STYLES - Mobile Friendly Touch Targets */
+        .ping-container {
+            position: absolute;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            transform: translate(-50%, -50%); /* Centering */
+            cursor: grab;
+            /* Important: Allow interaction */
+            pointer-events: auto;
+            touch-action: none; /* Prevent scroll on drag */
+        }
         
-        /* Zone icone pour le déplacement */
-        .ping-icon { font-size: 24px; filter: drop-shadow(0px 2px 2px rgba(0,0,0,0.8)); transition: transform 0.2s; pointer-events: none; /* Let clicks pass to marker for drag */ }
-        
-        /* Zone texte pour l'édition */
         .ping-label { 
-            background: rgba(0,0,0,0.7); 
+            background: rgba(0,0,0,0.85); 
             color: white; 
-            padding: 4px 8px; /* Plus grand pour faciliter le touch */
-            border-radius: 4px; 
-            font-size: 11px; 
+            padding: 6px 12px;
+            border-radius: 6px; 
+            font-size: 12px; 
             font-weight: bold; 
-            margin-bottom: 2px; 
-            border: 1px solid rgba(255,255,255,0.3); 
+            margin-bottom: 4px; 
+            border: 1px solid rgba(255,255,255,0.4); 
             white-space: nowrap; 
-            max-width: 150px; 
+            max-width: 160px; 
             overflow: hidden; 
-            text-overflow: ellipsis; 
-            pointer-events: auto; /* Capture clicks specifically */
+            text-overflow: ellipsis;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.5);
+            /* Action Button style */
+            cursor: pointer;
+        }
+
+        .ping-icon { 
+            font-size: 32px; 
+            filter: drop-shadow(0px 3px 3px rgba(0,0,0,0.9)); 
+            /* Drag Handle style */
+            cursor: grab;
+        }
+
+        .ping-dragging {
+            opacity: 0.8;
+            transform: translate(-50%, -50%) scale(1.1);
+            cursor: grabbing;
         }
 
         /* Compass Styles */
@@ -124,13 +135,14 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
       <div id="compass"><div id="compass-indicator"></div><div id="compass-rose"><span class="compass-label compass-n">N</span><span class="compass-label compass-e">E</span><span class="compass-label compass-s">S</span><span class="compass-label compass-w">O</span></div></div>
 
       <script>
-        // INIT MAP
-        // tap: false est recommandé pour les environnements mobiles modernes/WebViews pour éviter les délais
+        // --- 1. CONFIGURATION ---
         const map = L.map('map', { 
             zoomControl: false, 
             attributionControl: false, 
             doubleClickZoom: false,
-            tap: false, 
+            // Désactiver le "tap" fix legacy qui cause des bugs sur les WebViews modernes
+            tap: false,
+            // On gère nous-même le drag des markers, donc on laisse le drag de map activé par défaut
             dragging: true 
         }).setView([${startLat}, ${startLng}], ${startZoom});
         
@@ -172,10 +184,11 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         const markers = {};
         const trails = {}; 
         
-        const pingLayer = L.layerGroup({ pane: 'pingPane' }).addTo(map);
+        // On n'utilise PAS le LayerGroup pour les pings interactifs car on veut un contrôle total sur les événements
+        // Les pings seront ajoutés directement à la map
+        const activePings = {}; 
         let navLine = null;
         
-        let pings = {};
         let userArrowColor = '#3b82f6';
         let pingMode = false;
         let lastMePos = null;
@@ -191,6 +204,52 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
 
         function sendToApp(data) { window.ReactNativeWebView.postMessage(JSON.stringify(data)); }
         
+        // --- 2. GESTION DU DRAG & DROP CUSTOM (TOUCH API) ---
+        // Cette variable globale suit l'état du drag
+        let dragTarget = null;
+
+        // Événements globaux pour gérer le mouvement et la fin du drag
+        // Cela permet de suivre le doigt même si on sort de la zone du marker
+        map.getContainer().addEventListener('touchmove', function(e) {
+            if (dragTarget) {
+                // Empêcher le scroll de la map
+                L.DomEvent.preventDefault(e);
+                L.DomEvent.stopPropagation(e);
+                
+                const touch = e.touches[0];
+                const latlng = map.mouseEventToLatLng(touch);
+                
+                // Mettre à jour la position visuelle du marker immédiatement
+                dragTarget.marker.setLatLng(latlng);
+                
+                // Ajouter une classe pour l'effet visuel
+                const el = dragTarget.marker.getElement();
+                if (el) el.classList.add('ping-dragging');
+            }
+        }, { passive: false }); // passive: false est CRUCIAL pour que preventDefault fonctionne
+
+        map.getContainer().addEventListener('touchend', function(e) {
+            if (dragTarget) {
+                // Fin du drag
+                const marker = dragTarget.marker;
+                const id = dragTarget.id;
+                
+                const el = marker.getElement();
+                if (el) el.classList.remove('ping-dragging');
+                
+                // Réactiver la map
+                map.dragging.enable();
+                
+                // Envoyer la nouvelle position finale
+                const newPos = marker.getLatLng();
+                sendToApp({ type: 'PING_MOVE', id: id, lat: newPos.lat, lng: newPos.lng });
+                
+                dragTarget = null;
+            }
+        });
+
+        // --- 3. COMMUNICATION APP ---
+
         document.addEventListener('message', (event) => handleData(JSON.parse(event.data)));
         window.addEventListener('message', (event) => handleData(JSON.parse(event.data)));
 
@@ -203,10 +262,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
             if (pingMode) {
                 sendToApp({ type: 'MAP_CLICK', lat: e.latlng.lat, lng: e.latlng.lng });
             }
-        });
-
-        map.on('dblclick', (e) => {
-             sendToApp({ type: 'MAP_DBLCLICK', lat: e.latlng.lat, lng: e.latlng.lng });
         });
 
         function handleData(data) {
@@ -223,7 +278,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                 
                 updateMapMode(data.mode, data.customMapUrl);
                 updateMarkers(data.me, data.peers, data.showTrails);
-                updatePings(data.pings, data.showPings, data.isHost, data.me.callsign);
+                updatePings(data.pings, data.showPings); // on retire isHost/callsign car tout le monde a les droits
                 updateNavigation(data.me, data.navTargetId, data.peers);
 
                 if(data.me && typeof data.me.head === 'number') {
@@ -243,27 +298,14 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
             if (mode === 'custom' && customUrl) {
                 if (!layers.custom || layers.custom._url !== customUrl) {
                     if(layers.custom) map.removeLayer(layers.custom);
-                    
                     const isLocalFile = customUrl.startsWith('file://') || customUrl.startsWith('content://');
                     const LayerClass = (!isLocalFile && L.tileLayer.pouchDbcached) ? L.tileLayer.pouchDbcached : L.tileLayer;
-                    
-                    layers.custom = LayerClass(customUrl, {
-                        maxZoom: 20,
-                        edgeBufferTiles: 2,
-                        useCache: !isLocalFile, 
-                        crossOrigin: true
-                    });
+                    layers.custom = LayerClass(customUrl, { maxZoom: 20, edgeBufferTiles: 2, useCache: !isLocalFile, crossOrigin: true });
                 }
             }
-
             let newLayer = layers[mode] || layers.dark;
             if (mode === 'custom' && layers.custom) newLayer = layers.custom;
-
-            if (currentLayer !== newLayer) { 
-                map.removeLayer(currentLayer); 
-                newLayer.addTo(map); 
-                currentLayer = newLayer; 
-            }
+            if (currentLayer !== newLayer) { map.removeLayer(currentLayer); newLayer.addTo(map); currentLayer = newLayer; }
         }
 
         function updateMarkers(me, peers, showTrails) {
@@ -274,27 +316,13 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
             Object.keys(markers).forEach(id => { if(!activeIds.includes(id)) { map.removeLayer(markers[id]); delete markers[id]; } });
             
             Object.keys(trails).forEach(id => { 
-                if(!activeIds.includes(id)) { 
-                    trails[id].forEach(poly => map.removeLayer(poly));
-                    delete trails[id]; 
-                } 
+                if(!activeIds.includes(id)) { trails[id].forEach(poly => map.removeLayer(poly)); delete trails[id]; } 
             });
 
-            if (!showTrails) {
-                Object.values(trails).forEach(userSegments => userSegments.forEach(p => map.removeLayer(p)));
-            }
+            if (!showTrails) { Object.values(trails).forEach(userSegments => userSegments.forEach(p => map.removeLayer(p))); }
 
             all.forEach(u => {
-                let colorHex = '#71717a'; 
-                if (u.status === 'CONTACT') colorHex = '#ef4444';
-                else if (u.status === 'CLEAR') colorHex = '#22c55e';
-                else if (u.status === 'BUSY') colorHex = '#a855f7';
-                else if (u.status === 'PROGRESSION') {
-                    colorHex = u.paxColor || '#3b82f6'; 
-                } else {
-                    colorHex = '#eab308';
-                }
-
+                let colorHex = u.status === 'CONTACT' ? '#ef4444' : u.status === 'CLEAR' ? '#22c55e' : u.status === 'BUSY' ? '#a855f7' : u.status === 'PROGRESSION' ? u.paxColor || '#3b82f6' : '#eab308';
                 let bgRgba = hexToRgba(colorHex, 0.6);
                 const rot = u.head || 0;
                 const extraClass = (u.status === 'CONTACT') ? 'tac-marker-heartbeat' : '';
@@ -307,8 +335,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                 if (markers[u.id]) { 
                     markers[u.id].setLatLng([u.lat, u.lng]); markers[u.id].setIcon(icon); 
                     markers[u.id].setZIndexOffset(u.id === me.id ? 200 : 100); 
-                } 
-                else { 
+                } else { 
                     markers[u.id] = L.marker([u.lat, u.lng], { icon: icon, pane: 'userPane' }).addTo(map); 
                 }
 
@@ -322,27 +349,15 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                         const latlngs = userSegments[userSegments.length - 1].getLatLngs();
                         if (latlngs.length > 0) lastPt = latlngs[latlngs.length - 1];
                     }
-
                     const moved = !lastPt || (Math.abs(lastPt.lat - newPt[0]) > 0.00005 || Math.abs(lastPt.lng - newPt[1]) > 0.00005);
-
                     if (moved) {
                         const currentColor = colorHex; 
                         let currentSegment = userSegments.length > 0 ? userSegments[userSegments.length - 1] : null;
                         
                         if (!currentSegment || currentSegment.options.color !== currentColor) {
                             let segmentPoints = [newPt];
-                            if (lastPt) {
-                                segmentPoints.unshift(lastPt);
-                            }
-                            
-                            const newPoly = L.polyline(segmentPoints, {
-                                color: currentColor,
-                                weight: 2,
-                                opacity: 0.6,
-                                dashArray: '4, 4',
-                                pane: 'trailPane'
-                            }).addTo(map);
-                            
+                            if (lastPt) segmentPoints.unshift(lastPt);
+                            const newPoly = L.polyline(segmentPoints, { color: currentColor, weight: 2, opacity: 0.6, dashArray: '4, 4', pane: 'trailPane' }).addTo(map);
                             userSegments.push(newPoly);
                         } else {
                             currentSegment.addLatLng(newPt);
@@ -350,16 +365,12 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                         
                         let totalPoints = 0;
                         userSegments.forEach(seg => totalPoints += seg.getLatLngs().length);
-                        
                         if (totalPoints > maxTrails) {
                             while (totalPoints > maxTrails && userSegments.length > 0) {
                                 const firstSeg = userSegments[0];
                                 const pts = firstSeg.getLatLngs();
-                                
                                 if (pts.length <= (totalPoints - maxTrails)) {
-                                    map.removeLayer(firstSeg);
-                                    userSegments.shift();
-                                    totalPoints -= pts.length;
+                                    map.removeLayer(firstSeg); userSegments.shift(); totalPoints -= pts.length;
                                 } else {
                                     const toRemove = totalPoints - maxTrails;
                                     const newPts = pts.slice(toRemove);
@@ -376,117 +387,135 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         function updateNavigation(me, targetId, peers) {
              if (navLine) { map.removeLayer(navLine); navLine = null; }
              if (!targetId || !me || !me.lat) return;
-
              const target = peers[targetId];
              if (target && target.lat) {
-                 navLine = L.polyline([[me.lat, me.lng], [target.lat, target.lng]], {
-                     color: '#06b6d4',
-                     weight: 4,
-                     dashArray: '5, 10',
-                     opacity: 0.9,
-                     lineCap: 'round'
-                 }).addTo(map);
+                 navLine = L.polyline([[me.lat, me.lng], [target.lat, target.lng]], { color: '#06b6d4', weight: 4, dashArray: '5, 10', opacity: 0.9, lineCap: 'round' }).addTo(map);
              }
         }
 
-        function updatePings(serverPings, showPings, isHost, myCallsign) {
+        function updatePings(serverPings, showPings) {
+            // Nettoyage si on masque les pings
             if (!showPings) { 
-                pingLayer.clearLayers(); 
-                pings = {}; 
+                Object.keys(activePings).forEach(id => { map.removeLayer(activePings[id]); delete activePings[id]; });
                 return; 
-            }
-            
-            if (!map.hasLayer(pingLayer)) {
-                pingLayer.addTo(map);
             }
             
             const currentIds = serverPings.map(p => p.id);
             
-            Object.keys(pings).forEach(id => { 
+            // Suppression des pings obsolètes
+            Object.keys(activePings).forEach(id => { 
                 if(!currentIds.includes(id)) { 
-                    pingLayer.removeLayer(pings[id]); 
-                    delete pings[id]; 
+                    map.removeLayer(activePings[id]); 
+                    delete activePings[id]; 
                 } 
             });
             
             serverPings.forEach(p => {
-                const canDrag = true; 
+                // Si on est en train de drag ce ping, on ignore les updates serveur pour éviter le "flickering"
+                if (dragTarget && dragTarget.id === p.id) return;
+
                 const iconChar = (p.type === 'HOSTILE') ? '🔴' : (p.type === 'FRIEND') ? '🔵' : '👁️';
                 const color = (p.type === 'HOSTILE') ? '#ef4444' : (p.type === 'FRIEND') ? '#22c55e' : '#eab308';
                 
-                // IMPORTANT: Structure simplifiée et suppression des pointer-events qui peuvent bloquer le drag
-                const html = \`<div id="ping-\${p.id}" class="ping-marker-box"><div class="ping-label" style="border-color: \${color}">\${p.msg}</div><div class="ping-icon">\${iconChar}</div></div>\`;
+                const html = \`<div class="ping-container"><div class="ping-label" id="label-\${p.id}" style="border-color: \${color}">\${p.msg}</div><div class="ping-icon" id="icon-\${p.id}">\${iconChar}</div></div>\`;
 
-                if (pings[p.id]) {
-                    pings[p.id].setLatLng([p.lat, p.lng]);
-                    if(pings[p.id]._icon) pings[p.id]._icon.innerHTML = html;
-                    
-                    if (canDrag) { 
-                        if (!pings[p.id].dragging.enabled()) pings[p.id].dragging.enable();
-                    } else { 
-                        if (pings[p.id].dragging.enabled()) pings[p.id].dragging.disable();
+                if (activePings[p.id]) {
+                    // Update
+                    activePings[p.id].setLatLng([p.lat, p.lng]);
+                    const icon = activePings[p.id].options.icon;
+                    // On ne recrée pas l'icône si le contenu n'a pas changé pour éviter de casser les event listeners
+                    // Mais ici on utilise DivIcon, on peut mettre à jour le HTML
+                    // Cependant, pour la sécurité des events, mieux vaut ne rien faire si texte inchangé.
+                    // Pour simplifier, on force la mise à jour visuelle :
+                    const el = activePings[p.id].getElement();
+                    if(el) {
+                        // Attention: innerHTML remplace les éléments, il faudrait réattacher les events si on faisait ça.
+                        // Solution: on utilise les IDs uniques pour cibler Label et Icone
+                        const labelEl = el.querySelector('#label-' + p.id);
+                        if(labelEl) {
+                             labelEl.innerText = p.msg;
+                             labelEl.style.borderColor = color;
+                        }
                     }
                 } else {
-                    const icon = L.divIcon({ className: 'custom-div-icon', html: html, iconSize: [100, 60], iconAnchor: [50, 50] });
+                    // Create New Marker
+                    const icon = L.divIcon({ className: 'custom-div-icon', html: html, iconSize: [100, 80], iconAnchor: [50, 60] });
                     
+                    // On n'utilise PAS draggable:true de Leaflet. On gère tout à la main.
                     const m = L.marker([p.lat, p.lng], { 
                         icon: icon, 
-                        draggable: true, 
-                        autoPan: true,
-                        pane: 'pingPane', // Uses zIndex 2000 defined at top
-                        bubblingMouseEvents: false 
+                        pane: 'pingPane',
+                        interactive: true // Important pour recevoir les events
                     });
                     
-                    if (!canDrag) m.dragging.disable();
+                    m.addTo(map);
+                    activePings[p.id] = m;
 
-                    // --- METHODE HARD LOCK POUR DRAG MOBILE ---
-                    
-                    // 1. Désactiver le drag de la map dès qu'on touche le marqueur (icône ou label)
-                    // On utilise 'add' pour être sûr que l'élément DOM existe
-                    m.on('add', () => {
-                         const el = m.getElement();
-                         if(el) {
-                             // Empêcher la propagation pour que la map ne reçoive pas le touchstart
-                             el.addEventListener('touchstart', (e) => {
-                                 map.dragging.disable();
-                             }, { passive: false });
-                             
-                             el.addEventListener('mousedown', (e) => {
-                                 map.dragging.disable();
-                             });
-                         }
-                    });
+                    // --- ATTACHEMENT DES ÉVÉNEMENTS MANUELS ROBUSTES ---
+                    const el = m.getElement();
+                    if(el) {
+                        const iconEl = el.querySelector('.ping-icon');
+                        const labelEl = el.querySelector('.ping-label');
 
-                    // 2. Réactiver la map à la fin du drag
-                    m.on('dragend', (e) => {
-                        setTimeout(() => map.dragging.enable(), 100); // Petit délai de sécurité
-                        const newPos = e.target.getLatLng();
-                        sendToApp({ type: 'PING_MOVE', id: p.id, lat: newPos.lat, lng: newPos.lng });
-                    });
-                    
-                    // Sécurité : Réactiver si le drag est annulé ou finit bizarrement
-                    m.on('dragend', () => map.dragging.enable());
+                        // GESTION DU DRAG (sur l'icône)
+                        if (iconEl) {
+                            iconEl.addEventListener('touchstart', function(e) {
+                                // Début du drag
+                                L.DomEvent.stopPropagation(e); // Pas de clic map
+                                L.DomEvent.preventDefault(e);  // Pas de scroll
+                                
+                                map.dragging.disable(); // Bloque la map
+                                dragTarget = { id: p.id, marker: m }; // Enregistre l'état global
+                            }, { passive: false });
 
-                    // 3. Gestion précise du CLIC vs DRAG
-                    m.on('click', (e) => {
-                        // Réactiver le drag map au cas où
-                        map.dragging.enable();
-                        
-                        const target = e.originalEvent.target;
-                        
-                        // Détection stricte : On n'ouvre la modale QUE si on a cliqué sur le LABEL
-                        // Si on a cliqué sur l'icône (qui sert de poignée), on ne fait rien (ou on drag)
-                        if (target && target.classList && target.classList.contains('ping-label')) {
-                             L.DomEvent.stopPropagation(e);
-                             sendToApp({ type: 'PING_CLICK', id: p.id });
+                            // Fallback Souris pour dev PC
+                            iconEl.addEventListener('mousedown', function(e) {
+                                L.DomEvent.stopPropagation(e);
+                                map.dragging.disable();
+                                dragTarget = { id: p.id, marker: m };
+                            });
                         }
-                    });
-                    
-                    pings[p.id] = m;
-                    pingLayer.addLayer(m);
+
+                        // GESTION DU CLIC (sur le label)
+                        if (labelEl) {
+                            // On utilise touchend pour simuler un click "tap" réactif
+                            labelEl.addEventListener('touchend', function(e) {
+                                // Si on n'était pas en train de draguer
+                                if (!dragTarget) {
+                                    L.DomEvent.stopPropagation(e);
+                                    sendToApp({ type: 'PING_CLICK', id: p.id });
+                                }
+                            });
+                            
+                            // Fallback click souris
+                            labelEl.addEventListener('click', function(e) {
+                                L.DomEvent.stopPropagation(e);
+                                sendToApp({ type: 'PING_CLICK', id: p.id });
+                            });
+                        }
+                    }
                 }
             });
         }
+        
+        // --- GESTION GLOBALE DE LA FIN DE DRAG (SOURIS) ---
+        // Pour le tactile, c'est géré par le listener 'touchend' sur le container map plus haut
+        map.on('mouseup', function() {
+             if (dragTarget) {
+                map.dragging.enable();
+                const marker = dragTarget.marker;
+                const newPos = marker.getLatLng();
+                sendToApp({ type: 'PING_MOVE', id: dragTarget.id, lat: newPos.lat, lng: newPos.lng });
+                dragTarget = null;
+            }
+        });
+        
+        map.on('mousemove', function(e) {
+            if (dragTarget) {
+                dragTarget.marker.setLatLng(e.latlng);
+            }
+        });
+
       </script>
     </body>
     </html>
