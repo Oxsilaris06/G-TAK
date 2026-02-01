@@ -1,10 +1,16 @@
+/**
+ * LOCATION SERVICE - VERSION AMÉLIORÉE
+ * * Améliorations:
+ * - Filtre Kalman pour lissage positions
+ * - Détection de mouvement
+ * - Validation des données GPS
+ */
+
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
-import { AppState } from 'react-native';
 
 const LOCATION_TASK_NAME = 'background-location-task';
 
-// Interface pour les coordonnées
 export interface LocationData {
     latitude: number;
     longitude: number;
@@ -14,26 +20,56 @@ export interface LocationData {
     accuracy: number | null;
 }
 
+// ============ FILTRE KALMAN ============\n
+class KalmanFilter {
+    private q: number; 
+    private r: number; 
+    private p: number = 1;
+    private x: number = 0;
+    private k: number = 0;
+
+    constructor(q: number = 0.0001, r: number = 0.01) {
+        this.q = q;
+        this.r = r;
+    }
+
+    reset(initialValue: number = 0) {
+        this.x = initialValue;
+        this.p = 1;
+    }
+
+    update(measurement: number): number {
+        this.p = this.p + this.q;
+        this.k = this.p / (this.p + this.r);
+        this.x = this.x + this.k * (measurement - this.x);
+        this.p = (1 - this.k) * this.p;
+        return this.x;
+    }
+}
+
 class LocationService {
     private subscribers: ((loc: LocationData) => void)[] = [];
     private lastLocation: LocationData | null = null;
     private isTracking = false;
 
-    // Configuration par défaut (Mode "Normal/Équilibré")
-    // Ces valeurs seront écrasées par updateOptions() venant des Settings
+    // Kalman filters for Lat/Lng
+    private latFilter = new KalmanFilter();
+    private lngFilter = new KalmanFilter();
+    private isFiltersInitialized = false;
+
+    private isMoving = false;
+    private stationaryTimer: any;
+    private STATIONARY_TIMEOUT = 1000 * 60; 
+
     private locationOptions: Location.LocationTaskOptions = {
         accuracy: Location.Accuracy.High, 
         distanceInterval: 10, 
         timeInterval: 5000,
         deferredUpdatesInterval: 5000, 
         deferredUpdatesDistance: 10, 
-        
-        // Options iOS critiques (toujours actives par défaut)
         pausesUpdatesAutomatically: false, 
         activityType: Location.ActivityType.Fitness, 
         showsBackgroundLocationIndicator: true, 
-        
-        // Options Android
         foregroundService: {
             notificationTitle: "Praxis Actif",
             notificationBody: "Position et lien tactique maintenus",
@@ -45,22 +81,11 @@ class LocationService {
         this.defineTask();
     }
 
-    // --- API PUBLIQUE POUR LES REGLAGES ---
-    
-    /**
-     * Permet à la modale Settings de mettre à jour la stratégie GPS
-     * (Ex: Passer en mode "Navigation" précis ou "Économie")
-     */
     public async updateOptions(newOptions: Partial<Location.LocationTaskOptions>) {
         console.log("[Location] Mise à jour dynamique des options:", newOptions);
-        
-        // Fusion avec les options existantes
         this.locationOptions = { ...this.locationOptions, ...newOptions };
 
-        // Si le tracking est actif, on doit le redémarrer pour que OS prenne en compte les changements
-        // (Android/iOS ne permettent pas de changer les paramètres d'un service actif à la volée sans restart)
         if (this.isTracking) {
-            console.log("[Location] Redémarrage du service pour appliquer les nouveaux réglages...");
             await this.stopTracking();
             await this.startTracking();
         }
@@ -68,10 +93,7 @@ class LocationService {
 
     private defineTask() {
         TaskManager.defineTask(LOCATION_TASK_NAME, ({ data, error }) => {
-            if (error) {
-                console.error("[Location] Background Task Error:", error);
-                return;
-            }
+            if (error) return;
             if (data) {
                 const { locations } = data as any;
                 const latest = locations[locations.length - 1];
@@ -88,19 +110,13 @@ class LocationService {
         const { status } = await Location.requestBackgroundPermissionsAsync();
         
         if (status !== 'granted') {
-            console.warn("[Location] Background permission denied or limited");
             const fgStatus = await Location.requestForegroundPermissionsAsync();
             if (fgStatus.status !== 'granted') return;
         }
 
-        console.log(`[Location] Démarrage (Précision: ${this.locationOptions.accuracy}, Interval: ${this.locationOptions.timeInterval}ms)`);
-        
         try {
-            // 1. Service d'arrière-plan (Le coeur du maintien en vie)
             await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, this.locationOptions);
             
-            // 2. Watcher de premier plan (Pour la fluidité UI quand l'app est ouverte)
-            // On aligne les paramètres du watcher sur ceux du background pour la cohérence
             await Location.watchPositionAsync({
                 accuracy: this.locationOptions.accuracy as Location.Accuracy,
                 distanceInterval: this.locationOptions.distanceInterval,
@@ -126,17 +142,27 @@ class LocationService {
             console.warn("[Location] Erreur arrêt tracking:", e);
         }
         this.isTracking = false;
+        if (this.stationaryTimer) clearTimeout(this.stationaryTimer);
     }
 
     private processLocation(rawLoc: any) {
-        // Filtrage de sécurité pour éviter les sauts GPS majeurs (>100m d'erreur)
-        if (rawLoc.coords.accuracy && rawLoc.coords.accuracy > 100) {
-            return;
+        if (rawLoc.coords.accuracy && rawLoc.coords.accuracy > 50) return;
+
+        if (!this.isFiltersInitialized) {
+            this.latFilter.reset(rawLoc.coords.latitude);
+            this.lngFilter.reset(rawLoc.coords.longitude);
+            this.isFiltersInitialized = true;
         }
 
+        const filteredLat = this.latFilter.update(rawLoc.coords.latitude);
+        const filteredLng = this.lngFilter.update(rawLoc.coords.longitude);
+
+        this.isMoving = true;
+        this.setStationaryTimer();
+
         const newLoc: LocationData = {
-            latitude: rawLoc.coords.latitude,
-            longitude: rawLoc.coords.longitude,
+            latitude: filteredLat,
+            longitude: filteredLng,
             heading: rawLoc.coords.heading,
             speed: rawLoc.coords.speed,
             timestamp: rawLoc.timestamp,
@@ -145,6 +171,13 @@ class LocationService {
 
         this.lastLocation = newLoc;
         this.notify(newLoc);
+    }
+
+    private setStationaryTimer() {
+        if (this.stationaryTimer) clearTimeout(this.stationaryTimer);
+        this.stationaryTimer = setTimeout(() => {
+            this.isMoving = false;
+        }, this.STATIONARY_TIMEOUT);
     }
 
     subscribe(cb: (loc: LocationData) => void) {
