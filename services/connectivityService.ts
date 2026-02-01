@@ -66,9 +66,7 @@ class ConnectivityService {
   private lastNetworkType: string | null = null;
 
   // --- SYSTÈME ACK (Fiabilité) ---
-  // Stocke les messages en attente de confirmation
   private pendingMessages: Map<string, PendingMessage> = new Map();
-  // Stocke les IDs des messages déjà traités pour éviter les doublons
   private processedMessageIds: Set<string> = new Set(); 
   private ackCheckInterval: any;
 
@@ -128,7 +126,6 @@ class ConnectivityService {
       try {
           this.peer = new Peer(forceId, CONFIG.PEER_CONFIG);
 
-          // Sécurité anti-blocage (si PeerJS ne répond jamais)
           this.creationTimeout = setTimeout(() => {
               if (this.peer && !this.peer.open) {
                   console.warn("[Conn] Timeout Creation - Relance");
@@ -144,7 +141,6 @@ class ConnectivityService {
               console.log(`[Conn] OK: ${id}`);
               this.notify({ type: 'PEER_OPEN', id });
               
-              // Si on est Client, on se connecte à l'Hôte
               if (this.role === OperatorRole.OPR && this.targetHostId) {
                   this.connectToHost(this.targetHostId);
               }
@@ -161,7 +157,6 @@ class ConnectivityService {
               console.error(`[Conn] Erreur: ${err.type}`, err);
               
               if (err.type === 'unavailable-id') {
-                  // Si l'ID est pris (conflit fantôme), on réessaie plus tard
                   setTimeout(() => this.connectToPeerServer(forceId), 3000);
               } else if (err.type === 'peer-unavailable') {
                   this.notify({ type: 'DISCONNECTED', reason: 'NO_HOST' });
@@ -194,7 +189,6 @@ class ConnectivityService {
   }
 
   private handleIncomingConnection(conn: DataConnection) {
-      // Sécurité: Si je suis Client, je n'accepte que l'Hôte
       if (this.role === OperatorRole.OPR && conn.peer !== this.targetHostId) {
           console.log(`[Secu] Rejet connexion inconnue de ${conn.peer}`);
           conn.close();
@@ -210,7 +204,6 @@ class ConnectivityService {
           
           if (isOutgoingToHost) {
               this.notify({ type: 'HOST_CONNECTED', hostId: conn.peer });
-              // Le Client envoie ses infos dès que ça ouvre
               this.sendTo(conn.peer, { type: 'HELLO', user: this.user });
           }
       });
@@ -223,20 +216,16 @@ class ConnectivityService {
           console.log(`[Link] Fermé avec ${conn.peer}`);
           delete this.connections[conn.peer];
           
-          // Si je suis Hôte, je retire le client qui part
           if (this.role === OperatorRole.HOST) {
               if (this.peersMap[conn.peer]) {
                   delete this.peersMap[conn.peer];
-                  // Je préviens tout le monde
                   this.broadcast({ type: 'SYNC_PEERS', peers: this.peersMap });
                   this.notify({ type: 'PEERS_UPDATED', peers: this.peersMap });
               }
           }
 
-          // Si je suis Client et que je perds l'Hôte
           if (isOutgoingToHost && !this.isDestroyed && !this.isRefreshing) {
               this.notify({ type: 'DISCONNECTED', reason: 'NETWORK_ERROR' });
-              // Tentative de reconnexion immédiate
               setTimeout(() => this.connectToHost(conn.peer), 1000);
           }
       });
@@ -249,25 +238,23 @@ class ConnectivityService {
 
   // --- TRAITEMENT DES MESSAGES ---
   private handleDataMessage(data: any, fromId: string) {
-      // 1. Gestion ACK (Accusé de réception)
+      // 1. Gestion ACK
       if (data.type === 'ACK') {
           if (this.pendingMessages.has(data.msgId)) {
-              // console.log(`[Ack] Reçu pour ${data.msgId}`);
               this.pendingMessages.delete(data.msgId);
           }
           return;
       }
 
-      // 2. Renvoi ACK si demandé par l'émetteur
+      // 2. Renvoi ACK si demandé
       if (data._needsAck) {
           this.sendTo(fromId, { type: 'ACK', msgId: data._msgId });
       }
 
-      // 3. Déduplication (éviter de traiter 2 fois le même message)
+      // 3. Déduplication
       if (data._msgId) {
-          if (this.processedMessageIds.has(data._msgId)) return; // Déjà vu
+          if (this.processedMessageIds.has(data._msgId)) return; 
           this.processedMessageIds.add(data._msgId);
-          // Nettoyage périodique simple
           if (this.processedMessageIds.size > 1000) this.processedMessageIds.clear();
       }
 
@@ -279,24 +266,31 @@ class ConnectivityService {
 
       // --- LOGIQUE HÔTE ---
       if (this.role === OperatorRole.HOST) {
-          // Messages d'Admin (Mise à jour utilisateur)
+          // GESTION DES UPDATES UTILISATEURS
           if (data.type === 'HELLO' || data.type === 'UPDATE_USER' || data.type === 'UPDATE') {
               if (data.user) {
                   // Mise à jour de la fiche du pair
                   this.peersMap[fromId] = { ...data.user, id: fromId };
                   
+                  // 1. Notifier l'UI de l'hôte (pour la Map)
                   this.notify({ type: 'PEERS_UPDATED', peers: this.peersMap });
+
+                  // 2. IMPORTANT: Notifier l'UI de l'hôte via DATA_RECEIVED 
+                  // C'est ce qui déclenche les TOASTS et NOTIFICATIONS (alertes statut) dans App.tsx
+                  this.notify({ type: 'DATA_RECEIVED', data: data, from: fromId });
                   
-                  // CRITICAL: Rediffuser la liste complète à TOUS
-                  this.broadcast({ type: 'SYNC_PEERS', peers: this.peersMap });
+                  // 3. Rediffuser aux autres clients
+                  // On envoie le message original (UPDATE_USER) pour que les clients aient aussi leur Toast
+                  this.broadcast({ type: 'UPDATE_USER', user: this.peersMap[fromId] });
+                  
+                  // On peut aussi envoyer un SYNC pour être sûr, mais UPDATE_USER suffit souvent
+                  // this.broadcast({ type: 'SYNC_PEERS', peers: this.peersMap });
               }
           }
-          // Relayer les autres types de messages (Ping, Chat, Logs)
+          // Relayer les autres types de messages
           else if (['PING', 'PING_MOVE', 'PING_UPDATE', 'PING_DELETE', 'LOG_UPDATE'].includes(data.type)) {
-              // L'hôte traite le message pour lui-même
               this.notify({ type: 'DATA_RECEIVED', data, from: fromId });
               
-              // Puis le relaie à tout le monde SAUF l'émetteur
               Object.values(this.connections).forEach(conn => {
                   if (conn.open && conn.peer !== fromId) {
                       this.sendInternal(conn, data);
@@ -307,11 +301,10 @@ class ConnectivityService {
       // --- LOGIQUE CLIENT ---
       else {
           if (data.type === 'SYNC_PEERS') {
-              // Mise à jour de la liste locale avec celle de l'hôte
               this.peersMap = data.peers;
               this.notify({ type: 'PEERS_UPDATED', peers: this.peersMap });
           } else {
-              // Autres données (Pings, Logs)
+              // On reçoit UPDATE_USER, PING, etc. -> Déclenche les Toasts dans App.tsx
               this.notify({ type: 'DATA_RECEIVED', data, from: fromId });
           }
       }
@@ -319,7 +312,6 @@ class ConnectivityService {
 
   // --- ENVOI DE DONNÉES ---
 
-  // Envoi simple (Fire and Forget)
   public sendTo(targetId: string, data: any) {
       const conn = this.connections[targetId];
       if (conn && conn.open) {
@@ -327,12 +319,10 @@ class ConnectivityService {
       }
   }
 
-  // Envoi Sécurisé avec Retry (pour Pings importants)
   public async sendToWithAck(targetId: string, data: any): Promise<void> {
       const msgId = Math.random().toString(36).substr(2, 9);
       const payload = { ...data, _msgId: msgId, _needsAck: true };
 
-      // On stocke le message pour le réessayer si pas de ACK
       this.pendingMessages.set(msgId, {
              id: msgId,
              data: { targetId, payload },
@@ -342,11 +332,9 @@ class ConnectivityService {
       });
       
       this.sendTo(targetId, payload);
-      // On retourne une promesse résolue immédiatement pour ne pas bloquer l'UI
       return Promise.resolve();
   }
 
-  // Broadcast Sécurisé (Utilisé pour les Pings Hostiles)
   public async broadcastWithAck(data: any): Promise<void> {
       if (this.role === OperatorRole.HOST) {
           Object.keys(this.connections).forEach(id => {
@@ -357,7 +345,6 @@ class ConnectivityService {
       }
   }
 
-  // Broadcast Standard
   public broadcast(data: any) {
       if (this.role === OperatorRole.HOST) {
           Object.values(this.connections).forEach(conn => {
@@ -368,7 +355,6 @@ class ConnectivityService {
       }
   }
 
-  // Fonction interne d'envoi - PLUS DE COMPRESSION ICI pour éviter les bugs
   private sendInternal(conn: DataConnection, data: any) {
       try {
           conn.send(data);
@@ -383,22 +369,17 @@ class ConnectivityService {
       this.ackCheckInterval = setInterval(() => {
           const now = Date.now();
           this.pendingMessages.forEach((pending, key) => {
-              // Si le message est vieux de plus de ACK_TIMEOUT (2s)
               if (now - pending.lastRetry > ACK_TIMEOUT) {
                   if (pending.retryCount < MAX_RETRIES) {
-                      // On réessaie
-                      // console.log(`[Retry] Renvoi du message ${key} (${pending.retryCount + 1}/${MAX_RETRIES})`);
                       pending.retryCount++;
                       pending.lastRetry = now;
                       this.sendTo(pending.data.targetId, pending.data.payload);
                   } else {
-                      // Abandon après 5 essais
-                      console.warn(`[Fail] Message ${key} abandonné après ${MAX_RETRIES} essais`);
                       this.pendingMessages.delete(key);
                   }
               }
           });
-      }, 1000); // Vérification chaque seconde
+      }, 1000); 
   }
 
   // --- API UTILISATEUR ---
@@ -409,7 +390,8 @@ class ConnectivityService {
       if (this.role === OperatorRole.HOST) {
           this.peersMap[this.user.id] = this.user;
           this.notify({ type: 'PEERS_UPDATED', peers: this.peersMap });
-          this.broadcast({ type: 'SYNC_PEERS', peers: this.peersMap });
+          // CORRECTION: Diffuser l'événement UPDATE_USER pour que les clients aient le Toast
+          this.broadcast({ type: 'UPDATE_USER', user: this.user });
       } else {
           this.broadcast({ type: 'UPDATE_USER', user: this.user });
       }
@@ -422,7 +404,7 @@ class ConnectivityService {
       if (this.role === OperatorRole.HOST) {
           this.peersMap[this.user.id] = this.user;
           this.notify({ type: 'PEERS_UPDATED', peers: this.peersMap });
-          this.broadcast({ type: 'SYNC_PEERS', peers: this.peersMap });
+          this.broadcast({ type: 'SYNC_PEERS', peers: this.peersMap }); // Pour la position, SYNC suffit
       } else {
           this.broadcast({ type: 'UPDATE', user: this.user });
       }
