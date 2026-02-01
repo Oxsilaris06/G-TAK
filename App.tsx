@@ -134,7 +134,7 @@ const App: React.FC = () => {
     });
   };
 
-  // --- Wrapper Broadcast Sécurisé (Patch 10) ---
+  // Wrapper pour Broadcast sécurisé
   const safeBroadcast = async (data: any, critical: boolean = false) => {
       try {
           if (critical && connectivityService.broadcastWithAck) {
@@ -363,7 +363,7 @@ const App: React.FC = () => {
              }
           }
       }
-      // PATCH 1 & 9: Suppression du bloc else if (data.type === 'LOG_UPDATE' ...) DUPLIQUÉ
+      // Suppression de la duplication de code ici (le bloc LOG_UPDATE en double a été retiré)
       else if (data.type === 'SYNC_PINGS') setPings(data.pings);
       else if (data.type === 'SYNC_LOGS') setLogs(data.logs);
       else if (data.type === 'PING_MOVE') setPings(prev => prev.map(p => p.id === data.id ? { ...p, lat: data.lat, lng: data.lng } : p));
@@ -440,7 +440,6 @@ const App: React.FC = () => {
       setShowQuickMsgModal(false); setFreeMsgInput(''); showToast("Message transmis"); 
   };
    
-  // --- PATCH 2: Utilisation de broadcastWithAck pour les pings ---
   const submitPing = async () => {
       if (!tempPingLoc) return;
       const newPing: PingData = {
@@ -485,7 +484,7 @@ const App: React.FC = () => {
   const handleAddLog = (entry: LogEntry) => {
       setLogs(prev => {
           const newLogs = [...prev, entry];
-          safeBroadcast({ type: 'LOG_UPDATE', logs: newLogs }); // Logs sont importants mais pas "mission critical" immédiat
+          safeBroadcast({ type: 'LOG_UPDATE', logs: newLogs }); 
           return newLogs;
       });
   };
