@@ -2,9 +2,9 @@ import 'dotenv/config';
 
 // --- CONSTANTES GLOBALES ---
 // ID du projet G-TAK (Assurez-vous que c'est le bon ID EAS pour G-TAK)
-const PROJECT_ID = "3362628d-176c-4860-9992-629471f49646";
+const PROJECT_ID = "41321365-3a31-43e4-9706-a5e5739e0400";
 // Version unique pour synchroniser le binaire et le JS
-const VERSION = "1.0.5"; 
+const VERSION = "4.1.0"; 
 
 export default {
   expo: {
