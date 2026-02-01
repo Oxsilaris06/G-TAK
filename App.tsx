@@ -16,7 +16,6 @@ import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SplashScreen from 'expo-splash-screen';
 import * as Battery from 'expo-battery';
-// IMPORT MAGNÉTOMÈTRE POUR L'ORIENTATION
 import { Magnetometer } from 'expo-sensors';
 
 import { UserData, OperatorStatus, OperatorRole, ViewType, PingData, AppSettings, DEFAULT_SETTINGS, PingType, HostileDetails, LogEntry } from './types';
@@ -53,7 +52,7 @@ const App: React.FC = () => {
   const [isAppReady, setIsAppReady] = useState(false);
   const [activeNotif, setActiveNotif] = useState<{ id: string, msg: string, type: 'alert' | 'info' | 'success' | 'warning' } | null>(null);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
-  
+   
   const [user, setUser] = useState<UserData>({ 
       id: '', callsign: '', role: OperatorRole.OPR, status: OperatorStatus.CLEAR, 
       joinedAt: Date.now(), bat: 100, head: 0, lat: 0, lng: 0, lastMsg: '' 
@@ -69,13 +68,12 @@ const App: React.FC = () => {
   const [pings, setPings] = useState<PingData[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [hostId, setHostId] = useState<string>('');
-  
+   
   const pingsRef = useRef(pings);
   const logsRef = useRef(logs);
   const peersRef = useRef(peers);
   const userRef = useRef(user);
-  
-  // Ref pour le magnétomètre
+   
   const magSubscription = useRef<any>(null);
   const lastSentHead = useRef<number>(0);
 
@@ -86,36 +84,32 @@ const App: React.FC = () => {
 
   const [loginInput, setLoginInput] = useState('');
   const [hostInput, setHostInput] = useState('');
-  // MODIFICATION: Ajout du mode 'hybrid'
   const [mapMode, setMapMode] = useState<'dark' | 'light' | 'satellite' | 'hybrid' | 'custom'>('satellite');
   const [showTrails, setShowTrails] = useState(true);
   const [showPings, setShowPings] = useState(true);
   const [isPingMode, setIsPingMode] = useState(false);
   const [nightOpsMode, setNightOpsMode] = useState(false);
   const [showLogs, setShowLogs] = useState(false);
-  
+   
   const [showQRModal, setShowQRModal] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
   const [showQuickMsgModal, setShowQuickMsgModal] = useState(false);
   const [showPingMenu, setShowPingMenu] = useState(false);
   const [showPingForm, setShowPingForm] = useState(false);
-  
+   
   const [freeMsgInput, setFreeMsgInput] = useState(''); 
   const [quickMessagesList, setQuickMessagesList] = useState<string[]>([]);
   const [tempPingLoc, setTempPingLoc] = useState<any>(null);
   const [currentPingType, setCurrentPingType] = useState<PingType>('FRIEND');
   const [pingMsgInput, setPingMsgInput] = useState('');
   const [hostileDetails, setHostileDetails] = useState<HostileDetails>({ position: '', nature: '', attitude: '', volume: '', armes: '', substances: '' });
-  
+   
   const [editingPing, setEditingPing] = useState<PingData | null>(null);
-  
-  // Suppression de viewingPing : tout le monde édite tout
-  // const [viewingPing, setViewingPing] = useState<PingData | null>(null);
-
+   
   const [selectedOperatorId, setSelectedOperatorId] = useState<string | null>(null);
   const [navTargetId, setNavTargetId] = useState<string | null>(null);
   const [navInfo, setNavInfo] = useState<{dist: string, time: string} | null>(null);
-  const [navMode, setNavMode] = useState<'pedestrian' | 'vehicle'>('pedestrian'); // Mode Ralliement
+  const [navMode, setNavMode] = useState<'pedestrian' | 'vehicle'>('pedestrian'); 
 
   const [gpsStatus, setGpsStatus] = useState<'WAITING' | 'OK' | 'ERROR'>('WAITING');
 
@@ -125,7 +119,7 @@ const App: React.FC = () => {
       else if (type === 'success') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   }, []);
 
-const triggerTacticalNotification = async (title: string, body: string) => {
+  const triggerTacticalNotification = async (title: string, body: string) => {
     if (AppState.currentState !== 'background' || settings.disableBackgroundNotifications) return;
     await Notifications.dismissAllNotificationsAsync();
     await Notifications.scheduleNotificationAsync({
@@ -134,11 +128,25 @@ const triggerTacticalNotification = async (title: string, body: string) => {
             body, 
             sound: true, 
             priority: Notifications.AndroidNotificationPriority.HIGH,
-            color: "#000000" // Couleur de la notification passée en noir
+            color: "#000000"
         },
         trigger: null, 
     });
-};
+  };
+
+  // --- Wrapper Broadcast Sécurisé (Patch 10) ---
+  const safeBroadcast = async (data: any, critical: boolean = false) => {
+      try {
+          if (critical && connectivityService.broadcastWithAck) {
+              await connectivityService.broadcastWithAck(data);
+          } else {
+              connectivityService.broadcast(data);
+          }
+      } catch (e) {
+          console.error('[App] Broadcast failed:', e);
+          showToast('Erreur réseau - données en file d\'attente', 'warning');
+      }
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -161,11 +169,7 @@ const triggerTacticalNotification = async (title: string, body: string) => {
         try {
            const permResult = await permissionService.requestAllPermissions();
            if (!permResult.location) setGpsStatus('ERROR');
-           
-           // --- DEMANDE PERMISSION CAMERA AU LANCEMENT ---
            await Camera.requestCameraPermissionsAsync();
-           // ------------------------------------------------------------
-
         } catch (e) { console.log("Perm Error:", e); }
 
         try {
@@ -201,11 +205,9 @@ const triggerTacticalNotification = async (title: string, body: string) => {
         handleConnectivityEvent(event);
     });
     
-    // GPS : Met à jour Lat/Lng UNIQUEMENT
     const locSub = locationService.subscribe((loc) => {
         setGpsStatus('OK');
         setUser(prev => ({ ...prev, lat: loc.latitude, lng: loc.longitude }));
-        // On envoie la position et le dernier cap connu du magnétomètre
         connectivityService.updateUserPosition(loc.latitude, loc.longitude, userRef.current.head);
     });
     
@@ -216,10 +218,8 @@ const triggerTacticalNotification = async (title: string, body: string) => {
     };
   }, []);
 
-  // --- GESTION DU MAGNÉTOMÈTRE (BOUSSOLE) ---
   useEffect(() => {
       if (view === 'map' || view === 'ops') { 
-          // Active le GPS
           locationService.updateOptions({ 
               timeInterval: settings.gpsUpdateInterval,
               foregroundService: {
@@ -230,29 +230,16 @@ const triggerTacticalNotification = async (title: string, body: string) => {
           });
           locationService.startTracking();
 
-          // Active la Boussole
           if (magSubscription.current) magSubscription.current.remove();
-          Magnetometer.setUpdateInterval(100); // 10Hz pour fluidité
+          Magnetometer.setUpdateInterval(100); 
           magSubscription.current = Magnetometer.addListener(data => {
               const { x, y } = data;
-              // Calcul de l'angle 0-360
               let angle = Math.atan2(y, x) * (180 / Math.PI);
-              
-              // Compensation de base (Portrait)
               angle = angle - 90; 
-              
-              // MODIFICATION : Compensation pour le mode PAYSAGE
-              if (isLandscape) {
-                  angle = angle + 90; 
-              }
-
+              if (isLandscape) angle = angle + 90; 
               if (angle < 0) angle = angle + 360;
               const heading = Math.floor(angle);
-
-              // Mise à jour locale fluide (toujours)
               setUser(prev => ({ ...prev, head: heading }));
-
-              // Envoi réseau (Throttled: seulement si changement > 5°)
               if (Math.abs(heading - lastSentHead.current) > 5) {
                   lastSentHead.current = heading;
                   connectivityService.updateUserPosition(userRef.current.lat, userRef.current.lng, heading);
@@ -260,14 +247,11 @@ const triggerTacticalNotification = async (title: string, body: string) => {
           });
 
       } else {
-          // Pause du GPS si on n'est pas Host, mais on garde si Host pour maintenir la session active ?
-          // Ici on coupe si on n'est pas en vue Map/Ops
           if (!hostId) locationService.stopTracking();
           if (magSubscription.current) magSubscription.current.remove();
       }
       return () => { if (magSubscription.current) magSubscription.current.remove(); }
-  }, [view, settings.gpsUpdateInterval, hostId, isLandscape]); // Dépendance isLandscape ajoutée
-
+  }, [view, settings.gpsUpdateInterval, hostId, isLandscape]);
 
   const handleConnectivityEvent = (event: ConnectivityEvent) => {
       switch (event.type) {
@@ -320,13 +304,12 @@ const triggerTacticalNotification = async (title: string, body: string) => {
           connectivityService.sendTo(fromId, { type: 'SYNC_LOGS', logs: logsRef.current });
       }
 
-     if (data.type === 'PING') {
+      if (data.type === 'PING') {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         setPings(prev => [...prev, data.ping]);
         const isHostile = data.ping.type === 'HOSTILE';
         
         if (isHostile) {
-            // Notification avec position GPS pour les pings adversaires
             const gpsCoords = `${data.ping.lat.toFixed(5)}, ${data.ping.lng.toFixed(5)}`;
             triggerTacticalNotification(
                 `ALERTE PING HOSTILE - ${data.ping.sender}`, 
@@ -337,27 +320,20 @@ const triggerTacticalNotification = async (title: string, body: string) => {
             showToast(`${senderName}: ${data.ping.msg}`, 'info');
             triggerTacticalNotification(`${senderName} - Info`, `${data.ping.msg}`);
         }
-    }
-        else if (data.type === 'LOG_UPDATE' && Array.isArray(data.logs)) {
+      }
+      else if (data.type === 'LOG_UPDATE' && Array.isArray(data.logs)) {
         const oldLogs = logsRef.current;
         const newLogs = data.logs;
 
-        // Détecter si un nouveau log a été ajouté
         if (newLogs.length > oldLogs.length) {
-            const latestLog = newLogs[newLogs.length - 1]; // C'est un objet de type LogEntry
-            
-            // CORRECTION ICI : Utilisation de 'pax' au lieu de 'category'
-            // Et vérification stricte sur le label "HOSTILE" défini dans MainCouranteView.tsx
+            const latestLog = newLogs[newLogs.length - 1]; 
             if (latestLog.pax === 'HOSTILE') {
-                
-                // CORRECTION ICI : Utilisation de 'lieu', 'action', 'remarques'
                 const logBody = `${latestLog.lieu || 'Non spécifié'} - ${latestLog.action} / ${latestLog.remarques || 'RAS'}`;
-                
                 triggerTacticalNotification(`MAIN COURANTE - HOSTILE`, logBody);
             }
         }
         setLogs(newLogs);
-    }
+      }
        
       else if ((data.type === 'UPDATE_USER' || data.type === 'UPDATE') && data.user) {
           const u = data.user as UserData;
@@ -387,10 +363,7 @@ const triggerTacticalNotification = async (title: string, body: string) => {
              }
           }
       }
-      
-      else if (data.type === 'LOG_UPDATE' && Array.isArray(data.logs)) {
-          setLogs(data.logs);
-      }
+      // PATCH 1 & 9: Suppression du bloc else if (data.type === 'LOG_UPDATE' ...) DUPLIQUÉ
       else if (data.type === 'SYNC_PINGS') setPings(data.pings);
       else if (data.type === 'SYNC_LOGS') setLogs(data.logs);
       else if (data.type === 'PING_MOVE') setPings(prev => prev.map(p => p.id === data.id ? { ...p, lat: data.lat, lng: data.lng } : p));
@@ -401,7 +374,6 @@ const triggerTacticalNotification = async (title: string, body: string) => {
   const finishLogout = useCallback(() => {
       connectivityService.cleanup();
       locationService.stopTracking(); 
-      // NETTOYAGE STRICT MAGNÉTOMÈTRE
       if (magSubscription.current) {
           magSubscription.current.remove();
           magSubscription.current = null;
@@ -443,14 +415,13 @@ const triggerTacticalNotification = async (title: string, body: string) => {
   };
 
   const handleLogout = async () => {
-      connectivityService.broadcast({ type: 'CLIENT_LEAVING', id: user.id });
+      safeBroadcast({ type: 'CLIENT_LEAVING', id: user.id });
       setTimeout(finishLogout, 500); 
   };
 
-  // --- ACTIONS OPÉRATEUR ---
   const handleOperatorActionNavigate = (targetId: string) => { 
       setNavTargetId(targetId); 
-      setNavMode('pedestrian'); // Default to walking
+      setNavMode('pedestrian');
       setView('map'); 
       setLastOpsView('map'); 
       showToast("Ralliement activé");
@@ -468,61 +439,67 @@ const triggerTacticalNotification = async (title: string, body: string) => {
       connectivityService.updateUser({ lastMsg: msg }); 
       setShowQuickMsgModal(false); setFreeMsgInput(''); showToast("Message transmis"); 
   };
-  
-  // --- GESTION DES PINGS/MARQUEURS ---
-  const submitPing = () => {
+   
+  // --- PATCH 2: Utilisation de broadcastWithAck pour les pings ---
+  const submitPing = async () => {
       if (!tempPingLoc) return;
       const newPing: PingData = {
-          id: Math.random().toString(36).substr(2, 9), lat: tempPingLoc.lat, lng: tempPingLoc.lng,
+          id: Math.random().toString(36).substr(2, 9), 
+          lat: tempPingLoc.lat, 
+          lng: tempPingLoc.lng,
           msg: pingMsgInput || (currentPingType === 'HOSTILE' ? 'ENNEMI' : currentPingType === 'FRIEND' ? 'AMI' : 'OBS'),
-          type: currentPingType, sender: user.callsign, timestamp: Date.now(),
+          type: currentPingType, 
+          sender: user.callsign, 
+          timestamp: Date.now(),
           details: currentPingType === 'HOSTILE' ? hostileDetails : undefined
       };
-      // On l'ajoute localement
+      
       setPings(prev => [...prev, newPing]);
-      // On diffuse à tout le monde
-      connectivityService.broadcast({ type: 'PING', ping: newPing });
+      
+      // Utilisation du Wrapper sécurisé avec flag Critique si HOSTILE
+      await safeBroadcast({ type: 'PING', ping: newPing }, currentPingType === 'HOSTILE');
+
       setShowPingForm(false); setTempPingLoc(null); setIsPingMode(false);
   };
 
   const handlePingMove = (updatedPing: PingData) => {
       setPings(prev => prev.map(p => p.id === updatedPing.id ? updatedPing : p));
-      connectivityService.broadcast({ type: 'PING_MOVE', id: updatedPing.id, lat: updatedPing.lat, lng: updatedPing.lng });
+      safeBroadcast({ type: 'PING_MOVE', id: updatedPing.id, lat: updatedPing.lat, lng: updatedPing.lng });
   };
 
   const savePingEdit = () => {
       if (!editingPing) return;
       const updatedPing = { ...editingPing, msg: pingMsgInput, details: editingPing.type === 'HOSTILE' ? hostileDetails : undefined };
       setPings(prev => prev.map(p => p.id === editingPing.id ? updatedPing : p));
-      connectivityService.broadcast({ type: 'PING_UPDATE', id: editingPing.id, msg: pingMsgInput, details: updatedPing.details });
+      safeBroadcast({ type: 'PING_UPDATE', id: editingPing.id, msg: pingMsgInput, details: updatedPing.details });
       setEditingPing(null);
   };
-  
+   
   const deletePing = () => {
       if (!editingPing) return;
       setPings(prev => prev.filter(p => p.id !== editingPing.id));
-      connectivityService.broadcast({ type: 'PING_DELETE', id: editingPing.id });
+      safeBroadcast({ type: 'PING_DELETE', id: editingPing.id });
       setEditingPing(null);
   };
 
   const handleAddLog = (entry: LogEntry) => {
       setLogs(prev => {
           const newLogs = [...prev, entry];
-          connectivityService.broadcast({ type: 'LOG_UPDATE', logs: newLogs });
+          safeBroadcast({ type: 'LOG_UPDATE', logs: newLogs }); // Logs sont importants mais pas "mission critical" immédiat
           return newLogs;
       });
   };
   const handleUpdateLog = (updatedEntry: LogEntry) => {
       setLogs(prev => {
           const newLogs = prev.map(l => l.id === updatedEntry.id ? updatedEntry : l);
-          connectivityService.broadcast({ type: 'LOG_UPDATE', logs: newLogs });
+          safeBroadcast({ type: 'LOG_UPDATE', logs: newLogs });
           return newLogs;
       });
   };
   const handleDeleteLog = (id: string) => {
       setLogs(prev => {
           const newLogs = prev.filter(l => l.id !== id);
-          connectivityService.broadcast({ type: 'LOG_UPDATE', logs: newLogs });
+          safeBroadcast({ type: 'LOG_UPDATE', logs: newLogs });
           return newLogs;
       });
   };
@@ -532,7 +509,7 @@ const triggerTacticalNotification = async (title: string, body: string) => {
   };
   
   const requestCamera = async () => {
-      const { status } = await Camera.requestCameraPermissionsAsync();
+      await Camera.requestCameraPermissionsAsync();
   };
 
   const copyToClipboard = async () => { 
@@ -546,10 +523,8 @@ const triggerTacticalNotification = async (title: string, body: string) => {
       } else { setView('login'); }
   };
 
-  // --- HELPER STYLES FOR LANDSCAPE UI ---
   const isLandscapeMap = isLandscape && view === 'map';
   
-  // Fonction pour obtenir le style des boutons (transparence en paysage)
   const getLandscapeStyle = (baseStyle: any = {}) => {
     if (isLandscapeMap) {
        return [baseStyle, { opacity: 0.5 }];
@@ -557,15 +532,13 @@ const triggerTacticalNotification = async (title: string, body: string) => {
     return baseStyle;
   };
 
-  // Fonction pour les propriétés des boutons (accentuation au toucher)
   const getLandscapeProps = () => {
       if (isLandscapeMap) {
-          return { activeOpacity: 1 }; // Devient opaque quand touché
+          return { activeOpacity: 1 };
       }
       return { activeOpacity: 0.5 };
   };
 
-  // --- RENDER HEADER & NAVIGATION ---
   useEffect(() => {
       if (navTargetId && peers[navTargetId] && user.lat && peers[navTargetId].lat) {
           const target = peers[navTargetId];
@@ -582,7 +555,6 @@ const triggerTacticalNotification = async (title: string, body: string) => {
               setNavTargetId(null); showToast("Arrivé à destination", "success"); return;
           }
 
-          // Vitesse: Marche ~5km/h (1.4m/s), Voiture ~50km/h (13.8m/s)
           const speed = navMode === 'pedestrian' ? 1.4 : 13.8; 
           const seconds = distM / speed;
           const min = Math.round(seconds / 60);
@@ -676,10 +648,7 @@ const triggerTacticalNotification = async (title: string, body: string) => {
               <Text style={styles.strategicaBtnText}>Stratégica</Text>
             </TouchableOpacity>
           </View>
-
-          {/* AJOUTÉ ICI : Le notificateur s'affiche uniquement sur l'écran de Login */}
           <UpdateNotifier />
-          
           <PrivacyConsentModal onConsentGiven={() => {}} />
         </View>
       );
@@ -728,18 +697,12 @@ const triggerTacticalNotification = async (title: string, body: string) => {
     const isMapMode = view === 'map';
     const isOpsMode = view === 'ops';
 
-    // Styles conditionnels pour le layout
-    // Si paysage + map : header et footer sont absolute et transparents
-    // Sinon : flex layout normal
-    
     return (
       <View style={{flex: 1}}>
-          {/* HEADER */}
           <View style={isLandscapeMap ? styles.headerLandscape : styles.header}>
              <SafeAreaView>{renderHeader()}</SafeAreaView>
           </View>
 
-          {/* CONTENT OPS (Liste) */}
           <View style={{ flex: 1, display: isOpsMode ? 'flex' : 'none' }}>
               <ScrollView contentContainerStyle={styles.grid}>
                   <OperatorCard user={user} isMe style={{ width: '100%' }} isNightOps={nightOpsMode} />
@@ -751,8 +714,6 @@ const triggerTacticalNotification = async (title: string, body: string) => {
               </ScrollView>
           </View>
 
-          {/* CONTENT MAP */}
-          {/* En mode paysage, la map prend tout l'espace (flex 1 dans le conteneur principal) et le header/footer sont au-dessus */}
           <View style={{ flex: 1, display: isMapMode ? 'flex' : 'none', position: 'relative' }}>
               <View style={{flex: 1}}>
                   <TacticalMap 
@@ -764,7 +725,7 @@ const triggerTacticalNotification = async (title: string, body: string) => {
                       pingMode={isPingMode} navTargetId={navTargetId}
                       nightOpsMode={nightOpsMode} 
                       initialCenter={mapState} 
-                      isLandscape={isLandscape} // Prop pour ajuster la carte (boussole)
+                      isLandscape={isLandscape}
                       maxTrailsPerUser={settings.maxTrailsPerUser}
                       onPing={(loc) => { setTempPingLoc(loc); setShowPingMenu(true); }}
                       onPingMove={(p) => { 
@@ -773,23 +734,18 @@ const triggerTacticalNotification = async (title: string, body: string) => {
                       onPingClick={(id) => { 
                           const p = pings.find(ping => ping.id === id);
                           if (!p) return;
-                          
-                          // TOUT LE MONDE PEUT EDITER ET VOIR - Clic simple ouvre l'édition
                           setEditingPing(p); 
                           setPingMsgInput(p.msg); 
                           if(p.details) setHostileDetails(p.details);
                       }}
                       onPingLongPress={(id) => {
-                          // Désactivé pour éviter conflit avec le Drag & Drop natif de Leaflet
+                          // Handled by WebView
                       }}
                       onNavStop={() => setNavTargetId(null)} 
                       onMapMoveEnd={(center, zoom) => setMapState({...center, zoom})} 
                   />
                   
-                  {/* MAP CONTROLS (Flottant) */}
-                  {/* MODIFIÉ : Centré verticalement à droite en mode paysage */}
                   <View style={[styles.mapControls, isLandscapeMap && { top: '50%', right: 16, marginTop: -100 }]}>
-                      {/* MODIFICATION: Cycle de mode avec Hybrid */}
                       <TouchableOpacity onPress={() => setMapMode(m => m === 'custom' ? 'dark' : m === 'dark' ? 'light' : m === 'light' ? 'satellite' : m === 'satellite' ? 'hybrid' : settings.customMapUrl ? 'custom' : 'dark')} {...getLandscapeProps()} style={[getLandscapeStyle(styles.mapBtn), nightOpsMode && {borderColor: '#7f1d1d', backgroundColor: '#000'}]}>
                           <MaterialIcons name={mapMode === 'dark' ? 'dark-mode' : mapMode === 'light' ? 'light-mode' : mapMode === 'hybrid' ? 'layers' : mapMode === 'custom' ? 'map' : 'satellite'} size={24} color={nightOpsMode ? "#ef4444" : "#d4d4d8"} />
                       </TouchableOpacity>
@@ -806,7 +762,6 @@ const triggerTacticalNotification = async (title: string, body: string) => {
               </View>
           </View>
 
-          {/* FOOTER */}
           <View style={[isLandscapeMap ? styles.footerLandscape : styles.footer, nightOpsMode && {borderTopColor: '#7f1d1d'}]}>
                 <View style={styles.statusRow}>
                   {[OperatorStatus.PROGRESSION, OperatorStatus.CONTACT, OperatorStatus.CLEAR].map(s => (
@@ -840,7 +795,6 @@ const triggerTacticalNotification = async (title: string, body: string) => {
             onClose={() => setShowSettings(false)} 
             onUpdate={s => { 
                 setSettings(s); 
-                // Mise à jour explicite de la liste des messages rapides pour refléter les changements (ajout/suppression/import)
                 if (s.quickMessages) {
                     setQuickMessagesList(s.quickMessages);
                 }
@@ -856,13 +810,11 @@ const triggerTacticalNotification = async (title: string, body: string) => {
       <OperatorActionModal visible={!!selectedOperatorId} targetOperator={peers[selectedOperatorId || ''] || null} currentUserRole={user.role} onClose={() => setSelectedOperatorId(null)} onKick={handleOperatorActionKick} onNavigate={handleOperatorActionNavigate} />
       <MainCouranteView visible={showLogs} logs={logs} role={user.role} onClose={() => setShowLogs(false)} onAddLog={handleAddLog} onUpdateLog={handleUpdateLog} onDeleteLog={handleDeleteLog} />
       
-      {/* MODALE MESSAGE RAPIDE - Adaptée PAYSAGE */}
       <Modal visible={showQuickMsgModal} animationType="fade" transparent>
         <KeyboardAvoidingView behavior="padding" style={styles.modalOverlay}>
             <View style={[styles.modalContent, {
                 backgroundColor: '#18181b', borderWidth: 1, borderColor: '#333',
                 width: isLandscape ? '100%' : '90%', 
-                // En mode portrait, on force une hauteur pour garantir le scroll si beaucoup de messages
                 height: '80%', 
                 maxHeight: isLandscape ? '100%' : '80%',
                 borderRadius: isLandscape ? 0 : 24,
@@ -870,12 +822,11 @@ const triggerTacticalNotification = async (title: string, body: string) => {
             }]}>
                 <Text style={[styles.modalTitle, {color: '#06b6d4', marginBottom: 5}]}>MESSAGE RAPIDE</Text>
                 
-                {/* Liste des messages - Flex 1 pour prendre tout l'espace et forcer le scroll */}
                 <View style={{flex: 1, width: '100%', marginBottom: 10}}>
                     <FlatList 
                         data={quickMessagesList} 
                         keyExtractor={(item, index) => index.toString()} 
-                        numColumns={isLandscape ? 2 : 1} // Optionnel : Grid en paysage si beaucoup de messages
+                        numColumns={isLandscape ? 2 : 1}
                         renderItem={({item}) => (
                             <TouchableOpacity onPress={() => handleSendQuickMessage(item.includes("Effacer") ? "" : item)} style={[styles.quickMsgItem, isLandscape && {flex: 1, margin: 5, backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 8}]}>
                                 <Text style={styles.quickMsgText}>{item}</Text>
@@ -886,7 +837,6 @@ const triggerTacticalNotification = async (title: string, body: string) => {
                     />
                 </View>
 
-                {/* Zone de saisie + Bouton Envoi - Fixe en bas */}
                 <View style={{flexDirection: 'row', marginBottom: 10, width: '100%', paddingHorizontal: 5}}>
                     <TextInput style={[styles.pingInput, {flex: 1, marginBottom: 0, textAlign: 'left'}]} placeholder="Message libre..." placeholderTextColor="#52525b" value={freeMsgInput} onChangeText={setFreeMsgInput} />
                     <TouchableOpacity onPress={() => handleSendQuickMessage(freeMsgInput)} style={[styles.modalBtn, {backgroundColor: '#06b6d4', marginLeft: 10, flex: 0, width: 50}]}>
@@ -894,7 +844,6 @@ const triggerTacticalNotification = async (title: string, body: string) => {
                     </TouchableOpacity>
                 </View>
                 
-                {/* Bouton Annuler - Fixe en bas */}
                 <TouchableOpacity onPress={() => setShowQuickMsgModal(false)} style={[styles.closeBtn, {backgroundColor: '#27272a', marginTop: 0, width: '100%'}]}>
                     <Text style={{color: '#a1a1aa'}}>ANNULER</Text>
                 </TouchableOpacity>
@@ -904,12 +853,10 @@ const triggerTacticalNotification = async (title: string, body: string) => {
 
       <Modal visible={showPingMenu} transparent animationType="fade"><View style={styles.modalOverlay}><View style={styles.pingMenuContainer}><Text style={styles.modalTitle}>TYPE DE MARQUEUR</Text><View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 15, justifyContent: 'center'}}><TouchableOpacity onPress={() => { setCurrentPingType('HOSTILE'); setShowPingMenu(false); setPingMsgInput(''); setHostileDetails({position: tempPingLoc ? `${tempPingLoc.lat.toFixed(5)}, ${tempPingLoc.lng.toFixed(5)}` : '', nature: '', attitude: '', volume: '', armes: '', substances: ''}); setShowPingForm(true); }} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(239, 68, 68, 0.2)', borderColor: '#ef4444'}]}><MaterialIcons name="warning" size={30} color="#ef4444" /><Text style={{color: '#ef4444', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>ADVERSAIRE</Text></TouchableOpacity><TouchableOpacity onPress={() => { setCurrentPingType('FRIEND'); setShowPingMenu(false); setPingMsgInput(''); setShowPingForm(true); }} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(34, 197, 94, 0.2)', borderColor: '#22c55e'}]}><MaterialIcons name="shield" size={30} color="#22c55e" /><Text style={{color: '#22c55e', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>AMI</Text></TouchableOpacity><TouchableOpacity onPress={() => { setCurrentPingType('INTEL'); setShowPingMenu(false); setPingMsgInput(''); setShowPingForm(true); }} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(234, 179, 8, 0.2)', borderColor: '#eab308'}]}><MaterialIcons name="visibility" size={30} color="#eab308" /><Text style={{color: '#eab308', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>RENS</Text></TouchableOpacity></View><TouchableOpacity onPress={() => setShowPingMenu(false)} style={[styles.closeBtn, {marginTop: 20, backgroundColor: '#27272a'}]}><Text style={{color:'white'}}>ANNULER</Text></TouchableOpacity></View></View></Modal>
       
-      {/* MODALE CRÉATION PING (ADVERSAIRE/RENS/AMI) */}
       <Modal visible={showPingForm} transparent animationType="slide">
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
             <View style={[styles.modalContent, isLandscape && styles.modalContentLandscape, { height: '80%' }]}>
                 
-                {/* Header */}
                 <View style={styles.modalHeader}>
                     <Text style={[styles.modalTitle, {
                         color: currentPingType === 'HOSTILE' ? '#ef4444' : currentPingType === 'FRIEND' ? '#22c55e' : '#eab308', 
@@ -919,13 +866,11 @@ const triggerTacticalNotification = async (title: string, body: string) => {
                     </Text>
                 </View>
                 
-                {/* Body Scrollable */}
                 <ScrollView 
                     style={styles.modalBody} 
                     contentContainerStyle={styles.modalBodyContent}
                     keyboardShouldPersistTaps="handled"
                 >
-                    {/* Input Principal (Nommé différemment selon le type) */}
                     <Text style={styles.label}>{currentPingType === 'HOSTILE' ? 'Message Principal' : currentPingType === 'FRIEND' ? 'Ami' : 'Info'}</Text>
                     <TextInput 
                         style={styles.pingInput} 
@@ -936,7 +881,6 @@ const triggerTacticalNotification = async (title: string, body: string) => {
                         autoFocus={currentPingType !== 'HOSTILE'} 
                     />
                     
-                    {/* Canevas Tactique uniquement pour Adversaire */}
                     {currentPingType === 'HOSTILE' && (
                         <View style={{width: '100%'}}>
                             <Text style={[styles.label, {color: '#ef4444', marginTop: 10, marginBottom: 10}]}>Canevas Tactique (SALUTA)</Text>
@@ -958,7 +902,6 @@ const triggerTacticalNotification = async (title: string, body: string) => {
                     )}
                 </ScrollView>
 
-                {/* Footer */}
                 <View style={styles.modalFooter}>
                     <TouchableOpacity onPress={() => setShowPingForm(false)} style={[styles.modalBtn, {backgroundColor: '#27272a'}]}>
                         <Text style={{color: 'white'}}>ANNULER</Text>
@@ -971,13 +914,11 @@ const triggerTacticalNotification = async (title: string, body: string) => {
         </KeyboardAvoidingView>
       </Modal>
       
-      {/* MODALE ÉDITION PING (TOUS TYPES) - UNIFIÉE */}
       <Modal visible={!!editingPing && !showPingForm} transparent animationType="slide">
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
             <View style={[styles.modalContent, isLandscape && styles.modalContentLandscape, { height: '80%' }]}>
                 <View style={styles.modalHeader}>
                     <Text style={[styles.modalTitle, {marginBottom: 5}]}>MODIFICATION</Text>
-                    {/* Ajout du champ "Émis par" en lecture seule */}
                     <Text style={{color: '#71717a', fontSize: 12}}>Émis par : <Text style={{fontWeight:'bold', color:'white'}}>{editingPing?.sender}</Text></Text>
                 </View>
                 
@@ -989,7 +930,6 @@ const triggerTacticalNotification = async (title: string, body: string) => {
                     <Text style={styles.label}>Titre / Message</Text>
                     <TextInput style={styles.pingInput} value={pingMsgInput} onChangeText={setPingMsgInput} />
                     
-                    {/* Canevas Tactique uniquement pour Adversaire */}
                     {editingPing?.type === 'HOSTILE' && (
                         <View style={{width: '100%'}}>
                             <Text style={[styles.label, {color: '#ef4444', marginTop: 10, marginBottom: 10}]}>Canevas Tactique</Text>
@@ -1026,34 +966,29 @@ const triggerTacticalNotification = async (title: string, body: string) => {
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* MODALE QR CODE - REFONDUE POUR PAYSAGE */}
       <Modal visible={showQRModal} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
             <View style={[styles.modalContent, isLandscape && { width: '100%', height: '100%', padding: 20, justifyContent: 'space-between', alignItems: 'center' }]}>
-                {/* Titre en haut à gauche en paysage */}
                 <Text style={[styles.modalTitle, isLandscape && { alignSelf: 'flex-start', marginBottom: 10 }]}>MON IDENTITY TAG</Text>
                 
-                {/* Conteneur principal : Ligne en paysage, Colonne en portrait */}
                 <View style={{
                     flexDirection: isLandscape ? 'row' : 'column', 
                     alignItems: 'center', 
-                    justifyContent: isLandscape ? 'space-evenly' : 'center', // Changed for better distribution
+                    justifyContent: isLandscape ? 'space-evenly' : 'center',
                     width: '100%',
                     flex: isLandscape ? 1 : 0,
                     gap: isLandscape ? 0 : 0 
                 }}>
-                    {/* QR Code à gauche */}
                     <View style={{
                         padding: 20, 
                         backgroundColor: 'white', 
                         borderRadius: 10, 
                         marginVertical: 20,
-                        marginRight: isLandscape ? 40 : 0 // Shift right
+                        marginRight: isLandscape ? 40 : 0 
                     }}>
                         <QRCode value={hostId || user.id || 'NO_ID'} size={isLandscape ? 120 : 200} backgroundColor="white" color="black" />
                     </View>
 
-                    {/* ID à droite (en paysage) ou dessous (en portrait) */}
                     <TouchableOpacity onPress={copyToClipboard} style={{
                         flexDirection:'row', alignItems:'center', backgroundColor: '#f4f4f5', padding: 10, borderRadius: 8,
                         marginLeft: isLandscape ? 20 : 0
@@ -1063,7 +998,6 @@ const triggerTacticalNotification = async (title: string, body: string) => {
                     </TouchableOpacity>
                 </View>
 
-                {/* Bouton Fermer Fixe en bas */}
                 <TouchableOpacity onPress={() => setShowQRModal(false)} style={[styles.closeBtn, {marginTop: isLandscape ? 20 : 20, width: isLandscape ? '100%' : '100%'}]}>
                     <Text style={styles.closeBtnText}>FERMER</Text>
                 </TouchableOpacity>
@@ -1075,8 +1009,6 @@ const triggerTacticalNotification = async (title: string, body: string) => {
 
       {activeNotif && <NotificationToast message={activeNotif.msg} type={activeNotif.type} isNightOps={nightOpsMode} onDismiss={() => setActiveNotif(null)} />}
       
-      {/* --- FIN DES COMPOSANTS --- */}
-
       {nightOpsMode && <View style={styles.nightOpsOverlay} pointerEvents="none" />}
     </View>
   );
@@ -1102,11 +1034,9 @@ const styles = StyleSheet.create({
   joinBtn: { backgroundColor: '#27272a', padding: 20, borderRadius: 16, alignItems: 'center' },
   joinBtnText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
   
-  // Header Standard
   header: { backgroundColor: '#09090b', borderBottomWidth: 1, borderBottomColor: '#27272a', paddingTop: Platform.OS === 'android' ? RNStatusBar.currentHeight : 0, zIndex: 1000, elevation: 1000 },
   headerContent: { height: 60, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20 },
   
-  // Header Landscape (Transparent & Absolute)
   headerLandscape: { position: 'absolute', top: 0, left: 0, right: 0, backgroundColor: 'transparent', zIndex: 2000, borderBottomWidth: 0, paddingTop: Platform.OS === 'android' ? RNStatusBar.currentHeight : 0 },
   headerContentLandscape: { height: 60, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20 },
 
@@ -1117,17 +1047,14 @@ const styles = StyleSheet.create({
   mapControls: { position: 'absolute', top: 16, right: 16, gap: 12, zIndex: 2000, elevation: 2000 },
   mapBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#18181b', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
   
-  // Footer Standard
   footer: { backgroundColor: '#050505', borderTopWidth: 1, borderTopColor: '#27272a', paddingBottom: 20, zIndex: 2000, elevation: 2000 },
   
-  // Footer Landscape (Transparent & Absolute)
   footerLandscape: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: 'transparent', zIndex: 2000, paddingBottom: 10, borderTopWidth: 0 },
   
   statusRow: { flexDirection: 'row', padding: 12, gap: 8, flexWrap: 'wrap', justifyContent: 'center' },
   statusBtn: { paddingHorizontal: 16, paddingVertical: 12, borderRadius: 8, backgroundColor: '#18181b', borderWidth: 1, borderColor: '#27272a' },
   statusBtnText: { color: '#71717a', fontSize: 12, fontWeight: 'bold' },
   
-  // MODALE STYLES REVISITED
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center', alignItems: 'center', padding: 20 },
   modalContent: { 
       width: '95%', 
@@ -1136,7 +1063,6 @@ const styles = StyleSheet.create({
       borderWidth: 1, 
       borderColor: '#333',
       height: '80%',
-      //maxHeight: '85%', // Prevent overflow in portrait
       overflow: 'hidden'
   },
   modalContentLandscape: {
@@ -1153,12 +1079,12 @@ const styles = StyleSheet.create({
       alignItems: 'center'
   },
   modalBody: {
-      flex: 1, // Allow scrolling and taking space
+      flex: 1, 
       width: '100%'
   },
   modalBodyContent: {
       padding: 20,
-      paddingBottom: 40 // Space for keyboard or safe area
+      paddingBottom: 40 
   },
   modalFooter: {
       flexDirection: 'row',
@@ -1178,18 +1104,17 @@ const styles = StyleSheet.create({
   pingInput: { width: '100%', backgroundColor: 'black', color: 'white', padding: 16, borderRadius: 12, textAlign: 'center', fontSize: 18, marginBottom: 10, borderWidth: 1, borderColor: '#333', minHeight: 50 },
   
   modalBtn: { flex: 1, padding: 16, borderRadius: 12, alignItems: 'center' },
-  quickMsgItem: { paddingVertical: 20, paddingHorizontal: 15, width: '100%', alignItems: 'center' }, // Increased padding
+  quickMsgItem: { paddingVertical: 20, paddingHorizontal: 15, width: '100%', alignItems: 'center' },
   quickMsgText: { color: 'white', fontSize: 16, fontWeight: 'bold' },
   pingMenuContainer: { width: '85%', backgroundColor: '#09090b', borderRadius: 20, padding: 20, alignItems: 'center', borderWidth: 1, borderColor: '#333' },
   pingTypeBtn: { width: 80, height: 80, borderRadius: 12, justifyContent: 'center', alignItems: 'center', borderWidth: 2 },
   
   label: { color: '#a1a1aa', fontSize: 12, alignSelf: 'flex-start', marginBottom: 5, marginLeft: 5, fontWeight: 'bold' },
   
-  // NEW CANEVA GRID STYLES
   canevaContainer: { width: '100%', gap: 10 },
   canevaRow: { flexDirection: 'row', gap: 10, justifyContent: 'space-between', width: '100%' },
   detailInput: { width: '100%', backgroundColor: '#000', color: 'white', padding: 12, borderRadius: 8, marginBottom: 10, borderWidth: 1, borderColor: '#333', minHeight: 50, fontSize: 16 },
-  detailInputHalf: { flex: 1, backgroundColor: '#000', color: 'white', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#333', minHeight: 50, fontSize: 16 }, // Increased height and font size
+  detailInputHalf: { flex: 1, backgroundColor: '#000', color: 'white', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#333', minHeight: 50, fontSize: 16 },
   
   iconBtnDanger: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#ef4444', justifyContent: 'center', alignItems: 'center', elevation: 5 },
   iconBtnSecondary: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#52525b', justifyContent: 'center', alignItems: 'center', elevation: 5 },
