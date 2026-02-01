@@ -1,7 +1,39 @@
 import React, { useEffect, useRef, useMemo } from 'react';
-import { View, StyleSheet, ActivityIndicator } from 'react-native';
-import { WebView } from 'react-native-webview';
 import { UserData, PingData } from '../types';
+
+// ==================================================================================
+// ⚠️ COMPATIBILITY LAYER - DELETE FOR PRODUCTION ⚠️
+// This block mocks React Native components for the Web Preview.
+// For your actual App, UNCOMMENT the imports below and DELETE the mocks.
+// ==================================================================================
+
+/* import { View, StyleSheet, ActivityIndicator } from 'react-native';
+import { WebView } from 'react-native-webview';
+*/
+
+// --- MOCKS START ---
+const View = ({ style, children, ...props }: any) => <div style={{ display: 'flex', flexDirection: 'column', ...style }} {...props}>{children}</div>;
+const ActivityIndicator = ({ style }: any) => <div style={{...style, color: 'white'}}>Loading Map...</div>;
+const StyleSheet = { create: (styles: any) => styles };
+
+const WebView = React.forwardRef(({ source, onMessage, style, ...props }: any, ref: any) => {
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  React.useImperativeHandle(ref, () => ({
+    postMessage: (msg: string) => { iframeRef.current?.contentWindow?.postMessage(msg, '*'); }
+  }));
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (typeof event.data === 'string' && event.data.startsWith('{')) {
+        onMessage({ nativeEvent: { data: event.data } });
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [onMessage]);
+  return <iframe ref={iframeRef} srcDoc={source.html} style={{ border: 'none', width: '100%', height: '100%', ...style }} sandbox="allow-scripts allow-same-origin" {...props} />;
+});
+// --- MOCKS END ---
+
 
 interface TacticalMapProps {
   me: UserData;
@@ -31,7 +63,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
   me, peers, pings, mapMode, customMapUrl, showTrails, showPings, isHost, userArrowColor, navTargetId, pingMode, nightOpsMode, initialCenter, isLandscape, maxTrailsPerUser = 500,
   onPing, onPingMove, onPingClick, onPingLongPress, onNavStop, onMapMoveEnd
 }) => {
-  const webViewRef = useRef<WebView>(null);
+  const webViewRef = useRef<any>(null);
 
   const leafletHTML = useMemo(() => {
       const startLat = initialCenter ? initialCenter.lat : 48.85;
@@ -206,6 +238,9 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         
         let isDraggingPing = false; 
         let longPressTimer = null;
+        
+        // CORRECTION: Stockage des mises à jour en attente pour éviter le "snapback"
+        let pendingUpdates = {}; // { id: {lat, lng} }
 
         function hexToRgba(hex, alpha) {
             let r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
@@ -216,7 +251,10 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
             const msg = JSON.stringify(data);
             if (window.ReactNativeWebView) {
                 window.ReactNativeWebView.postMessage(msg);
-            } 
+            } else {
+                // Fallback for Web Preview
+                window.parent.postMessage(msg, '*');
+            }
         }
 
         // --- 2. GESTION DES EVENEMENTS CARTE ---
@@ -378,6 +416,21 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                 // Si ce ping est en cours de déplacement, on ne touche pas à sa position via le serveur
                 if (isDraggingPing === p.id) return;
 
+                // CORRECTION SNAPBACK : Vérifier si une mise à jour locale est en attente
+                if (pendingUpdates[p.id]) {
+                     const pending = pendingUpdates[p.id];
+                     const dLat = Math.abs(p.lat - pending.lat);
+                     const dLng = Math.abs(p.lng - pending.lng);
+                     
+                     // Si la position serveur est très proche de celle en attente (mise à jour réussie)
+                     if (dLat < 0.00001 && dLng < 0.00001) {
+                         delete pendingUpdates[p.id];
+                     } else {
+                         // Sinon, c'est probablement une "vieille" position qui revient -> on ignore pour ne pas faire sauter le marker
+                         return;
+                     }
+                }
+
                 const iconChar = (p.type === 'HOSTILE') ? '🔴' : (p.type === 'FRIEND') ? '🔵' : '👁️';
                 const color = (p.type === 'HOSTILE') ? '#ef4444' : (p.type === 'FRIEND') ? '#22c55e' : '#eab308';
                 
@@ -515,6 +568,12 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                 if (el) el.classList.remove('ping-dragging');
                 
                 const newPos = marker.getLatLng();
+                
+                // CORRECTION: Sauvegarder la position en attente pour éviter le snapback
+                pendingUpdates[id] = { lat: newPos.lat, lng: newPos.lng };
+                // Nettoyage de sécurité après 2s (si le serveur n'a jamais répondu)
+                setTimeout(() => { if(pendingUpdates[id]) delete pendingUpdates[id]; }, 2000);
+
                 sendToApp({ type: 'PING_MOVE', id: id, lat: newPos.lat, lng: newPos.lng });
             }
             
