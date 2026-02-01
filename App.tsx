@@ -772,9 +772,7 @@ const triggerTacticalNotification = async (title: string, body: string) => {
                           const p = pings.find(ping => ping.id === id);
                           if (!p) return;
                           
-                          // --- CORRECTION : LOGIQUE DE CLIC POUR ÉDITION ---
-                          // Priorité à l'édition si droits (Clic simple)
-                          // Sinon simple affichage
+                          // MODIFICATION: Priorité à l'édition si droits (Clic simple)
                           if (user.role === OperatorRole.HOST || p.sender === user.callsign) {
                              setEditingPing(p); 
                              setPingMsgInput(p.msg); 
@@ -786,7 +784,6 @@ const triggerTacticalNotification = async (title: string, body: string) => {
                                   showToast(`Ping de ${p.sender} : ${p.msg}`, 'info');
                               }
                           }
-                          // ------------------------------------------------
                       }}
                       onPingLongPress={(id) => {
                           // Désactivé pour éviter conflit avec le Drag & Drop
@@ -849,6 +846,10 @@ const triggerTacticalNotification = async (title: string, body: string) => {
             onClose={() => setShowSettings(false)} 
             onUpdate={s => { 
                 setSettings(s); 
+                // Mise à jour explicite de la liste des messages rapides pour refléter les changements (ajout/suppression/import)
+                if (s.quickMessages) {
+                    setQuickMessagesList(s.quickMessages);
+                }
                 setUser(u => ({...u, paxColor: s.userArrowColor})); 
                 connectivityService.updateUser({paxColor: s.userArrowColor}); 
                 if(s.gpsUpdateInterval !== settings.gpsUpdateInterval) {
