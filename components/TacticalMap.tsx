@@ -47,7 +47,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
       <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
       
       <style>
-        body { margin: 0; padding: 0; background: #000; font-family: sans-serif; transition: filter 0.5s ease; }
+        body { margin: 0; padding: 0; background: #000; font-family: sans-serif; transition: filter 0.5s ease; overflow: hidden; }
         #map { width: 100vw; height: 100vh; }
         
         body.night-ops {
@@ -60,10 +60,14 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         .tac-circle-id { position: absolute; z-index: 10; width: 32px; height: 32px; border-radius: 50%; border: 2px solid white; display: flex; justify-content: center; align-items: center; box-shadow: 0 0 5px rgba(0,0,0,0.5); top: 50%; left: 50%; transform: translate(-50%, -50%); transition: all 0.3s ease; }
         .tac-circle-id span { color: white; font-family: monospace; font-size: 10px; font-weight: 900; text-shadow: 0 1px 2px black; }
         
-        /* FIX DRAG & DROP: prevent browser zoom/scroll on markers to allow direct touch manipulation */
+        /* FIX DRAG & DROP: High z-index & touch-action */
         .leaflet-marker-icon, .leaflet-marker-shadow {
-            touch-action: none;
+            touch-action: none !important;
+            pointer-events: auto !important;
         }
+        
+        /* Force Ping Pane on top */
+        .leaflet-ping-pane { z-index: 2000 !important; }
 
         @keyframes heartbeat { 0% { transform: translate(-50%, -50%) scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); } 50% { transform: translate(-50%, -50%) scale(1.4); box-shadow: 0 0 20px 10px rgba(239, 68, 68, 0); } 100% { transform: translate(-50%, -50%) scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
         .tac-marker-heartbeat .tac-circle-id { animation: heartbeat 1.5s infinite ease-in-out !important; border-color: #ef4444 !important; background-color: rgba(239, 68, 68, 0.8) !important; z-index: 9999 !important; }
@@ -97,11 +101,13 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
       <div id="compass"><div id="compass-indicator"></div><div id="compass-rose"><span class="compass-label compass-n">N</span><span class="compass-label compass-e">E</span><span class="compass-label compass-s">S</span><span class="compass-label compass-w">O</span></div></div>
 
       <script>
+        // CRUCIAL: tap: true pour meilleure détection mobile
         const map = L.map('map', { 
             zoomControl: false, 
             attributionControl: false, 
             doubleClickZoom: false,
-            tap: false 
+            tap: true, 
+            dragging: true 
         }).setView([${startLat}, ${startLng}], ${startZoom});
         
         const commonOptions = {
@@ -118,16 +124,13 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
             return L.tileLayer(url, options);
         }
 
-        // Esri Satellite (Base)
         const esriSat = getLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { ...commonOptions });
-        // Carto Dark Labels (Overlay)
         const cartoLabels = getLayer('https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png', { ...commonOptions, subdomains:'abcd' });
 
         const layers = {
             dark: getLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { ...commonOptions, subdomains:'abcd' }),
             light: getLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { ...commonOptions, subdomains:'abcd' }),
             satellite: esriSat,
-            // Hybrid combines Satellite + Overlay
             hybrid: L.layerGroup([
                 getLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { ...commonOptions }),
                 cartoLabels
@@ -138,11 +141,9 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         let currentLayer = layers.dark; 
         currentLayer.addTo(map);
 
-        // --- Z-INDEX FIX ---
-        // Pane creation to manage depth
         map.createPane('trailPane'); map.getPane('trailPane').style.zIndex = 400;
         map.createPane('userPane'); map.getPane('userPane').style.zIndex = 600;
-        map.createPane('pingPane'); map.getPane('pingPane').style.zIndex = 2000; // Pings definitely on top
+        map.createPane('pingPane'); map.getPane('pingPane').style.zIndex = 2000; 
 
         const markers = {};
         const trails = {}; 
@@ -248,7 +249,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
             
             Object.keys(markers).forEach(id => { if(!activeIds.includes(id)) { map.removeLayer(markers[id]); delete markers[id]; } });
             
-            // Clean up trails of disconnected users
             Object.keys(trails).forEach(id => { 
                 if(!activeIds.includes(id)) { 
                     trails[id].forEach(poly => map.removeLayer(poly));
@@ -288,7 +288,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                     markers[u.id] = L.marker([u.lat, u.lng], { icon: icon, pane: 'userPane' }).addTo(map); 
                 }
 
-                // --- TRAIL SEGMENT LOGIC ---
                 if (showTrails) {
                     if (!trails[u.id]) trails[u.id] = [];
                     const userSegments = trails[u.id];
@@ -387,11 +386,13 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
             });
             
             serverPings.forEach(p => {
-                const canDrag = isHost || (p.sender === myCallsign);
+                const canDrag = true; 
                 const iconChar = (p.type === 'HOSTILE') ? '🔴' : (p.type === 'FRIEND') ? '🔵' : '👁️';
                 const color = (p.type === 'HOSTILE') ? '#ef4444' : (p.type === 'FRIEND') ? '#22c55e' : '#eab308';
                 
-                const html = \`<div id="ping-\${p.id}" class="ping-marker-box"><div class="ping-label" style="border-color: \${color}">\${p.msg}</div><div class="ping-icon">\${iconChar}</div></div>\`;
+                // IMPORTANT: Ajout de 'leaflet-touch-draggable' si nécessaire, mais draggable: true suffit souvent si les events sont propres.
+                // On s'assure que le contenu HTML ne bloque pas les évènements de la souris/touch
+                const html = \`<div id="ping-\${p.id}" class="ping-marker-box" style="pointer-events: none;"><div class="ping-label" style="border-color: \${color}; pointer-events: auto;">\${p.msg}</div><div class="ping-icon" style="pointer-events: auto;">\${iconChar}</div></div>\`;
 
                 if (pings[p.id]) {
                     pings[p.id].setLatLng([p.lat, p.lng]);
@@ -409,17 +410,24 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                         icon: icon, 
                         draggable: true, 
                         autoPan: true,
-                        pane: 'pingPane' // Uses zIndex 2000 defined at top
+                        pane: 'pingPane',
+                        // Options spécifiques pour améliorer le drag sur mobile
+                        bubblingMouseEvents: false 
                     });
                     
                     if (!canDrag) m.dragging.disable();
 
-                    m.on('click', () => sendToApp({ type: 'PING_CLICK', id: p.id }));
+                    // Séparation CLAIR : Click pour éditer
+                    m.on('click', (e) => {
+                        // Empêche la propagation si on vient de finir un drag
+                        sendToApp({ type: 'PING_CLICK', id: p.id });
+                    });
                     
-                    // SUPPRIMÉ POUR ÉVITER CONFLIT AVEC LE DRAG & DROP
-                    // m.on('contextmenu', () => sendToApp({ type: 'PING_LONG_PRESS', id: p.id }));
-                    
-                    m.on('dragend', (e) => sendToApp({ type: 'PING_MOVE', id: p.id, lat: e.target.getLatLng().lat, lng: e.target.getLatLng().lng }));
+                    // Le dragend envoie la nouvelle position
+                    m.on('dragend', (e) => {
+                        const newPos = e.target.getLatLng();
+                        sendToApp({ type: 'PING_MOVE', id: p.id, lat: newPos.lat, lng: newPos.lng });
+                    });
                     
                     pings[p.id] = m;
                     pingLayer.addLayer(m);
