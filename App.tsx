@@ -349,7 +349,7 @@ const triggerTacticalNotification = async (title: string, body: string) => {
         }
         setLogs(newLogs);
     }
-      
+       
       else if ((data.type === 'UPDATE_USER' || data.type === 'UPDATE') && data.user) {
           const u = data.user as UserData;
           const prevStatus = peersRef.current[u.id]?.status;
@@ -392,7 +392,10 @@ const triggerTacticalNotification = async (title: string, body: string) => {
   const finishLogout = useCallback(() => {
       connectivityService.cleanup();
       locationService.stopTracking(); 
-      if (magSubscription.current) magSubscription.current.remove();
+      if (magSubscription.current) {
+          magSubscription.current.remove();
+          magSubscription.current = null;
+      }
       setPeers({}); setPings([]); setLogs([]); setHostId(''); setView('login'); 
       setUser(prev => ({...prev, id: '', role: OperatorRole.OPR, status: OperatorStatus.CLEAR }));
   }, []);
@@ -753,8 +756,7 @@ const triggerTacticalNotification = async (title: string, body: string) => {
                       maxTrailsPerUser={settings.maxTrailsPerUser}
                       onPing={(loc) => { setTempPingLoc(loc); setShowPingMenu(true); }}
                       onPingMove={(p) => { 
-                          setPings(prev => prev.map(pi => pi.id === p.id ? p : pi));
-                          connectivityService.broadcast({ type: 'PING_MOVE', id: p.id, lat: p.lat, lng: p.lng });
+                          handlePingMove(p);
                       }}
                       onPingClick={(id) => { 
                           const p = pings.find(ping => ping.id === id);
