@@ -2,12 +2,12 @@
  * TACTICAL MAP - VERSION AMÉLIORÉE
  * * Améliorations:
  * - Rate limiting côté WebView pour éviter le spam du pont JS
- * - Meilleure gestion des gestures (distinction Drag vs Pan vs Click)
- * - Optimisation des re-renders
+ * - Gestion robuste des événements tactiles (Drag vs Pan vs Click)
+ * - Optimisation des re-renders et de la mémoire
  * - Support Offline
  */
 
-import React, { useEffect, useRef, useMemo, useCallback } from 'react';
+import React, { useEffect, useRef, useMemo } from 'react';
 import { View, StyleSheet, ActivityIndicator } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { UserData, PingData } from '../types';
@@ -42,12 +42,14 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
 }) => {
   const webViewRef = useRef<WebView>(null);
   
-  // Rate limiter pour la création de ping
+  // Rate limiter pour la création de ping (évite double-tap accidentel)
   const lastPingTime = useRef(0);
 
+  // Note: Cette fonction est utilisée pour filtrer les appels venant du WebView si besoin, 
+  // mais la logique principale est gérée dans le HTML/JS Leaflet ci-dessous.
   const handlePingThrottled = (loc: { lat: number; lng: number }) => {
     const now = Date.now();
-    if (now - lastPingTime.current > 500) { // 500ms throttle
+    if (now - lastPingTime.current > 500) { // 500ms délai
         lastPingTime.current = now;
         onPing(loc);
     }
@@ -94,7 +96,8 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
             display: flex; flex-direction: column; align-items: center; justify-content: center;
             transform: translate(-50%, -50%) scale(var(--ping-scale, 1));
             transform-origin: center center;
-            /* CRITICAL: pointer-events none on wrapper so clicks pass to map if missed */
+            /* CRITICAL: pointer-events none on wrapper so clicks pass to map if missed, 
+               but children (icon/label) re-enable it */
             pointer-events: none; 
             -webkit-tap-highlight-color: transparent;
         }
@@ -121,6 +124,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
             transform: scale(1.4);
             filter: drop-shadow(0px 10px 15px rgba(255, 255, 255, 0.6));
             z-index: 9999;
+            cursor: grabbing;
         }
         
         #compass { position: absolute; top: 20px; left: 20px; width: 60px; height: 60px; z-index: 9999; background: rgba(0,0,0,0.6); border-radius: 50%; border: 2px solid rgba(255,255,255,0.2); display: flex; justify-content: center; align-items: center; backdrop-filter: blur(2px); pointer-events: none; transition: top 0.3s, left 0.3s, bottom 0.3s; }
@@ -535,6 +539,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         allowFileAccess={true} 
         allowUniversalAccessFromFileURLs={true} 
         renderLoading={() => <ActivityIndicator size="large" color="#3b82f6" style={styles.loader} />}
+        // Performance optimizations
         cacheEnabled={true}
         cacheMode='LOAD_DEFAULT'
         androidHardwareAccelerationDisabled={false}
