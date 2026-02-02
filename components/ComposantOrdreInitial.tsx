@@ -23,6 +23,28 @@ import * as FileSystem from 'expo-file-system';
 import * as DocumentPicker from 'expo-document-picker';
 import { MaterialIcons } from '@expo/vector-icons';
 
+// Import du module PATRACDVR
+import Patrac from './Patrac';
+
+// --- THEME TACTICAL GLASS (cohérent avec Patrac.tsx) ---
+const THEME = {
+  bg: '#050505',
+  bgGlass: 'rgba(22, 22, 25, 0.7)',
+  bgGlassHeavy: 'rgba(15, 15, 20, 0.95)',
+  bgElement: 'rgba(255, 255, 255, 0.03)',
+  bgInput: 'rgba(0, 0, 0, 0.4)',
+  borderGlass: 'rgba(255, 255, 255, 0.08)',
+  accentBlue: '#3b82f6',
+  accentHover: '#2563eb',
+  accentGlow: 'rgba(59, 130, 246, 0.3)',
+  textPrimary: '#e0e0e0',
+  textSecondary: '#94a3b8',
+  dangerRed: '#ef4444',
+  successGreen: '#22c55e',
+  warningYellow: '#eab308',
+  trashColor: '#6c757d',
+};
+
 // --- PROPS ---
 interface OIViewProps {
     onClose?: () => void;
@@ -48,21 +70,6 @@ const MEMBER_CONFIG = {
     { trigramme: "XX", fonction: "Inter", cellule: "AO1", tenue: "UBAS" },
     { trigramme: "YY", fonction: "Sans", cellule: "India 1", tenue: "UBAS" },
   ]
-};
-
-const COLORS = {
-  bg: '#050505',
-  surface: '#18181b',
-  surfaceLight: '#27272a',
-  primary: '#3b82f6',
-  secondary: '#94a3b8',
-  text: '#e0e0e0',
-  textMuted: '#71717a',
-  danger: '#ef4444',
-  success: '#22c55e',
-  warning: '#eab308',
-  border: 'rgba(255, 255, 255, 0.05)',
-  inputBg: '#000000'
 };
 
 // --- TYPES COMPLETS ---
@@ -212,7 +219,7 @@ const DynamicListInput = ({ label, list, onChange, placeholder = "Ajouter..." }:
             <View style={{flexDirection:'row', flexWrap:'wrap', gap: 5, marginBottom: 5}}>
                 {list.map((item, i) => (
                     <TouchableOpacity key={i} onPress={() => onChange(list.filter((_, idx) => idx !== i))} style={styles.chip}>
-                        <Text style={{color: COLORS.text}}>{item} X</Text>
+                        <Text style={{color: THEME.textPrimary}}>{item} X</Text>
                     </TouchableOpacity>
                 ))}
             </View>
@@ -220,10 +227,10 @@ const DynamicListInput = ({ label, list, onChange, placeholder = "Ajouter..." }:
             <TextInput 
                 style={[styles.input, {flex:1}]} 
                 value={txt} onChangeText={setTxt} 
-                placeholder={placeholder} placeholderTextColor={COLORS.textMuted}
+                placeholder={placeholder} placeholderTextColor={THEME.textSecondary}
             />
             <TouchableOpacity 
-                style={{backgroundColor:COLORS.surfaceLight, justifyContent:'center', padding:10, borderRadius:8, borderWidth: 1, borderColor: COLORS.border}}
+                style={{backgroundColor:THEME.bgElement, justifyContent:'center', padding:10, borderRadius:8, borderWidth: 1, borderColor: THEME.borderGlass}}
                 onPress={() => { if(txt) { onChange([...list, txt]); setTxt(""); } }}
             >
                 <MaterialIcons name="add" size={20} color="white" />
@@ -246,7 +253,7 @@ const ChipSelector = ({ label, selected, options, onChange }: { label: string, s
                     style={[styles.chip, isSel && styles.chipSelected]}
                     onPress={() => isSel ? onChange(selected.filter(s => s !== opt)) : onChange([...selected, opt])}
                 >
-                    <Text style={{ color: isSel ? '#fff' : COLORS.textMuted, fontWeight: isSel ? 'bold' : 'normal' }}>{opt}</Text>
+                    <Text style={{ color: isSel ? '#fff' : THEME.textSecondary, fontWeight: isSel ? 'bold' : 'normal' }}>{opt}</Text>
                 </TouchableOpacity>
                 );
             })}
@@ -274,6 +281,9 @@ export default function OIView({ onClose }: OIViewProps) {
   const [isVehicleRenameVisible, setIsVehicleRenameVisible] = useState(false);
   const [vehicleToRename, setVehicleToRename] = useState<IVehicle | null>(null);
   const [newVehicleName, setNewVehicleName] = useState("");
+
+  // État pour afficher/masquer le module Patrac
+  const [isPatracVisible, setIsPatracVisible] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -318,6 +328,14 @@ export default function OIView({ onClose }: OIViewProps) {
     } catch (e) {
       console.error("Load error", e);
     }
+  };
+
+  // --- GESTION DU RETOUR DE PATRAC ---
+  const handleApplyFromPatrac = (data: { vehicles: IVehicle[]; poolMembers: IMember[] }) => {
+    setVehicles(data.vehicles);
+    setPoolMembers(data.poolMembers);
+    saveData();
+    setIsPatracVisible(false);
   };
 
   // --- EXPORT/IMPORT ---
@@ -1022,7 +1040,7 @@ export default function OIView({ onClose }: OIViewProps) {
             onChangeText={onChange}
             multiline={multiline}
             placeholder={placeholder}
-            placeholderTextColor={COLORS.textMuted}
+            placeholderTextColor={THEME.textSecondary}
         />
     </View>
   );
@@ -1047,7 +1065,7 @@ export default function OIView({ onClose }: OIViewProps) {
                       <Text style={styles.label}>ETHNIE</Text>
                       {["Caucasien", "Nord africain", "Afro-antillais", "Asiatique"].map(opt => (
                           <TouchableOpacity key={opt} onPress={() => updateAdversaire(advKey, 'ethnie', opt)} style={{marginBottom:5}}>
-                              <Text style={{color: adv.ethnie === opt ? COLORS.primary : COLORS.textMuted}}>{adv.ethnie === opt ? "[x]" : "[ ]"} {opt}</Text>
+                              <Text style={{color: adv.ethnie === opt ? THEME.accentBlue : THEME.textSecondary}}>{adv.ethnie === opt ? "[x]" : "[ ]"} {opt}</Text>
                           </TouchableOpacity>
                       ))}
                   </View>
@@ -1095,7 +1113,7 @@ export default function OIView({ onClose }: OIViewProps) {
                         return (
                             <TouchableOpacity key={opt} style={[styles.chip, isSelected && styles.chipSelected]}
                               onPress={() => toggleValue(opt)}>
-                                <Text style={{color: isSelected ? 'white' : COLORS.textMuted}}>{opt}</Text>
+                                <Text style={{color: isSelected ? 'white' : THEME.textSecondary}}>{opt}</Text>
                             </TouchableOpacity>
                         );
                     })}
@@ -1109,7 +1127,7 @@ export default function OIView({ onClose }: OIViewProps) {
                 <View style={styles.modalContent}>
                     <View style={styles.modalHeader}>
                         <Text style={styles.modalTitle}>ÉDITION OPÉRATEUR</Text>
-                        <TouchableOpacity onPress={() => setIsMemberEditModalVisible(false)}><MaterialIcons name="close" size={24} color={COLORS.danger} /></TouchableOpacity>
+                        <TouchableOpacity onPress={() => setIsMemberEditModalVisible(false)}><MaterialIcons name="close" size={24} color={THEME.dangerRed} /></TouchableOpacity>
                     </View>
                     <ScrollView style={{maxHeight: '80%'}}>
                         <View style={styles.inputGroup}>
@@ -1129,8 +1147,8 @@ export default function OIView({ onClose }: OIViewProps) {
                         {renderSelect("PROTECTION", "gpb", MEMBER_CONFIG.options.gpbs, true)}
                     </ScrollView>
                     <View style={{flexDirection:'row', gap:10, marginTop:10}}>
-                        <TouchableOpacity onPress={deleteMember} style={[styles.navBtn, {borderColor: COLORS.danger, borderWidth: 1, backgroundColor: 'transparent'}]}><Text style={{color: COLORS.danger}}>SUPPRIMER</Text></TouchableOpacity>
-                        <TouchableOpacity onPress={saveMemberChanges} style={[styles.navBtn, {backgroundColor: COLORS.success}]}><Text style={{color: '#000', fontWeight: 'bold'}}>SAUVEGARDER</Text></TouchableOpacity>
+                        <TouchableOpacity onPress={deleteMember} style={[styles.navBtn, {borderColor: THEME.dangerRed, borderWidth: 1, backgroundColor: 'transparent'}]}><Text style={{color: THEME.dangerRed}}>SUPPRIMER</Text></TouchableOpacity>
+                        <TouchableOpacity onPress={saveMemberChanges} style={[styles.navBtn, {backgroundColor: THEME.successGreen}]}><Text style={{color: '#000', fontWeight: 'bold'}}>SAUVEGARDER</Text></TouchableOpacity>
                     </View>
                 </View>
             </KeyboardAvoidingView>
@@ -1152,8 +1170,8 @@ export default function OIView({ onClose }: OIViewProps) {
                         autoFocus 
                     />
                     <View style={{flexDirection:'row', gap:10, marginTop:20}}>
-                        <TouchableOpacity onPress={() => setIsVehicleRenameVisible(false)} style={[styles.navBtn, {borderColor: COLORS.danger, borderWidth: 1}]}><Text style={{color: COLORS.danger}}>ANNULER</Text></TouchableOpacity>
-                        <TouchableOpacity onPress={confirmRenameVehicle} style={[styles.navBtn, {backgroundColor: COLORS.success}]}><Text style={{color: '#000', fontWeight: 'bold'}}>VALIDER</Text></TouchableOpacity>
+                        <TouchableOpacity onPress={() => setIsVehicleRenameVisible(false)} style={[styles.navBtn, {borderColor: THEME.dangerRed, borderWidth: 1}]}><Text style={{color: THEME.dangerRed}}>ANNULER</Text></TouchableOpacity>
+                        <TouchableOpacity onPress={confirmRenameVehicle} style={[styles.navBtn, {backgroundColor: THEME.successGreen}]}><Text style={{color: '#000', fontWeight: 'bold'}}>VALIDER</Text></TouchableOpacity>
                     </View>
                 </View>
             </KeyboardAvoidingView>
@@ -1215,7 +1233,7 @@ export default function OIView({ onClose }: OIViewProps) {
                                 if (newChrono.length > 0) newChrono.pop();
                                 updateField('chronologie', newChrono);
                             }}>
-                                <MaterialIcons name="remove-circle" size={24} color={COLORS.danger} />
+                                <MaterialIcons name="remove-circle" size={24} color={THEME.dangerRed} />
                             </TouchableOpacity>
                             <TouchableOpacity onPress={() => {
                                 const newChrono = [...formData.chronologie];
@@ -1223,18 +1241,18 @@ export default function OIView({ onClose }: OIViewProps) {
                                 newChrono.push({ type: `T${nextIndex}`, label: 'Phase...', hour: '' });
                                 updateField('chronologie', newChrono);
                             }}>
-                                <MaterialIcons name="add-circle" size={24} color={COLORS.success} />
+                                <MaterialIcons name="add-circle" size={24} color={THEME.successGreen} />
                             </TouchableOpacity>
                         </View>
                     </View>
 
                     {formData.chronologie.map((item, i) => (
                         <View key={i} style={{flexDirection:'row', alignItems:'center', marginBottom:5}}>
-                            <Text style={{color:COLORS.primary, width:30, fontWeight: 'bold'}}>{item.type}</Text>
+                            <Text style={{color:THEME.accentBlue, width:30, fontWeight: 'bold'}}>{item.type}</Text>
                             <TextInput style={[styles.input, {flex:2, marginRight:5}]} value={item.label} onChangeText={t => {
                                 const nu = [...formData.chronologie]; nu[i].label = t; updateField('chronologie', nu);
                             }} />
-                            <TextInput style={[styles.input, {width:60}]} value={item.hour} placeholder="H" placeholderTextColor={COLORS.textMuted} onChangeText={t => {
+                            <TextInput style={[styles.input, {width:60}]} value={item.hour} placeholder="H" placeholderTextColor={THEME.textSecondary} onChangeText={t => {
                                 const nu = [...formData.chronologie]; nu[i].hour = t; updateField('chronologie', nu);
                             }} />
                         </View>
@@ -1275,7 +1293,7 @@ export default function OIView({ onClose }: OIViewProps) {
                     <View style={{flexDirection:'row', justifyContent:'space-between', marginBottom:10}}>
                         <Text style={styles.helper}>Tapez pour sélectionner. Maintenir pour éditer.</Text>
                         <TouchableOpacity onPress={addVehicle} style={{flexDirection: 'row', alignItems: 'center'}}>
-                            <MaterialIcons name="add-circle" size={32} color={COLORS.success} />
+                            <MaterialIcons name="add-circle" size={32} color={THEME.successGreen} />
                         </TouchableOpacity>
                     </View>
                     {vehicles.map(v => (
@@ -1288,11 +1306,11 @@ export default function OIView({ onClose }: OIViewProps) {
                         >
                             <View style={{flexDirection:'row', justifyContent:'space-between', alignItems: 'center'}}>
                                 <View style={{flexDirection: 'row', alignItems: 'center'}}>
-                                    <MaterialIcons name="directions-car" size={20} color={COLORS.text} style={{marginRight: 8}}/>
+                                    <MaterialIcons name="directions-car" size={20} color={THEME.textPrimary} style={{marginRight: 8}}/>
                                     <Text style={styles.vehTitle}>{v.name}{v.type ? ` (${v.type})` : ''}</Text>
                                 </View>
                                 <TouchableOpacity onPress={() => removeVehicle(v)}>
-                                    <MaterialIcons name="delete" size={20} color={COLORS.danger} />
+                                    <MaterialIcons name="delete" size={20} color={THEME.dangerRed} />
                                 </TouchableOpacity>
                             </View>
                             <View style={{flexDirection:'row', flexWrap:'wrap', gap:5, marginTop:10}}>
@@ -1307,16 +1325,16 @@ export default function OIView({ onClose }: OIViewProps) {
                     <View style={{flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginTop:20}}>
                         <Text style={styles.label}>POOL (NON ASSIGNÉS)</Text>
                         <View style={{flexDirection:'row', gap:10}}>
-                             <TouchableOpacity onPress={importMemberConfig} style={{flexDirection: 'row', alignItems: 'center'}}><MaterialIcons name="file-upload" size={16} color={COLORS.warning} /><Text style={{color: COLORS.warning, fontSize: 12, marginLeft: 4}}>IMPORT JSON</Text></TouchableOpacity>
-                             <TouchableOpacity onPress={createNewMember} style={{flexDirection: 'row', alignItems: 'center'}}><MaterialIcons name="person-add" size={16} color={COLORS.primary} /><Text style={{color: COLORS.primary, fontSize: 12, marginLeft: 4}}>AJOUTER</Text></TouchableOpacity>
+                             <TouchableOpacity onPress={importMemberConfig} style={{flexDirection: 'row', alignItems: 'center'}}><MaterialIcons name="file-upload" size={16} color={THEME.warningYellow} /><Text style={{color: THEME.warningYellow, fontSize: 12, marginLeft: 4}}>IMPORT JSON</Text></TouchableOpacity>
+                             <TouchableOpacity onPress={createNewMember} style={{flexDirection: 'row', alignItems: 'center'}}><MaterialIcons name="person-add" size={16} color={THEME.accentBlue} /><Text style={{color: THEME.accentBlue, fontSize: 12, marginLeft: 4}}>AJOUTER</Text></TouchableOpacity>
                         </View>
                     </View>
                     <View style={{flexDirection:'row', flexWrap:'wrap', gap:5, marginTop: 5}}>
                         {poolMembers.map(m => (
-                            <TouchableOpacity key={m.id} style={[styles.memberPoolBadge, selectedMemberId === m.id && {backgroundColor:'#1e3a8a', borderColor: COLORS.primary}]}
+                            <TouchableOpacity key={m.id} style={[styles.memberPoolBadge, selectedMemberId === m.id && {backgroundColor:'#1e3a8a', borderColor: THEME.accentBlue}]}
                                 onPress={() => handleMemberTap(m)} onLongPress={() => openMemberEditor(m)}>
                                 <Text style={{color:'#fff', fontWeight:'bold'}}>{m.trigramme}</Text>
-                                <Text style={{color:COLORS.textMuted, fontSize:9}}>{m.fonction}</Text>
+                                <Text style={{color:THEME.textSecondary, fontSize:9}}>{m.fonction}</Text>
                             </TouchableOpacity>
                         ))}
                     </View>
@@ -1340,8 +1358,8 @@ export default function OIView({ onClose }: OIViewProps) {
                         return (
                             <View key={item.id} style={{marginBottom:15}}>
                                 <TouchableOpacity style={styles.photoThumbLarge} onPress={() => pickImage(item.id)}>
-                                    <MaterialIcons name="add-a-photo" size={24} color={COLORS.textMuted} />
-                                    <Text style={{color:COLORS.textMuted, marginTop: 5, fontSize: 12, fontWeight:'bold'}}>
+                                    <MaterialIcons name="add-a-photo" size={24} color={THEME.textSecondary} />
+                                    <Text style={{color:THEME.textSecondary, marginTop: 5, fontSize: 12, fontWeight:'bold'}}>
                                         {item.id === 'photo_logo_unite' ? (
                                             <>AJOUTER : Logo unité - <Text style={{fontStyle:'italic'}}>Fond transparent requis.</Text></>
                                         ) : (
@@ -1356,13 +1374,13 @@ export default function OIView({ onClose }: OIViewProps) {
                                             style={[styles.chip, formData.logo_mode === 'background' && styles.chipSelected]} 
                                             onPress={() => updateField('logo_mode', 'background')}
                                         >
-                                            <Text style={{color: formData.logo_mode === 'background' ? 'white' : COLORS.textMuted}}>Fond d'écran</Text>
+                                            <Text style={{color: formData.logo_mode === 'background' ? 'white' : THEME.textSecondary}}>Fond d'écran</Text>
                                         </TouchableOpacity>
                                         <TouchableOpacity 
                                             style={[styles.chip, formData.logo_mode === 'included' && styles.chipSelected]} 
                                             onPress={() => updateField('logo_mode', 'included')}
                                         >
-                                            <Text style={{color: formData.logo_mode === 'included' ? 'white' : COLORS.textMuted}}>Inclue</Text>
+                                            <Text style={{color: formData.logo_mode === 'included' ? 'white' : THEME.textSecondary}}>Inclue</Text>
                                         </TouchableOpacity>
                                     </View>
                                 )}
@@ -1371,7 +1389,7 @@ export default function OIView({ onClose }: OIViewProps) {
                                 {catPhotos.map((p, idx) => (
                                     <TouchableOpacity key={p.id} onPress={() => { setCurrentPhotoToAnnotate(p.id); setIsAnnotationVisible(true); }}
                                         style={{marginRight: 10, position:'relative'}}>
-                                        <Image source={{ uri: p.uri }} style={{width:100, height:100, borderRadius:8, borderWidth: 1, borderColor: COLORS.border}} resizeMode="contain" />
+                                        <Image source={{ uri: p.uri }} style={{width:100, height:100, borderRadius:8, borderWidth: 1, borderColor: THEME.borderGlass}} resizeMode="contain" />
                                         {p.annotations.length > 0 && <View style={styles.annotBadge} />}
                                         <TouchableOpacity style={{position:'absolute', top:5, right:5, backgroundColor:'rgba(0,0,0,0.6)', width:24, height:24, borderRadius:12, alignItems:'center', justifyContent:'center'}}
                                             onPress={() => deletePhoto(p.id)}>
@@ -1396,7 +1414,7 @@ export default function OIView({ onClose }: OIViewProps) {
         case 9: // FINALISATION
             return (
                 <View style={{alignItems:'center', gap: 20, marginTop: 50}}>
-                    <Text style={{color:COLORS.text, textAlign:'center', fontSize: 16, fontWeight: 'bold'}}>L'Ordre Initial est prêt.</Text>
+                    <Text style={{color:THEME.textPrimary, textAlign: 'center', fontSize: 16, fontWeight: 'bold'}}>L'Ordre Initial est prêt.</Text>
                     
                     {/* PDF THEME SELECTOR */}
                     <View style={styles.inputGroup}>
@@ -1406,13 +1424,13 @@ export default function OIView({ onClose }: OIViewProps) {
                                 style={[styles.chip, formData.pdf_theme === 'light' && styles.chipSelected]} 
                                 onPress={() => updateField('pdf_theme', 'light')}
                             >
-                                <Text style={{color: formData.pdf_theme === 'light' ? 'white' : COLORS.textMuted}}>Clair (Impression)</Text>
+                                <Text style={{color: formData.pdf_theme === 'light' ? 'white' : THEME.textSecondary}}>Clair (Impression)</Text>
                             </TouchableOpacity>
                             <TouchableOpacity 
                                 style={[styles.chip, formData.pdf_theme === 'dark' && styles.chipSelected]} 
                                 onPress={() => updateField('pdf_theme', 'dark')}
                             >
-                                <Text style={{color: formData.pdf_theme === 'dark' ? 'white' : COLORS.textMuted}}>Sombre (Écran)</Text>
+                                <Text style={{color: formData.pdf_theme === 'dark' ? 'white' : THEME.textSecondary}}>Sombre (Écran)</Text>
                             </TouchableOpacity>
                         </View>
                     </View>
@@ -1420,25 +1438,25 @@ export default function OIView({ onClose }: OIViewProps) {
                     {renderInput("Trigramme Rédacteur (PDF)", formData.trigramme_redacteur, t => updateField('trigramme_redacteur', t), false, "Ex: MDL CHEF")}
                     {renderInput("Unité Rédacteur (PDF)", formData.unite_redacteur, t => updateField('unite_redacteur', t), false, "Ex: PSIG XX")}
 
-                    <TouchableOpacity style={[styles.navBtn, {backgroundColor: COLORS.success, width:'100%', height: 60}]} onPress={handleGeneratePDF}>
+                    <TouchableOpacity style={[styles.navBtn, {backgroundColor: THEME.successGreen, width:'100%', height: 60}]} onPress={handleGeneratePDF}>
                         <MaterialIcons name="picture-as-pdf" size={24} color="black" style={{marginRight: 10}}/>
                         <Text style={[styles.navBtnText, {color:'#000', fontSize:18}]}>GÉNÉRER PDF</Text>
                     </TouchableOpacity>
 
-                    <TouchableOpacity style={[styles.navBtn, {backgroundColor: COLORS.surfaceLight, width:'100%'}]} onPress={() => Linking.openURL("https://oxsilaris06.github.io/CET/retex")}>
-                        <MaterialIcons name="public" size={20} color={COLORS.text} style={{marginRight: 10}}/>
+                    <TouchableOpacity style={[styles.navBtn, {backgroundColor: THEME.bgElement, width:'100%'}]} onPress={() => Linking.openURL("https://oxsilaris06.github.io/CET/retex")}>
+                        <MaterialIcons name="public" size={20} color={THEME.textPrimary} style={{marginRight: 10}}/>
                         <Text style={styles.navBtnText}>LIEN RETEX (WEB)</Text>
                     </TouchableOpacity>
                     
                     <View style={styles.separator} />
                     
                     <View style={{flexDirection:'row', gap:10}}>
-                         <TouchableOpacity style={[styles.navBtn, {backgroundColor: COLORS.surfaceLight}]} onPress={exportSessionToJson}>
-                            <MaterialIcons name="save" size={20} color={COLORS.text} style={{marginRight: 5}}/>
+                         <TouchableOpacity style={[styles.navBtn, {backgroundColor: THEME.bgElement}]} onPress={exportSessionToJson}>
+                            <MaterialIcons name="save" size={20} color={THEME.textPrimary} style={{marginRight: 5}}/>
                             <Text style={styles.navBtnText}>SAUVEGARDER JSON</Text>
                         </TouchableOpacity>
-                         <TouchableOpacity style={[styles.navBtn, {backgroundColor: COLORS.surfaceLight}]} onPress={importSessionFromJson}>
-                            <MaterialIcons name="upload-file" size={20} color={COLORS.text} style={{marginRight: 5}}/>
+                         <TouchableOpacity style={[styles.navBtn, {backgroundColor: THEME.bgElement}]} onPress={importSessionFromJson}>
+                            <MaterialIcons name="upload-file" size={20} color={THEME.textPrimary} style={{marginRight: 5}}/>
                             <Text style={styles.navBtnText}>CHARGER JSON</Text>
                         </TouchableOpacity>
                     </View>
@@ -1450,17 +1468,30 @@ export default function OIView({ onClose }: OIViewProps) {
 
   const STEPS = ["SITUATION", "ADVERSAIRES", "ENVIRON.", "MISSION", "EXECUTION", "ARTICULATION", "PATRAC", "PHOTOS", "CAT", "FIN"];
 
+  // Si le module Patrac est visible, l'afficher
+  if (isPatracVisible) {
+    return (
+      <Patrac 
+        onClose={() => setIsPatracVisible(false)} 
+        onApplyToOI={handleApplyFromPatrac}
+      />
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity onPress={onClose} style={styles.backButton}>
-            <MaterialIcons name="arrow-back" size={24} color={COLORS.text} />
+            <MaterialIcons name="arrow-back" size={24} color={THEME.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Strategica - OI</Text>
-        <View style={{width: 40}} /> 
+        {/* BOUTON SETTINGS PATRACDVR */}
+        <TouchableOpacity onPress={() => setIsPatracVisible(true)} style={styles.settingsButton}>
+            <MaterialIcons name="settings" size={24} color={THEME.accentBlue} />
+        </TouchableOpacity>
       </View>
 
-      <View style={{height:50, borderBottomWidth: 1, borderColor: COLORS.border}}>
+      <View style={{height:50, borderBottomWidth: 1, borderColor: THEME.borderGlass}}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.progressScroll} contentContainerStyle={{alignItems: 'center'}}>
             {STEPS.map((s, i) => (
                 <TouchableOpacity key={i} onPress={() => setStep(i)} style={[styles.stepItem, step === i && styles.stepItemActive]}>
@@ -1480,7 +1511,7 @@ export default function OIView({ onClose }: OIViewProps) {
         <TouchableOpacity style={styles.navBtn} onPress={() => step > 0 && setStep(step - 1)}>
             <Text style={styles.navBtnText}>PRÉCÉDENT</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.navBtn, {backgroundColor: COLORS.primary}]} onPress={() => { 
+        <TouchableOpacity style={[styles.navBtn, {backgroundColor: THEME.accentBlue}]} onPress={() => { 
             if (step < 9) setStep(step + 1); 
             saveData(); 
         }}>
@@ -1493,9 +1524,9 @@ export default function OIView({ onClose }: OIViewProps) {
 
       <Modal visible={isAnnotationVisible} animationType="slide" onRequestClose={() => setIsAnnotationVisible(false)}>
         <SafeAreaView style={{flex:1, backgroundColor:'#000'}}>
-            <View style={{padding:15, flexDirection:'row', justifyContent:'space-between', alignItems: 'center', borderBottomWidth: 1, borderColor: COLORS.border}}>
-                <Text style={{color:COLORS.text, fontWeight: 'bold'}}>Touchez pour placer un marqueur</Text>
-                <TouchableOpacity onPress={() => setIsAnnotationVisible(false)}><MaterialIcons name="close" size={24} color={COLORS.text} /></TouchableOpacity>
+            <View style={{padding:15, flexDirection:'row', justifyContent:'space-between', alignItems: 'center', borderBottomWidth: 1, borderColor: THEME.borderGlass}}>
+                <Text style={{color:THEME.textPrimary, fontWeight: 'bold'}}>Touchez pour placer un marqueur</Text>
+                <TouchableOpacity onPress={() => setIsAnnotationVisible(false)}><MaterialIcons name="close" size={24} color={THEME.textPrimary} /></TouchableOpacity>
             </View>
             <TouchableOpacity activeOpacity={1} style={{flex:1, justifyContent:'center'}} 
                 onPress={(e) => {
@@ -1525,15 +1556,17 @@ export default function OIView({ onClose }: OIViewProps) {
   );
 }
 
-// --- STYLES REVISITÉS POUR UN LOOK "APP.TSX" ---
+// --- STYLES REVISITÉS AVEC THEME TACTICAL GLASS ---
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.bg },
-  // CORRECTION PADDING TOP HEADER
+  container: { 
+    flex: 1, 
+    backgroundColor: THEME.bg 
+  },
   header: { 
-      backgroundColor: '#09090b', 
+      backgroundColor: 'rgba(9, 9, 11, 0.95)', 
       borderBottomWidth: 1, 
-      borderBottomColor: COLORS.border, 
+      borderBottomColor: THEME.borderGlass, 
       paddingTop: Platform.OS === 'android' ? 40 : 15, 
       paddingBottom: 15,
       paddingHorizontal: 20,
@@ -1543,52 +1576,101 @@ const styles = StyleSheet.create({
       elevation: 4,
       zIndex: 10
   },
-  headerTitle: { color: 'white', fontSize: 18, fontWeight: '900', letterSpacing: 1 },
-  backButton: { padding: 5 },
-  backButtonText: { color: COLORS.text, fontSize: 24, fontWeight: 'bold' },
-  
-  progressScroll: { backgroundColor: '#09090b' },
-  stepItem: { paddingVertical: 15, paddingHorizontal: 20, marginRight: 0 },
-  stepItemActive: { borderBottomWidth: 3, borderColor: COLORS.primary },
-  stepText: { color: COLORS.textMuted, fontSize: 12, fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: 1 },
-  stepTextActive: { color: 'white' },
-  
-  content: { padding: 24 },
-  
-  inputGroup: { marginBottom: 20 },
-  label: { color: '#a1a1aa', fontSize: 11, marginBottom: 8, fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: 0.5 },
+  headerTitle: { 
+    color: THEME.accentBlue, 
+    fontSize: 20, 
+    fontWeight: '900', 
+    letterSpacing: 2,
+    textShadowColor: THEME.accentGlow,
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 20,
+  },
+  backButton: { 
+    padding: 5 
+  },
+  settingsButton: {
+    padding: 5,
+  },
+  progressScroll: { 
+    backgroundColor: 'rgba(9, 9, 11, 0.95)' 
+  },
+  stepItem: { 
+    paddingVertical: 15, 
+    paddingHorizontal: 20, 
+    marginRight: 0 
+  },
+  stepItemActive: { 
+    borderBottomWidth: 3, 
+    borderColor: THEME.accentBlue 
+  },
+  stepText: { 
+    color: THEME.textSecondary, 
+    fontSize: 12, 
+    fontWeight: 'bold', 
+    textTransform: 'uppercase', 
+    letterSpacing: 1 
+  },
+  stepTextActive: { 
+    color: 'white' 
+  },
+  content: { 
+    padding: 24 
+  },
+  inputGroup: { 
+    marginBottom: 20 
+  },
+  label: { 
+    color: THEME.textSecondary, 
+    fontSize: 11, 
+    marginBottom: 8, 
+    fontWeight: 'bold', 
+    textTransform: 'uppercase', 
+    letterSpacing: 0.5 
+  },
   input: { 
-      backgroundColor: '#000', 
+      backgroundColor: THEME.bgInput, 
       borderWidth: 1, 
-      borderColor: COLORS.border, 
+      borderColor: THEME.borderGlass, 
       borderRadius: 8, 
       padding: 12, 
       color: 'white', 
       fontSize: 16 
   },
-  
-  sectionTitle: { color: COLORS.primary, fontSize: 16, fontWeight: '900', marginTop: 10, marginBottom: 20, letterSpacing: 1 },
-  separator: { height: 1, backgroundColor: COLORS.border, marginVertical: 30 },
-  
-  row: { flexDirection: 'row' },
-  
+  sectionTitle: { 
+    color: THEME.accentBlue, 
+    fontSize: 16, 
+    fontWeight: '900', 
+    marginTop: 10, 
+    marginBottom: 20, 
+    letterSpacing: 1 
+  },
+  separator: { 
+    height: 1, 
+    backgroundColor: THEME.borderGlass, 
+    marginVertical: 30 
+  },
+  row: { 
+    flexDirection: 'row' 
+  },
   chip: { 
       paddingHorizontal: 12, 
       paddingVertical: 8, 
       borderRadius: 20, 
       borderWidth: 1, 
-      borderColor: COLORS.border, 
-      backgroundColor: '#18181b',
+      borderColor: THEME.borderGlass, 
+      backgroundColor: THEME.bgElement,
       marginBottom: 5
   },
-  chipSelected: { backgroundColor: 'rgba(59, 130, 246, 0.2)', borderColor: COLORS.primary },
-  
+  chipSelected: { 
+    backgroundColor: 'rgba(59, 130, 246, 0.2)', 
+    borderColor: THEME.accentBlue 
+  },
   footer: { 
       flexDirection: 'row', 
       padding: 16, 
       borderTopWidth: 1, 
-      borderColor: COLORS.border, 
-      backgroundColor: '#09090b',
+      borderColor: THEME.borderGlass, 
+      backgroundColor: 'rgba(9, 9, 11, 0.95)',
       gap: 12
   },
   navBtn: { 
@@ -1596,62 +1678,106 @@ const styles = StyleSheet.create({
       padding: 16, 
       alignItems: 'center', 
       borderRadius: 12, 
-      backgroundColor: '#18181b', 
+      backgroundColor: THEME.bgElement, 
       borderWidth: 1, 
-      borderColor: COLORS.border,
+      borderColor: THEME.borderGlass,
       flexDirection: 'row',
       justifyContent: 'center'
   },
-  navBtnText: { color: 'white', fontWeight: 'bold', fontSize: 14 },
-  
+  navBtnText: { 
+    color: 'white', 
+    fontWeight: 'bold', 
+    fontSize: 14 
+  },
   // PATRACDVR Styles
   vehCard: { 
-      backgroundColor: '#18181b', 
+      backgroundColor: THEME.bgElement, 
       padding: 16, 
       marginBottom: 12, 
       borderRadius: 12, 
       borderWidth: 1, 
-      borderColor: COLORS.border 
+      borderColor: THEME.borderGlass 
   },
-  vehTitle: { color: 'white', fontWeight: 'bold', fontSize: 16 },
+  vehTitle: { 
+    color: 'white', 
+    fontWeight: 'bold', 
+    fontSize: 16 
+  },
   memberBadge: { 
-      backgroundColor: '#27272a', 
+      backgroundColor: 'rgba(255,255,255,0.05)', 
       paddingHorizontal: 8, 
       paddingVertical: 4, 
       borderRadius: 6, 
       borderWidth: 1, 
-      borderColor: COLORS.border 
+      borderColor: THEME.borderGlass 
   },
   memberPoolBadge: { 
-      backgroundColor: '#18181b', 
+      backgroundColor: THEME.bgElement, 
       padding: 10, 
       borderRadius: 8, 
       minWidth: 70, 
       alignItems: 'center', 
       borderWidth: 1, 
-      borderColor: COLORS.border 
+      borderColor: THEME.borderGlass 
   },
-  memberText: { color: COLORS.text, fontSize: 11, fontWeight: 'bold' },
-  helper: { color: '#71717a', fontStyle: 'italic', marginBottom: 15, fontSize: 12 },
-
+  memberText: { 
+    color: THEME.textPrimary, 
+    fontSize: 11, 
+    fontWeight: 'bold' 
+  },
+  helper: { 
+    color: THEME.textSecondary, 
+    fontStyle: 'italic', 
+    marginBottom: 15, 
+    fontSize: 12 
+  },
   // PHOTOS
   photoThumbLarge: { 
       width: '100%', 
       height: 120, 
-      backgroundColor: '#18181b', 
+      backgroundColor: THEME.bgElement, 
       borderRadius: 12, 
       overflow: 'hidden', 
       justifyContent: 'center', 
       alignItems: 'center', 
-      borderColor: COLORS.border, 
+      borderColor: THEME.borderGlass, 
       borderWidth: 1,
       borderStyle: 'dashed'
   },
-  annotBadge: { position: 'absolute', top: 5, right: 5, width: 8, height: 8, borderRadius: 4, backgroundColor: COLORS.danger },
-
+  annotBadge: { 
+    position: 'absolute', 
+    top: 5, 
+    right: 5, 
+    width: 8, 
+    height: 8, 
+    borderRadius: 4, 
+    backgroundColor: THEME.dangerRed 
+  },
   // MODAL
-  modalContainer: { flex: 1, backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center', padding: 24 },
-  modalContent: { backgroundColor: '#18181b', borderRadius: 24, padding: 24, maxHeight: '90%', borderWidth:1, borderColor: '#333' },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
-  modalTitle: { color: 'white', fontSize: 20, fontWeight: '900' }
+  modalContainer: { 
+    flex: 1, 
+    backgroundColor: 'rgba(0,0,0,0.9)', 
+    justifyContent: 'center', 
+    padding: 24 
+  },
+  modalContent: { 
+    backgroundColor: THEME.bgGlassHeavy, 
+    borderRadius: 24, 
+    padding: 24, 
+    maxHeight: '90%', 
+    borderWidth:1, 
+    borderColor: THEME.borderGlass 
+  },
+  modalHeader: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center', 
+    marginBottom: 24 
+  },
+  modalTitle: { 
+    color: THEME.accentBlue, 
+    fontSize: 20, 
+    fontWeight: '900',
+    textTransform: 'uppercase'
+  }
 });
