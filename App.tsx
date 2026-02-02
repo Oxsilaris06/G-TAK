@@ -3,7 +3,7 @@ import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { 
   StyleSheet, View, Text, TextInput, TouchableOpacity, 
   SafeAreaView, Platform, Modal, StatusBar as RNStatusBar, Alert, ScrollView, ActivityIndicator,
-  KeyboardAvoidingView, AppState, FlatList, useWindowDimensions, Dimensions
+  KeyboardAvoidingView, AppState, FlatList, useWindowDimensions, Dimensions, Image
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import QRCode from 'react-native-qrcode-svg';
@@ -17,6 +17,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SplashScreen from 'expo-splash-screen';
 import * as Battery from 'expo-battery';
 import { Magnetometer } from 'expo-sensors';
+import * as ImagePicker from 'expo-image-picker'; 
+import * as ImageManipulator from 'expo-image-manipulator';
 
 import { UserData, OperatorStatus, OperatorRole, ViewType, PingData, AppSettings, DEFAULT_SETTINGS, PingType, HostileDetails, LogEntry } from './types';
 import { CONFIG, STATUS_COLORS } from './constants';
@@ -103,6 +105,9 @@ const App: React.FC = () => {
   const [currentPingType, setCurrentPingType] = useState<PingType>('FRIEND');
   const [pingMsgInput, setPingMsgInput] = useState('');
   const [hostileDetails, setHostileDetails] = useState<HostileDetails>({ position: '', nature: '', attitude: '', volume: '', armes: '', substances: '' });
+  
+  // Gestion de l'image (création/édition)
+  const [tempImage, setTempImage] = useState<string | null>(null);
    
   const [editingPing, setEditingPing] = useState<PingData | null>(null);
    
@@ -134,7 +139,6 @@ const App: React.FC = () => {
     });
   };
 
-  // Wrapper pour Broadcast sécurisé
   const safeBroadcast = async (data: any, critical: boolean = false) => {
       try {
           if (critical && connectivityService.broadcastWithAck) {
@@ -146,6 +150,42 @@ const App: React.FC = () => {
           console.error('[App] Broadcast failed:', e);
           showToast('Erreur réseau - données en file d\'attente', 'warning');
       }
+  };
+
+  // --- GESTION PHOTO ---
+  const handleTakePhoto = async () => {
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+    if (!permission.granted) {
+      showToast("Permission caméra refusée", "error");
+      return;
+    }
+
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true, // Recadrage simple
+      aspect: [4, 3],
+      quality: 1, // Qualité initiale max, on compresse après
+      base64: false, 
+    });
+
+    if (!result.canceled && result.assets && result.assets.length > 0) {
+      processAndSetImage(result.assets[0].uri);
+    }
+  };
+
+  const processAndSetImage = async (uri: string) => {
+    try {
+      // Compression à 0.43 et redimensionnement max 800px pour fluidité
+      const manipResult = await ImageManipulator.manipulateAsync(
+        uri,
+        [{ resize: { width: 800 } }],
+        { compress: 0.43, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+      );
+      setTempImage(`data:image/jpeg;base64,${manipResult.base64}`);
+    } catch (error) {
+      console.error("Erreur compression image", error);
+      showToast("Erreur traitement image", "error");
+    }
   };
 
   useEffect(() => {
@@ -334,7 +374,7 @@ const App: React.FC = () => {
         }
         setLogs(newLogs);
       }
-       
+        
       else if ((data.type === 'UPDATE_USER' || data.type === 'UPDATE') && data.user) {
           const u = data.user as UserData;
           const prevStatus = peersRef.current[u.id]?.status;
@@ -363,12 +403,11 @@ const App: React.FC = () => {
              }
           }
       }
-      // Suppression de la duplication de code ici (le bloc LOG_UPDATE en double a été retiré)
       else if (data.type === 'SYNC_PINGS') setPings(data.pings);
       else if (data.type === 'SYNC_LOGS') setLogs(data.logs);
       else if (data.type === 'PING_MOVE') setPings(prev => prev.map(p => p.id === data.id ? { ...p, lat: data.lat, lng: data.lng } : p));
       else if (data.type === 'PING_DELETE') setPings(prev => prev.filter(p => p.id !== data.id));
-      else if (data.type === 'PING_UPDATE') setPings(prev => prev.map(p => p.id === data.id ? { ...p, msg: data.msg, details: data.details } : p));
+      else if (data.type === 'PING_UPDATE') setPings(prev => prev.map(p => p.id === data.id ? { ...p, msg: data.msg, details: data.details, image: data.image } : p));
   };
 
   const finishLogout = useCallback(() => {
@@ -450,15 +489,15 @@ const App: React.FC = () => {
           type: currentPingType, 
           sender: user.callsign, 
           timestamp: Date.now(),
-          details: currentPingType === 'HOSTILE' ? hostileDetails : undefined
+          details: currentPingType === 'HOSTILE' ? hostileDetails : undefined,
+          image: tempImage // Envoi de l'image
       };
       
       setPings(prev => [...prev, newPing]);
       
-      // Utilisation du Wrapper sécurisé avec flag Critique si HOSTILE
       await safeBroadcast({ type: 'PING', ping: newPing }, currentPingType === 'HOSTILE');
 
-      setShowPingForm(false); setTempPingLoc(null); setIsPingMode(false);
+      setShowPingForm(false); setTempPingLoc(null); setIsPingMode(false); setTempImage(null);
   };
 
   const handlePingMove = (updatedPing: PingData) => {
@@ -468,10 +507,12 @@ const App: React.FC = () => {
 
   const savePingEdit = () => {
       if (!editingPing) return;
-      const updatedPing = { ...editingPing, msg: pingMsgInput, details: editingPing.type === 'HOSTILE' ? hostileDetails : undefined };
+      // Mise à jour avec la nouvelle image si présente, sinon garde l'ancienne via le merge
+      const updatedPing = { ...editingPing, msg: pingMsgInput, details: editingPing.type === 'HOSTILE' ? hostileDetails : undefined, image: tempImage };
       setPings(prev => prev.map(p => p.id === editingPing.id ? updatedPing : p));
-      safeBroadcast({ type: 'PING_UPDATE', id: editingPing.id, msg: pingMsgInput, details: updatedPing.details });
+      safeBroadcast({ type: 'PING_UPDATE', id: editingPing.id, msg: pingMsgInput, details: updatedPing.details, image: updatedPing.image });
       setEditingPing(null);
+      setTempImage(null);
   };
    
   const deletePing = () => {
@@ -479,6 +520,7 @@ const App: React.FC = () => {
       setPings(prev => prev.filter(p => p.id !== editingPing.id));
       safeBroadcast({ type: 'PING_DELETE', id: editingPing.id });
       setEditingPing(null);
+      setTempImage(null);
   };
 
   const handleAddLog = (entry: LogEntry) => {
@@ -549,7 +591,7 @@ const App: React.FC = () => {
           const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ/2) * Math.sin(Δλ/2)
           const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
           const distM = R * c;
-          
+           
           if (distM < 10) {
               setNavTargetId(null); showToast("Arrivé à destination", "success"); return;
           }
@@ -557,7 +599,7 @@ const App: React.FC = () => {
           const speed = navMode === 'pedestrian' ? 1.4 : 13.8; 
           const seconds = distM / speed;
           const min = Math.round(seconds / 60);
-          
+           
           setNavInfo({
               dist: distM > 1000 ? `${(distM/1000).toFixed(1)} km` : `${Math.round(distM)} m`,
               time: min > 60 ? `${Math.floor(min/60)}h ${min%60}min` : `${min} min`
@@ -726,7 +768,11 @@ const App: React.FC = () => {
                       initialCenter={mapState} 
                       isLandscape={isLandscape}
                       maxTrailsPerUser={settings.maxTrailsPerUser}
-                      onPing={(loc) => { setTempPingLoc(loc); setShowPingMenu(true); }}
+                      onPing={(loc) => { 
+                          setTempPingLoc(loc); 
+                          setShowPingMenu(true); 
+                          setTempImage(null); // Reset image
+                      }}
                       onPingMove={(p) => { 
                           handlePingMove(p);
                       }}
@@ -736,6 +782,7 @@ const App: React.FC = () => {
                           setEditingPing(p); 
                           setPingMsgInput(p.msg); 
                           if(p.details) setHostileDetails(p.details);
+                          setTempImage(p.image || null); // Load existing image
                       }}
                       onPingLongPress={(id) => {
                           // Handled by WebView
@@ -838,20 +885,38 @@ const App: React.FC = () => {
 
                 <View style={{flexDirection: 'row', marginBottom: 10, width: '100%', paddingHorizontal: 5}}>
                     <TextInput style={[styles.pingInput, {flex: 1, marginBottom: 0, textAlign: 'left'}]} placeholder="Message libre..." placeholderTextColor="#52525b" value={freeMsgInput} onChangeText={setFreeMsgInput} />
-                    <TouchableOpacity onPress={() => handleSendQuickMessage(freeMsgInput)} style={[styles.modalBtn, {backgroundColor: '#06b6d4', marginLeft: 10, flex: 0, width: 50}]}>
-                        <MaterialIcons name="send" size={20} color="white" />
+                    <TouchableOpacity onPress={() => handleSendQuickMessage(freeMsgInput)} style={[styles.iconBtn, {backgroundColor: '#06b6d4', marginLeft: 10}]}>
+                        <MaterialIcons name="send" size={24} color="white" />
                     </TouchableOpacity>
                 </View>
                 
-                <TouchableOpacity onPress={() => setShowQuickMsgModal(false)} style={[styles.closeBtn, {backgroundColor: '#27272a', marginTop: 0, width: '100%'}]}>
-                    <Text style={{color: '#a1a1aa'}}>ANNULER</Text>
-                </TouchableOpacity>
+                {/* Footer Icones */}
+                <View style={{flexDirection:'row', justifyContent:'center'}}>
+                    <TouchableOpacity onPress={() => setShowQuickMsgModal(false)} style={[styles.iconBtn, {backgroundColor: '#27272a'}]}>
+                        <MaterialIcons name="close" size={24} color="#a1a1aa" />
+                    </TouchableOpacity>
+                </View>
             </View>
         </KeyboardAvoidingView>
       </Modal>
 
-      <Modal visible={showPingMenu} transparent animationType="fade"><View style={styles.modalOverlay}><View style={styles.pingMenuContainer}><Text style={styles.modalTitle}>TYPE DE MARQUEUR</Text><View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 15, justifyContent: 'center'}}><TouchableOpacity onPress={() => { setCurrentPingType('HOSTILE'); setShowPingMenu(false); setPingMsgInput(''); setHostileDetails({position: tempPingLoc ? `${tempPingLoc.lat.toFixed(5)}, ${tempPingLoc.lng.toFixed(5)}` : '', nature: '', attitude: '', volume: '', armes: '', substances: ''}); setShowPingForm(true); }} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(239, 68, 68, 0.2)', borderColor: '#ef4444'}]}><MaterialIcons name="warning" size={30} color="#ef4444" /><Text style={{color: '#ef4444', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>ADVERSAIRE</Text></TouchableOpacity><TouchableOpacity onPress={() => { setCurrentPingType('FRIEND'); setShowPingMenu(false); setPingMsgInput(''); setShowPingForm(true); }} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(34, 197, 94, 0.2)', borderColor: '#22c55e'}]}><MaterialIcons name="shield" size={30} color="#22c55e" /><Text style={{color: '#22c55e', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>AMI</Text></TouchableOpacity><TouchableOpacity onPress={() => { setCurrentPingType('INTEL'); setShowPingMenu(false); setPingMsgInput(''); setShowPingForm(true); }} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(234, 179, 8, 0.2)', borderColor: '#eab308'}]}><MaterialIcons name="visibility" size={30} color="#eab308" /><Text style={{color: '#eab308', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>RENS</Text></TouchableOpacity></View><TouchableOpacity onPress={() => setShowPingMenu(false)} style={[styles.closeBtn, {marginTop: 20, backgroundColor: '#27272a'}]}><Text style={{color:'white'}}>ANNULER</Text></TouchableOpacity></View></View></Modal>
+      <Modal visible={showPingMenu} transparent animationType="fade">
+          <View style={styles.modalOverlay}>
+              <View style={styles.pingMenuContainer}>
+                  <Text style={styles.modalTitle}>TYPE DE MARQUEUR</Text>
+                  <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 15, justifyContent: 'center'}}>
+                      <TouchableOpacity onPress={() => { setCurrentPingType('HOSTILE'); setShowPingMenu(false); setPingMsgInput(''); setHostileDetails({position: tempPingLoc ? `${tempPingLoc.lat.toFixed(5)}, ${tempPingLoc.lng.toFixed(5)}` : '', nature: '', attitude: '', volume: '', armes: '', substances: ''}); setShowPingForm(true); }} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(239, 68, 68, 0.2)', borderColor: '#ef4444'}]}><MaterialIcons name="warning" size={30} color="#ef4444" /><Text style={{color: '#ef4444', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>ADVERSAIRE</Text></TouchableOpacity>
+                      <TouchableOpacity onPress={() => { setCurrentPingType('FRIEND'); setShowPingMenu(false); setPingMsgInput(''); setShowPingForm(true); }} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(34, 197, 94, 0.2)', borderColor: '#22c55e'}]}><MaterialIcons name="shield" size={30} color="#22c55e" /><Text style={{color: '#22c55e', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>AMI</Text></TouchableOpacity>
+                      <TouchableOpacity onPress={() => { setCurrentPingType('INTEL'); setShowPingMenu(false); setPingMsgInput(''); setShowPingForm(true); }} style={[styles.pingTypeBtn, {backgroundColor: 'rgba(234, 179, 8, 0.2)', borderColor: '#eab308'}]}><MaterialIcons name="visibility" size={30} color="#eab308" /><Text style={{color: '#eab308', fontWeight: 'bold', fontSize: 10, marginTop: 5}}>RENS</Text></TouchableOpacity>
+                  </View>
+                  <TouchableOpacity onPress={() => setShowPingMenu(false)} style={[styles.iconBtn, {marginTop: 20, backgroundColor: '#27272a'}]}>
+                      <MaterialIcons name="close" size={24} color="white" />
+                  </TouchableOpacity>
+              </View>
+          </View>
+      </Modal>
       
+      {/* MODALE CRÉATION PING */}
       <Modal visible={showPingForm} transparent animationType="slide">
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
             <View style={[styles.modalContent, isLandscape && styles.modalContentLandscape, { height: '80%' }]}>
@@ -865,11 +930,7 @@ const App: React.FC = () => {
                     </Text>
                 </View>
                 
-                <ScrollView 
-                    style={styles.modalBody} 
-                    contentContainerStyle={styles.modalBodyContent}
-                    keyboardShouldPersistTaps="handled"
-                >
+                <ScrollView style={styles.modalBody} contentContainerStyle={styles.modalBodyContent} keyboardShouldPersistTaps="handled">
                     <Text style={styles.label}>{currentPingType === 'HOSTILE' ? 'Message Principal' : currentPingType === 'FRIEND' ? 'Ami' : 'Info'}</Text>
                     <TextInput 
                         style={styles.pingInput} 
@@ -880,6 +941,24 @@ const App: React.FC = () => {
                         autoFocus={currentPingType !== 'HOSTILE'} 
                     />
                     
+                    {/* SECTION PHOTO */}
+                    <Text style={styles.label}>Photo (Visible par tous)</Text>
+                    <View style={styles.photoContainer}>
+                        {tempImage ? (
+                            <View style={{position: 'relative', width: '100%', height: 150}}>
+                                <Image source={{uri: tempImage}} style={{width: '100%', height: '100%', borderRadius: 8}} resizeMode="cover" />
+                                <TouchableOpacity onPress={() => setTempImage(null)} style={styles.removePhotoBtn}>
+                                    <MaterialIcons name="close" size={20} color="white" />
+                                </TouchableOpacity>
+                            </View>
+                        ) : (
+                            <TouchableOpacity onPress={handleTakePhoto} style={styles.addPhotoBtn}>
+                                <MaterialIcons name="camera-alt" size={30} color="#52525b" />
+                                <Text style={{color: '#52525b', fontSize: 12}}>Ajouter Photo</Text>
+                            </TouchableOpacity>
+                        )}
+                    </View>
+
                     {currentPingType === 'HOSTILE' && (
                         <View style={{width: '100%'}}>
                             <Text style={[styles.label, {color: '#ef4444', marginTop: 10, marginBottom: 10}]}>Canevas Tactique (SALUTA)</Text>
@@ -902,17 +981,18 @@ const App: React.FC = () => {
                 </ScrollView>
 
                 <View style={styles.modalFooter}>
-                    <TouchableOpacity onPress={() => setShowPingForm(false)} style={[styles.modalBtn, {backgroundColor: '#27272a'}]}>
-                        <Text style={{color: 'white'}}>ANNULER</Text>
+                    <TouchableOpacity onPress={() => setShowPingForm(false)} style={[styles.iconBtn, {backgroundColor: '#27272a'}]}>
+                        <MaterialIcons name="close" size={28} color="white" />
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={submitPing} style={[styles.modalBtn, {backgroundColor: '#3b82f6'}]}>
-                        <Text style={{color: 'white', fontWeight: 'bold'}}>VALIDER</Text>
+                    <TouchableOpacity onPress={submitPing} style={[styles.iconBtn, {backgroundColor: '#3b82f6'}]}>
+                        <MaterialIcons name="check" size={28} color="white" />
                     </TouchableOpacity>
                 </View>
             </View>
         </KeyboardAvoidingView>
       </Modal>
       
+      {/* MODALE ÉDITION PING */}
       <Modal visible={!!editingPing && !showPingForm} transparent animationType="slide">
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
             <View style={[styles.modalContent, isLandscape && styles.modalContentLandscape, { height: '80%' }]}>
@@ -921,14 +1001,28 @@ const App: React.FC = () => {
                     <Text style={{color: '#71717a', fontSize: 12}}>Émis par : <Text style={{fontWeight:'bold', color:'white'}}>{editingPing?.sender}</Text></Text>
                 </View>
                 
-                <ScrollView 
-                    style={styles.modalBody} 
-                    contentContainerStyle={styles.modalBodyContent}
-                    keyboardShouldPersistTaps="handled"
-                >
+                <ScrollView style={styles.modalBody} contentContainerStyle={styles.modalBodyContent} keyboardShouldPersistTaps="handled">
                     <Text style={styles.label}>Titre / Message</Text>
                     <TextInput style={styles.pingInput} value={pingMsgInput} onChangeText={setPingMsgInput} />
                     
+                    {/* SECTION PHOTO ÉDITION */}
+                    <Text style={styles.label}>Photo</Text>
+                    <View style={styles.photoContainer}>
+                        {tempImage ? (
+                            <View style={{position: 'relative', width: '100%', height: 150}}>
+                                <Image source={{uri: tempImage}} style={{width: '100%', height: '100%', borderRadius: 8}} resizeMode="cover" />
+                                <TouchableOpacity onPress={() => setTempImage(null)} style={styles.removePhotoBtn}>
+                                    <MaterialIcons name="close" size={20} color="white" />
+                                </TouchableOpacity>
+                            </View>
+                        ) : (
+                            <TouchableOpacity onPress={handleTakePhoto} style={styles.addPhotoBtn}>
+                                <MaterialIcons name="camera-alt" size={30} color="#52525b" />
+                                <Text style={{color: '#52525b', fontSize: 12}}>Ajouter Photo</Text>
+                            </TouchableOpacity>
+                        )}
+                    </View>
+
                     {editingPing?.type === 'HOSTILE' && (
                         <View style={{width: '100%'}}>
                             <Text style={[styles.label, {color: '#ef4444', marginTop: 10, marginBottom: 10}]}>Canevas Tactique</Text>
@@ -951,14 +1045,14 @@ const App: React.FC = () => {
                 </ScrollView>
 
                 <View style={styles.modalFooter}>
-                    <TouchableOpacity onPress={deletePing} style={[styles.modalBtn, {backgroundColor: '#ef4444'}]}>
-                        <Text style={{color: 'white'}}>SUPPRIMER</Text>
+                    <TouchableOpacity onPress={deletePing} style={[styles.iconBtn, {backgroundColor: '#ef4444'}]}>
+                        <MaterialIcons name="delete" size={28} color="white" />
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={() => setEditingPing(null)} style={[styles.modalBtn, {backgroundColor: '#52525b'}]}>
-                        <Text style={{color: 'white'}}>ANNULER</Text>
+                    <TouchableOpacity onPress={() => setEditingPing(null)} style={[styles.iconBtn, {backgroundColor: '#52525b'}]}>
+                        <MaterialIcons name="close" size={28} color="white" />
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={savePingEdit} style={[styles.modalBtn, {backgroundColor: '#22c55e'}]}>
-                        <Text style={{color: 'white'}}>VALIDER</Text>
+                    <TouchableOpacity onPress={savePingEdit} style={[styles.iconBtn, {backgroundColor: '#22c55e'}]}>
+                        <MaterialIcons name="check" size={28} color="white" />
                     </TouchableOpacity>
                 </View>
             </View>
@@ -997,8 +1091,8 @@ const App: React.FC = () => {
                     </TouchableOpacity>
                 </View>
 
-                <TouchableOpacity onPress={() => setShowQRModal(false)} style={[styles.closeBtn, {marginTop: isLandscape ? 20 : 20, width: isLandscape ? '100%' : '100%'}]}>
-                    <Text style={styles.closeBtnText}>FERMER</Text>
+                <TouchableOpacity onPress={() => setShowQRModal(false)} style={[styles.iconBtn, {marginTop: isLandscape ? 20 : 20, backgroundColor: '#2563eb'}]}>
+                    <MaterialIcons name="close" size={28} color="white" />
                 </TouchableOpacity>
             </View>
         </View>
@@ -1016,10 +1110,7 @@ const App: React.FC = () => {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#050505' },
   centerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 30 },
-  title: { fontSize: 32, fontWeight: '900', color: 'white', letterSpacing: 5, marginBottom: 50 },
   input: { width: '100%', borderBottomWidth: 2, borderBottomColor: '#3b82f6', borderWidth: 2, borderColor: '#3b82f6', fontSize: 30, color: 'white', textAlign: 'center', padding: 10, backgroundColor: 'transparent' },
-  loginBtn: { marginTop: 50, width: '100%', backgroundColor: '#2563eb', padding: 20, borderRadius: 16, alignItems: 'center' },
-  loginBtnText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
   strategicaBtn: { padding: 10, marginTop: 20, borderWidth: 1, borderColor: '#3b82f6', borderRadius: 8, backgroundColor: 'transparent' },
   strategicaBtnText: { color: '#3b82f6', fontSize: 16, fontWeight: 'bold', letterSpacing: 2, textTransform: 'uppercase' },
   safeArea: { flex: 1, backgroundColor: '#050505', paddingTop: Platform.OS === 'android' ? RNStatusBar.currentHeight : 0 },
@@ -1091,18 +1182,18 @@ const styles = StyleSheet.create({
       borderTopWidth: 1,
       borderTopColor: '#333',
       backgroundColor: '#18181b',
-      gap: 10,
-      justifyContent: 'space-around'
+      gap: 20, // Plus d'espace entre les icônes
+      justifyContent: 'center' // Centrage
   },
   
   modalTitle: { fontSize: 18, fontWeight: '900', color: 'white' },
   qrId: { marginTop: 20, fontSize: 10, backgroundColor: '#f4f4f5', padding: 8, borderRadius: 4 },
-  closeBtn: { marginTop: 20, backgroundColor: '#2563eb', width: '100%', padding: 16, borderRadius: 12, alignItems: 'center' },
-  closeBtnText: { color: 'white', fontWeight: 'bold' },
   
   pingInput: { width: '100%', backgroundColor: 'black', color: 'white', padding: 16, borderRadius: 12, textAlign: 'center', fontSize: 18, marginBottom: 10, borderWidth: 1, borderColor: '#333', minHeight: 50 },
   
-  modalBtn: { flex: 1, padding: 16, borderRadius: 12, alignItems: 'center' },
+  // Nouveau style pour les boutons icônes
+  iconBtn: { width: 60, height: 60, borderRadius: 30, justifyContent: 'center', alignItems: 'center' },
+  
   quickMsgItem: { paddingVertical: 20, paddingHorizontal: 15, width: '100%', alignItems: 'center' },
   quickMsgText: { color: 'white', fontSize: 16, fontWeight: 'bold' },
   pingMenuContainer: { width: '85%', backgroundColor: '#09090b', borderRadius: 20, padding: 20, alignItems: 'center', borderWidth: 1, borderColor: '#333' },
@@ -1112,17 +1203,14 @@ const styles = StyleSheet.create({
   
   canevaContainer: { width: '100%', gap: 10 },
   canevaRow: { flexDirection: 'row', gap: 10, justifyContent: 'space-between', width: '100%' },
-  detailInput: { width: '100%', backgroundColor: '#000', color: 'white', padding: 12, borderRadius: 8, marginBottom: 10, borderWidth: 1, borderColor: '#333', minHeight: 50, fontSize: 16 },
   detailInputHalf: { flex: 1, backgroundColor: '#000', color: 'white', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#333', minHeight: 50, fontSize: 16 },
   
-  iconBtnDanger: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#ef4444', justifyContent: 'center', alignItems: 'center', elevation: 5 },
-  iconBtnSecondary: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#52525b', justifyContent: 'center', alignItems: 'center', elevation: 5 },
-  iconBtnSuccess: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#22c55e', justifyContent: 'center', alignItems: 'center', elevation: 5 },
-  
   nightOpsOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(127, 29, 29, 0.2)', zIndex: 99999, pointerEvents: 'none' },
-  readOnlyRow: { flexDirection: 'row', width: '100%', paddingVertical: 5, borderBottomWidth: 1, borderBottomColor: '#333' },
-  readOnlyLabel: { width: 50, color: '#71717a', fontWeight: 'bold', fontSize: 12 },
-  readOnlyVal: { flex: 1, color: 'white', fontSize: 12 }
+
+  // Styles Photo
+  photoContainer: { width: '100%', marginVertical: 10, alignItems: 'center', justifyContent: 'center' },
+  addPhotoBtn: { width: '100%', height: 100, borderRadius: 12, borderWidth: 2, borderColor: '#333', borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.05)' },
+  removePhotoBtn: { position: 'absolute', top: 5, right: 5, backgroundColor: 'rgba(239, 68, 68, 0.8)', borderRadius: 15, width: 30, height: 30, justifyContent: 'center', alignItems: 'center' }
 });
 
 export default App;
