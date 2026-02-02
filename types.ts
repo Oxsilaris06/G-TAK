@@ -45,6 +45,7 @@ export interface PingData {
   sender: string;
   timestamp: number;
   details?: HostileDetails;
+  image?: string | null; // Champ ajouté pour la photo compressée
 }
 
 export interface LogEntry {
