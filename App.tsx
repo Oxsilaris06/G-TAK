@@ -106,8 +106,9 @@ const App: React.FC = () => {
   const [pingMsgInput, setPingMsgInput] = useState('');
   const [hostileDetails, setHostileDetails] = useState<HostileDetails>({ position: '', nature: '', attitude: '', volume: '', armes: '', substances: '' });
   
-  // Gestion de l'image (création/édition)
+  // Gestion de l'image (création/édition/visualisation)
   const [tempImage, setTempImage] = useState<string | null>(null);
+  const [fullScreenImage, setFullScreenImage] = useState<string | null>(null);
    
   const [editingPing, setEditingPing] = useState<PingData | null>(null);
    
@@ -166,6 +167,26 @@ const App: React.FC = () => {
       aspect: [4, 3],
       quality: 1, // Qualité initiale max, on compresse après
       base64: false, 
+    });
+
+    if (!result.canceled && result.assets && result.assets.length > 0) {
+      processAndSetImage(result.assets[0].uri);
+    }
+  };
+
+  const handlePickImage = async () => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      showToast("Permission galerie refusée", "error");
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [4, 3],
+      quality: 1, 
+      base64: false,
     });
 
     if (!result.canceled && result.assets && result.assets.length > 0) {
@@ -946,16 +967,24 @@ const App: React.FC = () => {
                     <View style={styles.photoContainer}>
                         {tempImage ? (
                             <View style={{position: 'relative', width: '100%', height: 150}}>
-                                <Image source={{uri: tempImage}} style={{width: '100%', height: '100%', borderRadius: 8}} resizeMode="cover" />
+                                <TouchableOpacity onPress={() => setFullScreenImage(tempImage)} style={{flex: 1}}>
+                                    <Image source={{uri: tempImage}} style={{width: '100%', height: '100%', borderRadius: 8}} resizeMode="cover" />
+                                </TouchableOpacity>
                                 <TouchableOpacity onPress={() => setTempImage(null)} style={styles.removePhotoBtn}>
                                     <MaterialIcons name="close" size={20} color="white" />
                                 </TouchableOpacity>
                             </View>
                         ) : (
-                            <TouchableOpacity onPress={handleTakePhoto} style={styles.addPhotoBtn}>
-                                <MaterialIcons name="camera-alt" size={30} color="#52525b" />
-                                <Text style={{color: '#52525b', fontSize: 12}}>Ajouter Photo</Text>
-                            </TouchableOpacity>
+                            <View style={{flexDirection: 'row', gap: 10, width: '100%'}}>
+                                <TouchableOpacity onPress={handleTakePhoto} style={[styles.addPhotoBtn, {flex: 1}]}>
+                                    <MaterialIcons name="camera-alt" size={30} color="#52525b" />
+                                    <Text style={{color: '#52525b', fontSize: 12}}>Caméra</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity onPress={handlePickImage} style={[styles.addPhotoBtn, {flex: 1}]}>
+                                    <MaterialIcons name="photo-library" size={30} color="#52525b" />
+                                    <Text style={{color: '#52525b', fontSize: 12}}>Galerie</Text>
+                                </TouchableOpacity>
+                            </View>
                         )}
                     </View>
 
@@ -1010,16 +1039,24 @@ const App: React.FC = () => {
                     <View style={styles.photoContainer}>
                         {tempImage ? (
                             <View style={{position: 'relative', width: '100%', height: 150}}>
-                                <Image source={{uri: tempImage}} style={{width: '100%', height: '100%', borderRadius: 8}} resizeMode="cover" />
+                                <TouchableOpacity onPress={() => setFullScreenImage(tempImage)} style={{flex: 1}}>
+                                    <Image source={{uri: tempImage}} style={{width: '100%', height: '100%', borderRadius: 8}} resizeMode="cover" />
+                                </TouchableOpacity>
                                 <TouchableOpacity onPress={() => setTempImage(null)} style={styles.removePhotoBtn}>
                                     <MaterialIcons name="close" size={20} color="white" />
                                 </TouchableOpacity>
                             </View>
                         ) : (
-                            <TouchableOpacity onPress={handleTakePhoto} style={styles.addPhotoBtn}>
-                                <MaterialIcons name="camera-alt" size={30} color="#52525b" />
-                                <Text style={{color: '#52525b', fontSize: 12}}>Ajouter Photo</Text>
-                            </TouchableOpacity>
+                            <View style={{flexDirection: 'row', gap: 10, width: '100%'}}>
+                                <TouchableOpacity onPress={handleTakePhoto} style={[styles.addPhotoBtn, {flex: 1}]}>
+                                    <MaterialIcons name="camera-alt" size={30} color="#52525b" />
+                                    <Text style={{color: '#52525b', fontSize: 12}}>Caméra</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity onPress={handlePickImage} style={[styles.addPhotoBtn, {flex: 1}]}>
+                                    <MaterialIcons name="photo-library" size={30} color="#52525b" />
+                                    <Text style={{color: '#52525b', fontSize: 12}}>Galerie</Text>
+                                </TouchableOpacity>
+                            </View>
                         )}
                     </View>
 
@@ -1057,6 +1094,17 @@ const App: React.FC = () => {
                 </View>
             </View>
         </KeyboardAvoidingView>
+      </Modal>
+
+      <Modal visible={!!fullScreenImage} transparent={true} animationType="fade" onRequestClose={() => setFullScreenImage(null)}>
+        <View style={{flex: 1, backgroundColor: 'black', justifyContent: 'center', alignItems: 'center'}}>
+            <TouchableOpacity style={{flex: 1, width: '100%', height: '100%'}} onPress={() => setFullScreenImage(null)} activeOpacity={1}>
+                <Image source={{uri: fullScreenImage || ''}} style={{flex: 1, width: '100%', height: '100%'}} resizeMode="contain" />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setFullScreenImage(null)} style={[styles.iconBtn, {position: 'absolute', top: 40, right: 20, backgroundColor: 'rgba(0,0,0,0.5)'}]}>
+                <MaterialIcons name="close" size={30} color="white" />
+            </TouchableOpacity>
+        </View>
       </Modal>
 
       <Modal visible={showQRModal} animationType="slide" transparent>
@@ -1209,7 +1257,7 @@ const styles = StyleSheet.create({
 
   // Styles Photo
   photoContainer: { width: '100%', marginVertical: 10, alignItems: 'center', justifyContent: 'center' },
-  addPhotoBtn: { width: '100%', height: 100, borderRadius: 12, borderWidth: 2, borderColor: '#333', borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.05)' },
+  addPhotoBtn: { height: 100, borderRadius: 12, borderWidth: 2, borderColor: '#333', borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.05)' },
   removePhotoBtn: { position: 'absolute', top: 5, right: 5, backgroundColor: 'rgba(239, 68, 68, 0.8)', borderRadius: 15, width: 30, height: 30, justifyContent: 'center', alignItems: 'center' }
 });
 
