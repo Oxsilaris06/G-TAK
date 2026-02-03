@@ -78,7 +78,8 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
   const [trails, setTrails] = useState<Record<string, number[][]>>({});
 
   // État pour le mode de suivi (Nord ou Boussole)
-  const [userTrackingMode, setUserTrackingMode] = useState<any>(MapLibreGL.UserTrackingModes.Follow);
+  // CORRECTION: UserTrackingMode (singulier) au lieu de UserTrackingModes (pluriel)
+  const [userTrackingMode, setUserTrackingMode] = useState<any>(MapLibreGL.UserTrackingMode.Follow);
   
   // État pour l'orientation visuelle de la boussole
   const [mapHeading, setMapHeading] = useState(0);
@@ -112,15 +113,16 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
   // Fonction de bascule de la boussole
   const toggleCompass = () => {
     // Si on est déjà en mode boussole (suivi du cap)
-    if (userTrackingMode === MapLibreGL.UserTrackingModes.FollowWithHeading) {
+    // CORRECTION: Utilisation de UserTrackingMode (singulier)
+    if (userTrackingMode === MapLibreGL.UserTrackingMode.FollowWithHeading) {
         // Clic 2 : Retour au Nord (Follow simple)
-        setUserTrackingMode(MapLibreGL.UserTrackingModes.Follow);
+        setUserTrackingMode(MapLibreGL.UserTrackingMode.Follow);
         // On force l'animation de retour à 0°
         cameraRef.current?.setCamera({ heading: 0, animationDuration: 500 });
         setMapHeading(0); 
     } else {
         // Clic 1 : Mode Boussole (Heading)
-        setUserTrackingMode(MapLibreGL.UserTrackingModes.FollowWithHeading);
+        setUserTrackingMode(MapLibreGL.UserTrackingMode.FollowWithHeading);
     }
   };
 
@@ -396,7 +398,8 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
           <MaterialIcons 
             name="explore" 
             size={36} 
-            color={userTrackingMode === MapLibreGL.UserTrackingModes.FollowWithHeading ? "#FFD700" : "white"} 
+            // CORRECTION: Utilisation de UserTrackingMode (singulier)
+            color={userTrackingMode === MapLibreGL.UserTrackingMode.FollowWithHeading ? "#FFD700" : "white"} 
             style={{ transform: [{ rotate: `${-mapHeading}deg` }] }}
           />
       </TouchableOpacity>
