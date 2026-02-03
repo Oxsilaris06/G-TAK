@@ -1,5 +1,5 @@
 // L'ordre est vital ici : Polyfills d'abord, le reste ensuite.
-import './polyfills'; 
+import './polyfills';
 
 import { registerRootComponent } from 'expo';
 import React from 'react';
