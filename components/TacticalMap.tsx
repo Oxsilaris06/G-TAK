@@ -78,7 +78,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
   const [trails, setTrails] = useState<Record<string, number[][]>>({});
 
   // État pour le mode de suivi (Nord ou Boussole)
-  // CORRECTION: UserTrackingMode (singulier) au lieu de UserTrackingModes (pluriel)
   const [userTrackingMode, setUserTrackingMode] = useState<any>(MapLibreGL.UserTrackingMode.Follow);
   
   // État pour l'orientation visuelle de la boussole
@@ -113,7 +112,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
   // Fonction de bascule de la boussole
   const toggleCompass = () => {
     // Si on est déjà en mode boussole (suivi du cap)
-    // CORRECTION: Utilisation de UserTrackingMode (singulier)
     if (userTrackingMode === MapLibreGL.UserTrackingMode.FollowWithHeading) {
         // Clic 2 : Retour au Nord (Follow simple)
         setUserTrackingMode(MapLibreGL.UserTrackingMode.Follow);
@@ -147,7 +145,10 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
 
   // Données des pairs avec orientation
   const peerFeatureCollection = useMemo(() => {
-    const features = Object.values(peers).map(peer => ({
+    const features = Object.values(peers)
+    // Sécurité : On filtre les pairs qui n'ont pas de location valide
+    .filter(peer => peer.location && peer.location.lng !== undefined && peer.location.lat !== undefined)
+    .map(peer => ({
       type: 'Feature',
       key: peer.id,
       id: peer.id,
@@ -261,10 +262,13 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         <MapLibreGL.Camera
           ref={cameraRef}
           defaultSettings={{
-            centerCoordinate: initialCenter ? [initialCenter.lng, initialCenter.lat] : [me.location.lng, me.location.lat],
+            // Sécurité : Si me.location n'existe pas encore, on centre sur 0,0 ou on garde initialCenter
+            centerCoordinate: initialCenter 
+              ? [initialCenter.lng, initialCenter.lat] 
+              : (me.location ? [me.location.lng, me.location.lat] : [0, 0]),
             zoomLevel: initialCenter ? initialCenter.zoom : 15,
           }}
-          followUserLocation={!navTargetId}
+          followUserLocation={!navTargetId && !!me.location}
           followUserMode={userTrackingMode}
         />
 
@@ -362,7 +366,10 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
             />
         </MapLibreGL.ShapeSource>
 
-        {showPings && pings.map((ping) => (
+        {showPings && pings.map((ping) => {
+            // Sécurité : On ignore les pings sans location
+            if (!ping.location || ping.location.lng === undefined) return null;
+            return (
             <MapLibreGL.PointAnnotation
                 key={ping.id}
                 id={ping.id}
@@ -387,7 +394,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                 </View>
                 <MapLibreGL.Callout title={ping.type.toUpperCase()} />
             </MapLibreGL.PointAnnotation>
-        ))}
+        )})}
 
       </MapLibreGL.MapView>
 
@@ -398,7 +405,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
           <MaterialIcons 
             name="explore" 
             size={36} 
-            // CORRECTION: Utilisation de UserTrackingMode (singulier)
             color={userTrackingMode === MapLibreGL.UserTrackingMode.FollowWithHeading ? "#FFD700" : "white"} 
             style={{ transform: [{ rotate: `${-mapHeading}deg` }] }}
           />
