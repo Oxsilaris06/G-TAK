@@ -1,8 +1,7 @@
 /**
  * TacticalMap - Composant Carte avec MapLibre
  * Remplace la carte WebView par une solution native haute performance
- * 
- * Avantages:
+ * * Avantages:
  * - Rendu GPU natif (60fps)
  * - Support offline MBTiles
  * - Gestures fluides
@@ -95,8 +94,8 @@ const OperatorMarker: React.FC<{
           style={[
             styles.operatorArrow,
             {
-              backgroundColor: displayColor,
-              transform: [{ rotate: `${user.head}deg` }],
+              borderBottomColor: displayColor, // CORRECTION: Applique la couleur au triangle (border)
+              transform: [{ rotate: `${user.head || 0}deg` }], // Sécurité si head est undefined
             },
           ]}
         />
@@ -459,7 +458,8 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         )}
 
         {/* Markers opérateurs */}
-        {me.lat && me.lng && (
+        {/* CORRECTION: Utilisation de !! pour forcer un booléen et éviter le rendu de "0" */}
+        {!!me.lat && !!me.lng && (
           <MarkerView coordinate={[me.lng, me.lat]} anchor={{ x: 0.5, y: 0.5 }}>
             <OperatorMarker user={me} isMe color={userArrowColor} nightOpsMode={nightOpsMode} />
           </MarkerView>
@@ -467,8 +467,9 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
 
         {Object.values(peers).map(
           (peer) =>
-            peer.lat &&
-            peer.lng && (
+            // CORRECTION: Utilisation de !! ici aussi
+            !!peer.lat &&
+            !!peer.lng && (
               <MarkerView
                 key={peer.id}
                 coordinate={[peer.lng, peer.lat]}
@@ -578,7 +579,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 16,
     borderLeftColor: 'transparent',
     borderRightColor: 'transparent',
-    borderBottomColor: 'inherit',
+    borderBottomColor: 'white', // CORRECTION: inherit n'existe pas en RN
     position: 'absolute',
     top: 4,
   },
