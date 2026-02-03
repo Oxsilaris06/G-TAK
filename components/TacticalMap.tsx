@@ -34,82 +34,41 @@ interface TacticalMapProps {
   onMapMoveEnd?: (center: {lat: number, lng: number}, zoom: number) => void;
 }
 
-// --- DÉFINITION DES STYLES RASTER (100% FIABLE SANS TOKEN) ---
-
-// 1. Style Satellite (ESRI)
+// --- STYLES RASTER (FIABLES SANS TOKEN) ---
 const SATELLITE_STYLE = {
   version: 8,
   sources: {
     'raster-tiles': {
       type: 'raster',
-      tiles: [
-        'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
-      ],
-      tileSize: 256,
-      attribution: 'Esri'
+      tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+      tileSize: 256, attribution: 'Esri'
     }
   },
-  layers: [
-    {
-      id: 'simple-tiles',
-      type: 'raster',
-      source: 'raster-tiles',
-      minzoom: 0,
-      maxzoom: 22
-    }
-  ]
+  layers: [{ id: 'simple-tiles', type: 'raster', source: 'raster-tiles', minzoom: 0, maxzoom: 22 }]
 };
 
-// 2. Style Dark (CartoDB Dark Matter - Raster)
 const DARK_STYLE = {
   version: 8,
   sources: {
     'raster-tiles': {
       type: 'raster',
-      tiles: [
-        'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
-        'https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
-        'https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'
-      ],
-      tileSize: 256,
-      attribution: '&copy; OpenStreetMap &copy; CARTO'
+      tiles: ['https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'],
+      tileSize: 256, attribution: 'CartoDB'
     }
   },
-  layers: [
-    {
-      id: 'simple-tiles',
-      type: 'raster',
-      source: 'raster-tiles',
-      minzoom: 0,
-      maxzoom: 22
-    }
-  ]
+  layers: [{ id: 'simple-tiles', type: 'raster', source: 'raster-tiles', minzoom: 0, maxzoom: 22 }]
 };
 
-// 3. Style Light (CartoDB Positron - Raster)
 const LIGHT_STYLE = {
   version: 8,
   sources: {
     'raster-tiles': {
       type: 'raster',
-      tiles: [
-        'https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
-        'https://b.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
-        'https://c.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png'
-      ],
-      tileSize: 256,
-      attribution: '&copy; OpenStreetMap &copy; CARTO'
+      tiles: ['https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png'],
+      tileSize: 256, attribution: 'CartoDB'
     }
   },
-  layers: [
-    {
-      id: 'simple-tiles',
-      type: 'raster',
-      source: 'raster-tiles',
-      minzoom: 0,
-      maxzoom: 22
-    }
-  ]
+  layers: [{ id: 'simple-tiles', type: 'raster', source: 'raster-tiles', minzoom: 0, maxzoom: 22 }]
 };
 
 const TacticalMap: React.FC<TacticalMapProps> = ({
@@ -124,8 +83,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
   const [userTrackingMode, setUserTrackingMode] = useState<any>(MapLibreGL.UserTrackingMode.Follow);
   const [mapHeading, setMapHeading] = useState(0);
 
-  // --- GESTION DE LA CAMÉRA ---
-
+  // --- GESTION CAMÉRA ---
   useEffect(() => {
     if (!isMapReady || !cameraRef.current) return;
 
@@ -146,19 +104,20 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
 
             setUserTrackingMode(MapLibreGL.UserTrackingMode.None);
             cameraRef.current.fitBounds(
-                [maxLng, maxLat],
-                [minLng, minLat],
-                50,
-                1000
+                [maxLng, maxLat], [minLng, minLat],
+                50, 1000
             );
         }
     } else if (!navTargetId && me.location) {
-        setUserTrackingMode(MapLibreGL.UserTrackingMode.Follow);
-        cameraRef.current.setCamera({
-            centerCoordinate: [me.location.lng, me.location.lat],
-            zoomLevel: 15,
-            animationDuration: 1000
-        });
+        // Retour au suivi utilisateur uniquement si on était en navigation
+        if (userTrackingMode === MapLibreGL.UserTrackingMode.None) {
+            setUserTrackingMode(MapLibreGL.UserTrackingMode.Follow);
+            cameraRef.current.setCamera({
+                centerCoordinate: [me.location.lng, me.location.lat],
+                zoomLevel: 15,
+                animationDuration: 1000
+            });
+        }
     }
   }, [navTargetId, isMapReady]);
 
@@ -216,66 +175,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
     return { type: 'FeatureCollection', features };
   }, [trails, showTrails]);
 
-  const peerFeatureCollection = useMemo(() => {
-    const features = Object.values(peers)
-    .filter(peer => peer.location && peer.location.lng !== undefined && peer.location.lat !== undefined)
-    .map(peer => {
-      const trigram = (peer.username || 'UNK').substring(0, 3).toUpperCase();
-      return {
-        type: 'Feature',
-        key: peer.id,
-        id: peer.id,
-        geometry: {
-          type: 'Point',
-          coordinates: [peer.location.lng, peer.location.lat],
-        },
-        properties: {
-          id: peer.id,
-          name: peer.username,
-          trigram: trigram,
-          role: peer.role,
-          team: peer.team || 'NEUTRAL',
-          heading: peer.orientation || 0,
-          color: peer.team === 'RED' ? '#ef4444' : (peer.team === 'BLUE' ? '#3b82f6' : '#10b981')
-        }
-      };
-    });
-    return { type: 'FeatureCollection', features };
-  }, [peers]);
-
-  // --- GESTION DU STYLE JSON (CRITIQUE POUR L'AFFICHAGE) ---
-  const currentStyleJSON = useMemo(() => {
-    if (mapMode === 'custom' && customMapUrl) {
-        // Pour custom, on retourne null ici et on utiliserait styleURL si on supportait les URL distantes json
-        // Mais pour garantir l'affichage, on fallback sur Dark si pas de custom valide
-        return JSON.stringify(DARK_STYLE); 
-    }
-    if (mapMode === 'satellite') return JSON.stringify(SATELLITE_STYLE);
-    if (mapMode === 'light') return JSON.stringify(LIGHT_STYLE);
-    // Default to Dark
-    return JSON.stringify(DARK_STYLE);
-  }, [mapMode, customMapUrl]);
-
-  const handlePress = (e: any) => {
-    const { geometry } = e;
-    if (geometry && geometry.coordinates) {
-      onPing({
-        lng: geometry.coordinates[0],
-        lat: geometry.coordinates[1]
-      });
-    }
-  };
-
-  const handleLongPress = (e: any) => {
-    const { geometry } = e;
-    if (geometry && geometry.coordinates) {
-        onPing({
-            lng: geometry.coordinates[0],
-            lat: geometry.coordinates[1]
-        });
-    }
-  };
-
   const navLineSource = useMemo(() => {
     if (!navTargetId) return { type: 'FeatureCollection', features: [] };
     let targetLoc = null;
@@ -290,13 +189,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
             type: 'FeatureCollection',
             features: [{
                 type: 'Feature',
-                geometry: {
-                    type: 'LineString',
-                    coordinates: [
-                        [me.location.lng, me.location.lat],
-                        [targetLoc.lng, targetLoc.lat]
-                    ]
-                },
+                geometry: { type: 'LineString', coordinates: [[me.location.lng, me.location.lat], [targetLoc.lng, targetLoc.lat]] },
                 properties: {}
             }]
         };
@@ -304,12 +197,45 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
     return { type: 'FeatureCollection', features: [] };
   }, [navTargetId, pings, peers, me.location]);
 
+  const currentStyleJSON = useMemo(() => {
+    if (mapMode === 'satellite') return JSON.stringify(SATELLITE_STYLE);
+    if (mapMode === 'light') return JSON.stringify(LIGHT_STYLE);
+    return JSON.stringify(DARK_STYLE);
+  }, [mapMode]);
+
+  const handlePress = (e: any) => {
+    if (!isMapReady) return;
+    const { geometry } = e;
+    if (geometry && geometry.coordinates) {
+      onPing({ lng: geometry.coordinates[0], lat: geometry.coordinates[1] });
+    }
+  };
+
+  const handleLongPress = (e: any) => {
+    if (!isMapReady) return;
+    const { geometry } = e;
+    if (geometry && geometry.coordinates) {
+        onPing({ lng: geometry.coordinates[0], lat: geometry.coordinates[1] });
+    }
+  };
+
+  // Helper pour les couleurs RGBA
+  const getTeamColorRGBA = (team: string, alpha: number) => {
+      if (team === 'RED') return `rgba(239, 68, 68, ${alpha})`;
+      if (team === 'BLUE') return `rgba(59, 130, 246, ${alpha})`;
+      return `rgba(16, 185, 129, ${alpha})`; // Green
+  };
+  
+  const getTeamColorHex = (team: string) => {
+      if (team === 'RED') return '#ef4444';
+      if (team === 'BLUE') return '#3b82f6';
+      return '#10b981';
+  };
 
   return (
     <View style={styles.container}>
       <MapLibreGL.MapView
         style={styles.map}
-        // On utilise UNIQUEMENT styleJSON pour être sûr
         styleJSON={currentStyleJSON}
         logoEnabled={false}
         attributionEnabled={false}
@@ -319,131 +245,97 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         onLongPress={handleLongPress}
         onDidFinishLoadingMap={() => setIsMapReady(true)}
         onRegionIsChanging={(e) => {
-            if (e.properties && typeof e.properties.heading === 'number') {
-                setMapHeading(e.properties.heading);
-            }
+            if (e.properties && typeof e.properties.heading === 'number') setMapHeading(e.properties.heading);
         }}
         onRegionDidChange={(e) => {
-            if (e.properties && typeof e.properties.heading === 'number') {
-                setMapHeading(e.properties.heading);
-            }
+            if (e.properties && typeof e.properties.heading === 'number') setMapHeading(e.properties.heading);
             if (onMapMoveEnd && e.geometry && e.properties) {
-                onMapMoveEnd(
-                    { lng: e.geometry.coordinates[0], lat: e.geometry.coordinates[1] },
-                    e.properties.zoomLevel
-                );
+                onMapMoveEnd({ lng: e.geometry.coordinates[0], lat: e.geometry.coordinates[1] }, e.properties.zoomLevel);
             }
         }}
       >
         <MapLibreGL.Camera
           ref={cameraRef}
           defaultSettings={{
-            centerCoordinate: initialCenter 
-              ? [initialCenter.lng, initialCenter.lat] 
-              : (me.location ? [me.location.lng, me.location.lat] : [0, 0]),
+            centerCoordinate: initialCenter ? [initialCenter.lng, initialCenter.lat] : (me.location ? [me.location.lng, me.location.lat] : [0, 0]),
             zoomLevel: initialCenter ? initialCenter.zoom : 15,
           }}
           followUserLocation={!navTargetId && !!me.location}
           followUserMode={userTrackingMode}
         />
 
-        <MapLibreGL.UserLocation
-          visible={true}
-          animated={true}
-          showsUserHeadingIndicator={true} 
-          renderMode="normal"
-        />
+        <MapLibreGL.UserLocation visible={true} animated={true} showsUserHeadingIndicator={true} renderMode="normal" />
 
         {showTrails && (
              <MapLibreGL.ShapeSource id="trailsSource" shape={trailsSource as any}>
-                <MapLibreGL.LineLayer
-                    id="trailsLine"
-                    style={{
-                        lineColor: '#00FFFF',
-                        lineWidth: 1,
-                        lineOpacity: 0.5
-                    }}
-                />
+                <MapLibreGL.LineLayer id="trailsLine" style={{ lineColor: '#00FFFF', lineWidth: 1, lineOpacity: 0.5 }} />
             </MapLibreGL.ShapeSource>
         )}
 
         {navTargetId && (
             <MapLibreGL.ShapeSource id="navLineSource" shape={navLineSource as any}>
-                <MapLibreGL.LineLayer
-                    id="navLine"
-                    style={{
-                        lineColor: '#FFD700',
-                        lineWidth: 3,
-                        lineDasharray: [2, 2],
-                        lineOpacity: 0.8
-                    }}
-                />
+                <MapLibreGL.LineLayer id="navLine" style={{ lineColor: '#FFD700', lineWidth: 3, lineDasharray: [2, 2], lineOpacity: 0.8 }} />
             </MapLibreGL.ShapeSource>
         )}
 
-        <MapLibreGL.ShapeSource id="peersSource" shape={peerFeatureCollection as any}>
-            <MapLibreGL.CircleLayer
-                id="peerCircles"
-                style={{
-                    circleRadius: [
-                        'interpolate', ['linear'], ['zoom'],
-                        10, 8,
-                        15, 14,
-                        22, 30
-                    ],
-                    circleColor: ['get', 'color'],
-                    circleStrokeWidth: 1.5,
-                    circleStrokeColor: '#FFFFFF',
-                    circleOpacity: 0.5 
-                }}
-            />
-            
-            <MapLibreGL.SymbolLayer
-                id="peerDirection"
-                style={{
-                    textField: '▲', 
-                    textSize: [
-                        'interpolate', ['linear'], ['zoom'],
-                        10, 10,
-                        15, 20,
-                        22, 45
-                    ],
-                    textColor: ['get', 'color'],
-                    textRotate: ['get', 'heading'], 
-                    textRotationAlignment: 'map', 
-                    textAllowOverlap: true,
-                    textIgnorePlacement: true,
-                    textOffset: [0, -0.8], 
-                    textOpacity: 0.8
-                }}
-            />
+        {/* --- MEMBRES D'ÉQUIPE (PEERS) via PointAnnotation pour contrôle total --- */}
+        {Object.values(peers)
+            .filter(peer => peer.location && peer.location.lng !== undefined && peer.location.lat !== undefined)
+            .map(peer => {
+                const trigram = (peer.username || 'UNK').substring(0, 3).toUpperCase();
+                const teamColorBg = getTeamColorRGBA(peer.team || 'NEUTRAL', 0.5); // Semi-transparent
+                const teamColor = getTeamColorHex(peer.team || 'NEUTRAL');
+                const heading = peer.orientation || 0;
 
-            <MapLibreGL.SymbolLayer
-                id="peerTrigrams"
-                style={{
-                    textField: ['get', 'trigram'], 
-                    textSize: [
-                        'interpolate', ['linear'], ['zoom'],
-                        10, 8,
-                        15, 10,
-                        22, 16
-                    ],
-                    textColor: '#FFFFFF', 
-                    textHaloColor: '#000000',
-                    textHaloWidth: 0.5,
-                    textAllowOverlap: true,
-                    textIgnorePlacement: true,
-                    textAnchor: 'center', 
-                    textRotationAlignment: 'viewport' 
-                }}
-            />
-        </MapLibreGL.ShapeSource>
+                return (
+                    <MapLibreGL.PointAnnotation
+                        key={`peer-${peer.id}`}
+                        id={`peer-${peer.id}`}
+                        coordinate={[peer.location.lng, peer.location.lat]}
+                        anchor={{ x: 0.5, y: 0.5 }}
+                        selected={false}
+                    >
+                        {/* Conteneur global du membre */}
+                        <View style={{ alignItems: 'center', justifyContent: 'center', width: 100, height: 100 }}>
+                            {/* Cône de vision (Rotation indépendante) */}
+                            <View style={{
+                                position: 'absolute',
+                                transform: [{ rotate: `${heading}deg` }],
+                                top: 0, left: 0, right: 0, bottom: 0,
+                                alignItems: 'center', justifyContent: 'center'
+                            }}>
+                                {/* Flèche décalée vers le haut pour simuler le cône */}
+                                <MaterialIcons name="navigation" size={40} color={teamColor} style={{ marginBottom: 40, opacity: 0.8 }} />
+                            </View>
 
+                            {/* Cercle central avec Trigramme (Fixe, pas de rotation) */}
+                            <View style={{
+                                width: 34, height: 34,
+                                borderRadius: 17,
+                                backgroundColor: teamColorBg,
+                                borderColor: 'white', borderWidth: 2,
+                                alignItems: 'center', justifyContent: 'center',
+                                zIndex: 10
+                            }}>
+                                <Text style={{ color: 'white', fontSize: 10, fontWeight: '900' }}>{trigram}</Text>
+                            </View>
+
+                            {/* Nom sous le cercle */}
+                            <View style={{ position: 'absolute', bottom: 20, backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 4, paddingHorizontal: 4 }}>
+                                <Text style={{ color: 'white', fontSize: 10 }}>{peer.username}</Text>
+                            </View>
+                        </View>
+                    </MapLibreGL.PointAnnotation>
+                );
+            })
+        }
+
+        {/* --- PINGS (Objets Tactiques) --- */}
         {showPings && pings.map((ping) => {
             if (!ping.location || ping.location.lng === undefined) return null;
             return (
             <MapLibreGL.PointAnnotation
-                key={ping.id}
+                key={`ping-${ping.id}`}
                 id={ping.id}
                 coordinate={[ping.location.lng, ping.location.lat]}
                 draggable={true}
@@ -451,17 +343,10 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                 onSelected={() => onPingClick(ping.id)}
                 onDragEnd={(payload: any) => {
                     const { geometry } = payload;
-                    if (geometry) {
-                        onPingMove({
-                            ...ping,
-                            location: {
-                                lng: geometry.coordinates[0],
-                                lat: geometry.coordinates[1]
-                            }
-                        });
-                    }
+                    if (geometry) onPingMove({ ...ping, location: { lng: geometry.coordinates[0], lat: geometry.coordinates[1] } });
                 }}
             >
+                {/* Z-Index élevé pour les pings */}
                 <View style={[styles.pingContainer, { zIndex: 100 }]}>
                     <View style={[styles.pingMarker, { backgroundColor: ping.color || '#F00' }]}>
                        <View style={styles.pingCenter} />
@@ -470,6 +355,8 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                         <Text style={styles.pingLabel}>{ping.type.substring(0, 4).toUpperCase()}</Text>
                     </View>
                 </View>
+                {/* Callout natif pour long press */}
+                <MapLibreGL.Callout title={ping.msg || ping.type} />
             </MapLibreGL.PointAnnotation>
         )})}
 
@@ -494,106 +381,28 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
           </View>
       )}
 
-      {nightOpsMode && (
-        <View style={styles.nightOpsOverlay} pointerEvents="none" />
-      )}
+      {nightOpsMode && <View style={styles.nightOpsOverlay} pointerEvents="none" />}
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#000',
-    overflow: 'hidden',
-  },
-  map: {
-    flex: 1,
-  },
-  nightOpsOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(255, 0, 0, 0.15)',
-    zIndex: 999,
-  },
-  pingContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: 60, 
-    height: 60,
-  },
+  container: { flex: 1, backgroundColor: '#000', overflow: 'hidden' },
+  map: { flex: 1 },
+  nightOpsOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(255, 0, 0, 0.15)', zIndex: 999 },
+  pingContainer: { alignItems: 'center', justifyContent: 'center', width: 60, height: 60 },
   pingMarker: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: 'white',
-    opacity: 0.9,
-    elevation: 5, 
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.5,
-    shadowRadius: 2,
+    width: 20, height: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center',
+    borderWidth: 2, borderColor: 'white', opacity: 0.9, elevation: 5,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.5, shadowRadius: 2,
   },
-  pingCenter: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: 'white'
-  },
-  pingLabelContainer: {
-    marginTop: 2,
-    backgroundColor: 'rgba(0,0,0,0.7)',
-    borderRadius: 4,
-    paddingHorizontal: 4,
-    paddingVertical: 1,
-  },
-  pingLabel: {
-    color: 'white',
-    fontSize: 10,
-    fontWeight: 'bold',
-  },
-  compassBtn: {
-    position: 'absolute',
-    top: 50,
-    right: 16,
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.3)',
-    zIndex: 100,
-    elevation: 4
-  },
-  navControls: {
-      position: 'absolute',
-      top: 50,
-      alignSelf: 'center',
-      zIndex: 100,
-  },
-  stopNavBtn: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: '#FFD700',
-      paddingHorizontal: 16,
-      paddingVertical: 8,
-      borderRadius: 20,
-      elevation: 5,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.3,
-      shadowRadius: 2,
-      gap: 8
-  },
-  stopNavText: {
-      color: '#000',
-      fontWeight: 'bold',
-      fontSize: 14
-  }
+  pingCenter: { width: 6, height: 6, borderRadius: 3, backgroundColor: 'white' },
+  pingLabelContainer: { marginTop: 2, backgroundColor: 'rgba(0,0,0,0.7)', borderRadius: 4, paddingHorizontal: 4, paddingVertical: 1 },
+  pingLabel: { color: 'white', fontSize: 10, fontWeight: 'bold' },
+  compassBtn: { position: 'absolute', top: 50, right: 16, width: 48, height: 48, borderRadius: 24, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.3)', zIndex: 100, elevation: 4 },
+  navControls: { position: 'absolute', top: 50, alignSelf: 'center', zIndex: 100 },
+  stopNavBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFD700', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, elevation: 5, gap: 8 },
+  stopNavText: { color: '#000', fontWeight: 'bold', fontSize: 14 }
 });
 
 export default TacticalMap;
