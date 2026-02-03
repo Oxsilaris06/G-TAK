@@ -34,14 +34,17 @@ export default {
       }
     },
 
-    // --- AJOUT CORRECTIF POUR IOS ---
+    // Configuration iOS
     ios: {
       bundleIdentifier: "com.praxis.app",
       supportsTablet: true,
       infoPlist: {
-        UIBackgroundModes: ["location", "fetch"],
+        UIBackgroundModes: ["location", "fetch", "remote-notification"],
         NSLocationWhenInUseUsageDescription: "Cette application a besoin de votre position pour le suivi tactique.",
-        NSLocationAlwaysAndWhenInUseUsageDescription: "Cette application a besoin de votre position même en arrière-plan pour le suivi tactique continu."
+        NSLocationAlwaysAndWhenInUseUsageDescription: "Cette application a besoin de votre position même en arrière-plan pour le suivi tactique continu.",
+        NSLocationAlwaysUsageDescription: "Cette application a besoin de votre position en arrière-plan pour le suivi tactique.",
+        NSCameraUsageDescription: "Nécessaire pour scanner les QR Codes de session.",
+        NSPhotoLibraryUsageDescription: "Nécessaire pour ajouter des photos aux pings.",
       }
     },
 
@@ -50,26 +53,23 @@ export default {
       resizeMode: "contain",
       backgroundColor: "#000000"
     },
+    
     android: {
       package: "com.praxis.app",
       adaptiveIcon: {
         foregroundImage: "./assets/adaptive-icon.png",
         backgroundColor: "#000000"
       },
-      // --- SECTION CRITIQUE : FORÇAGE DES HEADERS ---
-      // On inscrit ces valeurs directement dans le coeur d'Android
       metaData: {
         "expo.modules.updates.EXPO_UPDATES_CHECK_ON_LAUNCH": "ALWAYS",
         "expo.modules.updates.EXPO_UPDATES_LAUNCH_WAIT_MS": "30000",
-        // Force l'URL (évite les erreurs de construction)
         "expo.modules.updates.EXPO_UPDATES_URL": `https://u.expo.dev/${PROJECT_ID}`,
-        // Force le canal
         "expo.modules.updates.EXPO_UPDATES_CHANNEL_NAME": "production",
-        // Force la version (Règle l'erreur "runtime-version: Required")
         "expo.modules.updates.EXPO_RUNTIME_VERSION": VERSION
       },
       permissions: [
         "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
         "ACCESS_BACKGROUND_LOCATION",
         "FOREGROUND_SERVICE",
         "FOREGROUND_SERVICE_LOCATION",
@@ -77,9 +77,13 @@ export default {
         "WAKE_LOCK",
         "CAMERA",
         "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE"
+        "WRITE_EXTERNAL_STORAGE",
+        "VIBRATE",
+        "RECEIVE_BOOT_COMPLETED",
+        "POST_NOTIFICATIONS"
       ]
     },
+    
     plugins: [
       [
         "expo-build-properties",
@@ -91,8 +95,11 @@ export default {
             buildToolsVersion: "34.0.0",
             newArchEnabled: false,
             gradleProperties: [
-              { key: 'org.gradle.jvmargs', value: '-Xmx4608m -XX:MaxMetaspaceSize=512m' }
+              { key: 'org.gradle.jvmargs', value: '-Xmx6144m -XX:MaxMetaspaceSize=512m' }
             ]
+          },
+          ios: {
+            newArchEnabled: false
           }
         }
       ],
@@ -111,8 +118,23 @@ export default {
           microphonePermission: false
         }
       ],
-      "expo-location",
-      "expo-notifications",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Cette application a besoin de votre position même en arrière-plan pour le suivi tactique continu.",
+          "locationWhenInUsePermission": "Cette application a besoin de votre position pour le suivi tactique.",
+          "isIosBackgroundLocationEnabled": true,
+          "isAndroidBackgroundLocationEnabled": true
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/adaptive-icon.png",
+          "color": "#000000",
+          
+        }
+      ],
       "expo-task-manager"
     ]
   }
