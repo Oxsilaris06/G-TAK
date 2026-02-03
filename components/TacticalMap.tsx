@@ -21,6 +21,12 @@ interface TacticalMapProps {
   pingMode?: boolean; 
   nightOpsMode?: boolean;
   initialCenter?: {lat: number, lng: number, zoom: number};
+  
+  // --- Props ajoutées pour compatibilité App.tsx ---
+  isLandscape?: boolean;
+  maxTrailsPerUser?: number;
+  // -----------------------------------------------
+
   onPing: (loc: { lat: number; lng: number }) => void;
   onPingMove: (ping: PingData) => void;
   onPingClick: (id: string) => void; 
@@ -61,6 +67,8 @@ const MAP_STYLES = {
 
 const TacticalMap: React.FC<TacticalMapProps> = ({
   me, peers, pings, mapMode, customMapUrl, showTrails, showPings, isHost, userArrowColor, navTargetId, pingMode, nightOpsMode, initialCenter,
+  isLandscape, 
+  maxTrailsPerUser = 50, // Valeur par défaut
   onPing, onPingMove, onPingClick, onPingLongPress, onNavStop, onMapMoveEnd
 }) => {
   const cameraRef = useRef<MapLibreGL.Camera>(null);
@@ -90,14 +98,16 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                 const currentPos = [peer.location.lng, peer.location.lat];
                 const lastPos = newTrails[peer.id][newTrails[peer.id].length - 1];
                 
+                // Vérification de mouvement minimal pour éviter de spammer des points au même endroit
                 if (!lastPos || (Math.abs(lastPos[0] - currentPos[0]) > 0.0001 || Math.abs(lastPos[1] - currentPos[1]) > 0.0001)) {
-                    newTrails[peer.id] = [...newTrails[peer.id], currentPos].slice(-50);
+                    // Utilisation de maxTrailsPerUser pour limiter la longueur de la traînée
+                    newTrails[peer.id] = [...newTrails[peer.id], currentPos].slice(-maxTrailsPerUser);
                 }
             }
         });
         return newTrails;
     });
-  }, [peers, showTrails]);
+  }, [peers, showTrails, maxTrailsPerUser]);
 
   // Fonction de bascule de la boussole
   const toggleCompass = () => {
