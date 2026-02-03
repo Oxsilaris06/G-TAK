@@ -1,6 +1,6 @@
 // ID PROJET VALIDE
 const PROJECT_ID = "f55fd8e2-57c6-4432-a64c-fae41bb16a3e";
-const VERSION = "4.2.0";
+const VERSION = "4.1.0";
 
 export default {
   expo: {
@@ -130,9 +130,9 @@ export default {
       [
         "expo-notifications",
         {
-          "icon": "./assets/notification-icon.png",
+          "icon": "./assets/adaptive-icon.png",
           "color": "#000000",
-          "sounds": ["./assets/notification-sound.wav"]
+          
         }
       ],
       "expo-task-manager"
