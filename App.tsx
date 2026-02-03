@@ -220,9 +220,13 @@ const App: React.FC = () => {
             const s = await configService.init();
             if (mounted) {
                 setSettings(s);
-                if (s.username) { 
-                    setUser(prev => ({...prev, callsign: s.username, paxColor: s.userArrowColor})); 
-                    setLoginInput(s.username); 
+                // CORRECTION: Récupération persistante du Trigramme
+                const savedTrigram = mmkvStorage.getString(CONFIG.TRIGRAM_STORAGE_KEY) || await AsyncStorage.getItem(CONFIG.TRIGRAM_STORAGE_KEY);
+                const finalUsername = savedTrigram || s.username;
+
+                if (finalUsername) { 
+                    setUser(prev => ({...prev, callsign: finalUsername, paxColor: s.userArrowColor})); 
+                    setLoginInput(finalUsername); 
                 } else {
                     setUser(prev => ({...prev, paxColor: s.userArrowColor}));
                 }
@@ -304,7 +308,11 @@ const App: React.FC = () => {
               if (isLandscape) angle = angle + 90; 
               if (angle < 0) angle = angle + 360;
               const heading = Math.floor(angle);
+              
+              // CORRECTION: Mise à jour en temps réel plus directe
               setUser(prev => ({ ...prev, head: heading }));
+              
+              // Throttling pour le réseau uniquement
               if (Math.abs(heading - lastSentHead.current) > 5) {
                   lastSentHead.current = heading;
                   connectivityService.updateUserPosition(userRef.current.lat, userRef.current.lng, heading);
@@ -711,7 +719,10 @@ const App: React.FC = () => {
           <View style={{ marginTop: 50, width: '100%', alignItems: 'center' }}>
             <TouchableOpacity onPress={() => {
                 if (loginInput.length < 2) return;
-                try { AsyncStorage.setItem(CONFIG.TRIGRAM_STORAGE_KEY, loginInput.toUpperCase()); } catch (e) {}
+                try { 
+                    AsyncStorage.setItem(CONFIG.TRIGRAM_STORAGE_KEY, loginInput.toUpperCase()); 
+                    mmkvStorage.set(CONFIG.TRIGRAM_STORAGE_KEY, loginInput.toUpperCase(), true);
+                } catch (e) {}
                 if (loginInput.toUpperCase() !== settings.username) configService.update({ username: loginInput.toUpperCase() });
                 setUser(prev => ({ ...prev, callsign: loginInput.toUpperCase() }));
                 setView('menu');
