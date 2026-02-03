@@ -78,7 +78,7 @@ class LocationService {
    */
   updateOptions(options: Partial<LocationOptions>): void {
     this.options = { ...this.options, ...options };
-    
+
     // Redémarrer le suivi si actif
     if (this.isTracking) {
       this.stopTracking();
@@ -125,6 +125,32 @@ class LocationService {
           distanceInterval: this.options.distanceInterval,
         },
         (location) => {
+          // FILTRAGE GPS
+          // 1. Précision : On rejette si > 50m (configurable ?)
+          if (location.coords.accuracy && location.coords.accuracy > 50) {
+            console.log('[LocationService] Rejected low accuracy:', location.coords.accuracy);
+            return;
+          }
+
+          // 2. Vitesse / Cohérence : On rejette si saut impossible (> 300km/h soit ~83m/s)
+          if (this.lastLocation) {
+            const timeDelta = (location.timestamp - this.lastLocation.timestamp) / 1000; // secondes
+            if (timeDelta > 0) {
+              const dist = this.calculateDistance(
+                this.lastLocation.latitude, this.lastLocation.longitude,
+                location.coords.latitude, location.coords.longitude
+              );
+              const speed = dist / timeDelta; // m/s
+              if (speed > 83) { // ~300 km/h
+                console.log('[LocationService] Rejected unrealistic jump:', speed, 'm/s');
+                return;
+              }
+            }
+          }
+
+          // 3. Rejet 0,0
+          if (location.coords.latitude === 0 && location.coords.longitude === 0) return;
+
           const locData: LocationData = {
             latitude: location.coords.latitude,
             longitude: location.coords.longitude,
@@ -218,6 +244,24 @@ class LocationService {
    */
   isTrackingActive(): boolean {
     return this.isTracking;
+  }
+
+  /**
+   * Calcule la distance en mètres entre deux points (Haversine)
+   */
+  private calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const R = 6371e3; // Rayon de la terre en mètres
+    const φ1 = lat1 * Math.PI / 180;
+    const φ2 = lat2 * Math.PI / 180;
+    const Δφ = (lat2 - lat1) * Math.PI / 180;
+    const Δλ = (lon2 - lon1) * Math.PI / 180;
+
+    const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+      Math.cos(φ1) * Math.cos(φ2) *
+      Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+    return R * c;
   }
 }
 
