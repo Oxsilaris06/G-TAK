@@ -86,7 +86,8 @@ const App: React.FC = () => {
 
   const [loginInput, setLoginInput] = useState('');
   const [hostInput, setHostInput] = useState('');
-  const [mapMode, setMapMode] = useState<'dark' | 'light' | 'satellite' | 'hybrid' | 'custom'>('satellite');
+  // MODIFICATION : Suppression de 'hybrid' car non supporté par la nouvelle TacticalMap
+  const [mapMode, setMapMode] = useState<'dark' | 'light' | 'satellite' | 'custom'>('satellite');
   const [showTrails, setShowTrails] = useState(true);
   const [showPings, setShowPings] = useState(true);
   const [isPingMode, setIsPingMode] = useState(false);
@@ -544,6 +545,25 @@ const App: React.FC = () => {
       setTempImage(null);
   };
 
+  // NOUVEAU : Fonction de suppression via Long Press (Requis pour nouvelle Map)
+  const handlePingLongPress = (id: string) => {
+      Alert.alert(
+          "Supprimer le marqueur",
+          "Voulez-vous vraiment supprimer ce marqueur ?",
+          [
+              { text: "Annuler", style: "cancel" },
+              { text: "Supprimer", style: "destructive", onPress: () => {
+                  const ping = pings.find(p => p.id === id);
+                  if (ping) {
+                      setPings(prev => prev.filter(p => p.id !== id));
+                      safeBroadcast({ type: 'PING_DELETE', id });
+                      setEditingPing(null);
+                  }
+              }}
+          ]
+      );
+  };
+
   const handleAddLog = (entry: LogEntry) => {
       setLogs(prev => {
           const newLogs = [...prev, entry];
@@ -805,16 +825,16 @@ const App: React.FC = () => {
                           if(p.details) setHostileDetails(p.details);
                           setTempImage(p.image || null); // Load existing image
                       }}
-                      onPingLongPress={(id) => {
-                          // Handled by WebView
-                      }}
+                      // MODIFICATION : Utilisation du handler natif
+                      onPingLongPress={handlePingLongPress}
                       onNavStop={() => setNavTargetId(null)} 
                       onMapMoveEnd={(center, zoom) => setMapState({...center, zoom})} 
                   />
                   
                   <View style={[styles.mapControls, isLandscapeMap && { top: '50%', right: 16, marginTop: -100 }]}>
-                      <TouchableOpacity onPress={() => setMapMode(m => m === 'custom' ? 'dark' : m === 'dark' ? 'light' : m === 'light' ? 'satellite' : m === 'satellite' ? 'hybrid' : settings.customMapUrl ? 'custom' : 'dark')} {...getLandscapeProps()} style={[getLandscapeStyle(styles.mapBtn), nightOpsMode && {borderColor: '#7f1d1d', backgroundColor: '#000'}]}>
-                          <MaterialIcons name={mapMode === 'dark' ? 'dark-mode' : mapMode === 'light' ? 'light-mode' : mapMode === 'hybrid' ? 'layers' : mapMode === 'custom' ? 'map' : 'satellite'} size={24} color={nightOpsMode ? "#ef4444" : "#d4d4d8"} />
+                      {/* MODIFICATION : Cycle des modes de carte simplifié (pas de hybrid) */}
+                      <TouchableOpacity onPress={() => setMapMode(m => m === 'custom' ? 'dark' : m === 'dark' ? 'light' : m === 'light' ? 'satellite' : settings.customMapUrl ? 'custom' : 'dark')} {...getLandscapeProps()} style={[getLandscapeStyle(styles.mapBtn), nightOpsMode && {borderColor: '#7f1d1d', backgroundColor: '#000'}]}>
+                          <MaterialIcons name={mapMode === 'dark' ? 'dark-mode' : mapMode === 'light' ? 'light-mode' : mapMode === 'custom' ? 'map' : 'satellite'} size={24} color={nightOpsMode ? "#ef4444" : "#d4d4d8"} />
                       </TouchableOpacity>
                       <TouchableOpacity onPress={() => setShowTrails(!showTrails)} {...getLandscapeProps()} style={[getLandscapeStyle(styles.mapBtn), nightOpsMode && {borderColor: '#7f1d1d', backgroundColor: '#000'}]}>
                           <MaterialIcons name={showTrails ? 'visibility' : 'visibility-off'} size={24} color={nightOpsMode ? "#ef4444" : "#d4d4d8"} />
