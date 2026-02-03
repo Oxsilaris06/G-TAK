@@ -249,6 +249,7 @@ const App: React.FC = () => {
         
         // --- INITIALISATION ID PERSISTANT ---
         // On initialise la connectivité dès le chargement pour récupérer l'ID unique stocké
+        // Le service s'occupera d'écraser 'loading...' avec le vrai ID
         try {
             await connectivityService.init(
                 { ...user, id: 'loading...', role: OperatorRole.OPR }, 
@@ -319,7 +320,6 @@ const App: React.FC = () => {
               if (angle < 0) angle = angle + 360;
               const heading = Math.floor(angle);
               
-              // CORRECTION: Mise à jour en temps réel plus directe
               setUser(prev => ({ ...prev, head: heading }));
               
               // Throttling pour le réseau uniquement
@@ -340,6 +340,7 @@ const App: React.FC = () => {
       switch (event.type) {
           case 'PEER_OPEN': 
               // C'est ici qu'on récupère le VRAI ID persistant depuis le service
+              console.log("[App] ID Persistant récupéré:", event.id);
               setUser(prev => ({ ...prev, id: event.id })); 
               if (userRef.current.role === OperatorRole.HOST) {
                   setHostId(event.id);
