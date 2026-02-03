@@ -22,7 +22,7 @@ config.transformer.minifierConfig = {
 
 // Cache optimization
 config.cacheStores = [
-  require('metro-cache').FileStore({
+  require('metro-cache'). new FileStore({
     root: require('path').join(__dirname, '.metro-cache'),
   }),
 ];
