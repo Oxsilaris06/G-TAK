@@ -75,6 +75,7 @@ import PrivacyConsentModal from './components/PrivacyConsentModal';
 import { NotificationToast } from './components/NotificationToast';
 import ComposantOrdreInitial from './components/ComposantOrdreInitial';
 import TacticalBackground from './components/TacticalBackground';
+import UpdateNotifier from './components/UpdateNotifier';
 
 try {
   SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -1033,6 +1034,7 @@ const App: React.FC = () => {
               <Text style={styles.strategicaBtnText}>Stratégica</Text>
             </TouchableOpacity>
           </View>
+          <UpdateNotifier />
           <PrivacyConsentModal onConsentGiven={() => {}} />
         </View>
       );
