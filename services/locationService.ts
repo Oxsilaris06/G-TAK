@@ -1,225 +1,187 @@
-/**
- * Service de Localisation
- * Gère le suivi GPS avec haute performance
- */
-
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
-import { EventEmitter } from 'events';
 
-const LOCATION_TASK_NAME = 'praxis-background-location-task';
+const LOCATION_TASK_NAME = 'background-location-task';
 
-interface LocationOptions {
-  timeInterval?: number;
-  distanceInterval?: number;
-  accuracy?: Location.LocationAccuracy;
-  foregroundService?: {
-    notificationTitle: string;
-    notificationBody: string;
-    notificationColor?: string;
-  };
+export interface LocationData {
+    latitude: number;
+    longitude: number;
+    heading: number | null;
+    speed: number | null;
+    timestamp: number;
+    accuracy: number | null;
 }
 
-interface LocationData {
-  latitude: number;
-  longitude: number;
-  altitude: number | null;
-  accuracy: number | null;
-  heading: number | null;
-  speed: number | null;
-  timestamp: number;
-}
+// ============ FILTRE KALMAN POUR LISSAGE ============\n
+class KalmanFilter {
+    private q: number; // process noise
+    private r: number; // measurement noise
+    private p: number = 1;
+    private x: number = 0;
+    private k: number = 0;
 
-// EventEmitter pour les mises à jour de position
-class LocationEventEmitter extends EventEmitter {
-  constructor() {
-    super();
-    this.setMaxListeners(20);
-  }
-}
-
-const locationEmitter = new LocationEventEmitter();
-
-// Définition de la tâche en arrière-plan
-TaskManager.defineTask(LOCATION_TASK_NAME, ({ data, error }: any) => {
-  if (error) {
-    console.error('[LocationService] Background task error:', error);
-    return;
-  }
-  if (data) {
-    const { locations } = data;
-    if (locations && locations.length > 0) {
-      const loc = locations[0];
-      locationEmitter.emit('location', {
-        latitude: loc.coords.latitude,
-        longitude: loc.coords.longitude,
-        altitude: loc.coords.altitude,
-        accuracy: loc.coords.accuracy,
-        heading: loc.coords.heading,
-        speed: loc.coords.speed,
-        timestamp: loc.timestamp,
-      });
+    constructor(q: number = 0.0001, r: number = 0.01) {
+        this.q = q;
+        this.r = r;
     }
-  }
-});
+
+    reset(initialValue: number = 0) {
+        this.x = initialValue;
+        this.p = 1;
+    }
+
+    update(measurement: number): number {
+        this.p = this.p + this.q;
+        this.k = this.p / (this.p + this.r);
+        this.x = this.x + this.k * (measurement - this.x);
+        this.p = (1 - this.k) * this.p;
+        return this.x;
+    }
+}
 
 class LocationService {
-  private isTracking = false;
-  private options: LocationOptions = {
-    timeInterval: 5000,
-    distanceInterval: 5,
-    accuracy: Location.LocationAccuracy.BestForNavigation,
-  };
-  private locationSubscription: Location.LocationSubscription | null = null;
-  private lastLocation: LocationData | null = null;
+    private subscribers: ((loc: LocationData) => void)[] = [];
+    private lastLocation: LocationData | null = null;
+    private isTracking = false;
 
-  /**
-   * Met à jour les options de suivi
-   */
-  updateOptions(options: Partial<LocationOptions>): void {
-    this.options = { ...this.options, ...options };
-    
-    // Redémarrer le suivi si actif
-    if (this.isTracking) {
-      this.stopTracking();
-      this.startTracking();
-    }
-  }
+    // Filtres Kalman pour Lat/Lng
+    private latFilter = new KalmanFilter();
+    private lngFilter = new KalmanFilter();
+    private isFiltersInitialized = false;
 
-  /**
-   * Démarre le suivi de position
-   */
-  async startTracking(): Promise<boolean> {
-    if (this.isTracking) return true;
+    private isMoving = false;
+    private stationaryTimer: any;
+    private STATIONARY_TIMEOUT = 1000 * 60; 
 
-    try {
-      // Vérifier les permissions
-      const { status } = await Location.getForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        console.warn('[LocationService] Location permission not granted');
-        return false;
-      }
-
-      // Démarrer le suivi en arrière-plan si configuré
-      if (this.options.foregroundService) {
-        const hasStarted = await Location.hasStartedLocationUpdatesAsync(
-          LOCATION_TASK_NAME
-        );
-        if (!hasStarted) {
-          await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
-            accuracy: this.options.accuracy,
-            timeInterval: this.options.timeInterval,
-            distanceInterval: this.options.distanceInterval,
-            showsBackgroundLocationIndicator: true,
-            foregroundService: this.options.foregroundService,
-            pausesUpdatesAutomatically: false,
-          });
+    private locationOptions: Location.LocationTaskOptions = {
+        accuracy: Location.Accuracy.High, 
+        distanceInterval: 10, 
+        timeInterval: 5000,
+        deferredUpdatesInterval: 5000, 
+        deferredUpdatesDistance: 10, 
+        pausesUpdatesAutomatically: false, 
+        activityType: Location.ActivityType.Fitness, 
+        showsBackgroundLocationIndicator: true, 
+        foregroundService: {
+            notificationTitle: "Praxis Actif",
+            notificationBody: "Position et lien tactique maintenus",
+            notificationColor: "#000000"
         }
-      }
-
-      // Souscription en premier plan pour des mises à jour plus rapides
-      this.locationSubscription = await Location.watchPositionAsync(
-        {
-          accuracy: this.options.accuracy,
-          timeInterval: this.options.timeInterval,
-          distanceInterval: this.options.distanceInterval,
-        },
-        (location) => {
-          const locData: LocationData = {
-            latitude: location.coords.latitude,
-            longitude: location.coords.longitude,
-            altitude: location.coords.altitude,
-            accuracy: location.coords.accuracy,
-            heading: location.coords.heading,
-            speed: location.coords.speed,
-            timestamp: location.timestamp,
-          };
-          this.lastLocation = locData;
-          locationEmitter.emit('location', locData);
-        }
-      );
-
-      this.isTracking = true;
-      return true;
-    } catch (e) {
-      console.error('[LocationService] Start tracking error:', e);
-      return false;
-    }
-  }
-
-  /**
-   * Arrête le suivi de position
-   */
-  async stopTracking(): Promise<void> {
-    try {
-      // Arrêter la souscription en premier plan
-      if (this.locationSubscription) {
-        this.locationSubscription.remove();
-        this.locationSubscription = null;
-      }
-
-      // Arrêter la tâche en arrière-plan
-      const hasStarted = await Location.hasStartedLocationUpdatesAsync(
-        LOCATION_TASK_NAME
-      );
-      if (hasStarted) {
-        await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
-      }
-
-      this.isTracking = false;
-    } catch (e) {
-      console.error('[LocationService] Stop tracking error:', e);
-    }
-  }
-
-  /**
-   * Récupère la dernière position connue
-   */
-  getLastLocation(): LocationData | null {
-    return this.lastLocation;
-  }
-
-  /**
-   * Récupère la position actuelle (one-shot)
-   */
-  async getCurrentPosition(): Promise<LocationData | null> {
-    try {
-      const position = await Location.getCurrentPositionAsync({
-        accuracy: Location.LocationAccuracy.BestForNavigation,
-      });
-
-      return {
-        latitude: position.coords.latitude,
-        longitude: position.coords.longitude,
-        altitude: position.coords.altitude,
-        accuracy: position.coords.accuracy,
-        heading: position.coords.heading,
-        speed: position.coords.speed,
-        timestamp: position.timestamp,
-      };
-    } catch (e) {
-      console.error('[LocationService] Get current position error:', e);
-      return null;
-    }
-  }
-
-  /**
-   * S'abonne aux mises à jour de position
-   */
-  subscribe(callback: (location: LocationData) => void): () => void {
-    locationEmitter.on('location', callback);
-    return () => {
-      locationEmitter.off('location', callback);
     };
-  }
 
-  /**
-   * Vérifie si le suivi est actif
-   */
-  isTrackingActive(): boolean {
-    return this.isTracking;
-  }
+    constructor() {
+        this.defineTask();
+    }
+
+    public async updateOptions(newOptions: Partial<Location.LocationTaskOptions>) {
+        console.log("[Location] Mise à jour dynamique des options:", newOptions);
+        this.locationOptions = { ...this.locationOptions, ...newOptions };
+
+        if (this.isTracking) {
+            await this.stopTracking();
+            await this.startTracking();
+        }
+    }
+
+    private defineTask() {
+        TaskManager.defineTask(LOCATION_TASK_NAME, ({ data, error }) => {
+            if (error) return;
+            if (data) {
+                const { locations } = data as any;
+                const latest = locations[locations.length - 1];
+                if (latest) {
+                    this.processLocation(latest);
+                }
+            }
+        });
+    }
+
+    async startTracking() {
+        if (this.isTracking) return;
+
+        const { status } = await Location.requestBackgroundPermissionsAsync();
+        
+        if (status !== 'granted') {
+            const fgStatus = await Location.requestForegroundPermissionsAsync();
+            if (fgStatus.status !== 'granted') return;
+        }
+
+        try {
+            await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, this.locationOptions);
+            
+            await Location.watchPositionAsync({
+                accuracy: this.locationOptions.accuracy as Location.Accuracy,
+                distanceInterval: this.locationOptions.distanceInterval,
+                timeInterval: this.locationOptions.timeInterval
+            }, (loc) => {
+                 this.processLocation(loc);
+            });
+
+            this.isTracking = true;
+        } catch (e) {
+            console.error("[Location] Erreur démarrage tracking:", e);
+        }
+    }
+
+    async stopTracking() {
+        if (!this.isTracking) return;
+        try {
+            const isRegistered = await TaskManager.isTaskRegisteredAsync(LOCATION_TASK_NAME);
+            if (isRegistered) {
+                await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
+            }
+        } catch(e) {
+            console.warn("[Location] Erreur arrêt tracking:", e);
+        }
+        this.isTracking = false;
+        if (this.stationaryTimer) clearTimeout(this.stationaryTimer);
+    }
+
+    private processLocation(rawLoc: any) {
+        // Filtre les points aberrants
+        if (rawLoc.coords.accuracy && rawLoc.coords.accuracy > 50) return;
+
+        if (!this.isFiltersInitialized) {
+            this.latFilter.reset(rawLoc.coords.latitude);
+            this.lngFilter.reset(rawLoc.coords.longitude);
+            this.isFiltersInitialized = true;
+        }
+
+        const filteredLat = this.latFilter.update(rawLoc.coords.latitude);
+        const filteredLng = this.lngFilter.update(rawLoc.coords.longitude);
+
+        this.isMoving = true;
+        this.setStationaryTimer();
+
+        const newLoc: LocationData = {
+            latitude: filteredLat,
+            longitude: filteredLng,
+            heading: rawLoc.coords.heading,
+            speed: rawLoc.coords.speed,
+            timestamp: rawLoc.timestamp,
+            accuracy: rawLoc.coords.accuracy
+        };
+
+        this.lastLocation = newLoc;
+        this.notify(newLoc);
+    }
+
+    private setStationaryTimer() {
+        if (this.stationaryTimer) clearTimeout(this.stationaryTimer);
+        this.stationaryTimer = setTimeout(() => {
+            this.isMoving = false;
+        }, this.STATIONARY_TIMEOUT);
+    }
+
+    subscribe(cb: (loc: LocationData) => void) {
+        this.subscribers.push(cb);
+        if (this.lastLocation) cb(this.lastLocation);
+        return () => { this.subscribers = this.subscribers.filter(s => s !== cb); };
+    }
+
+    private notify(loc: LocationData) {
+        this.subscribers.forEach(cb => cb(loc));
+    }
 }
 
 export const locationService = new LocationService();
-export default locationService;

@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { Modal, View, Text, StyleSheet, TouchableOpacity, ScrollView, Linking } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialIcons } from '@expo/vector-icons';
-import { mmkvStorage } from '../services/mmkvStorage';
-import { CONFIG } from '../constants';
+
+// Clé de stockage mise à jour pour Praxis (Version 2 pour forcer le ré-affichage si mise à jour)
+const CONSENT_KEY = 'Praxis_Privacy_Consent_v2';
 
 interface PrivacyConsentModalProps {
-  onConsentGiven: () => void;
+  onConsentGiven: () => void; // Fonction appelée quand l'utilisateur accepte
 }
 
 export default function PrivacyConsentModal({ onConsentGiven }: PrivacyConsentModalProps) {
@@ -17,21 +19,21 @@ export default function PrivacyConsentModal({ onConsentGiven }: PrivacyConsentMo
 
   const checkConsent = async () => {
     try {
-      const hasConsented = mmkvStorage.getBoolean(CONFIG.CONSENT_KEY, true);
-      if (hasConsented !== true) {
+      const hasConsented = await AsyncStorage.getItem(CONSENT_KEY);
+      if (hasConsented !== 'true') {
         setModalVisible(true);
       } else {
         onConsentGiven();
       }
     } catch (error) {
       console.error('Erreur lecture consentement:', error);
-      setModalVisible(true);
+      setModalVisible(true); // Par sécurité, on redemande en cas d'erreur
     }
   };
 
   const handleAccept = async () => {
     try {
-      mmkvStorage.set(CONFIG.CONSENT_KEY, 'true', true);
+      await AsyncStorage.setItem(CONSENT_KEY, 'true');
       setModalVisible(false);
       onConsentGiven();
     } catch (error) {
@@ -41,6 +43,7 @@ export default function PrivacyConsentModal({ onConsentGiven }: PrivacyConsentMo
   };
 
   const openPrivacyPolicy = () => {
+    // Lien vers le fichier hébergé sur GitHub (à adapter si nécessaire)
     Linking.openURL('https://github.com/oxsilaris06/g-tak/blob/main/PRIVACY.md');
   };
 
@@ -49,7 +52,10 @@ export default function PrivacyConsentModal({ onConsentGiven }: PrivacyConsentMo
       animationType="slide"
       transparent={true}
       visible={modalVisible}
-      onRequestClose={() => {}}
+      onRequestClose={() => {
+        // Empêche la fermeture via le bouton retour Android sans accepter
+        return; 
+      }}
     >
       <View style={styles.centeredView}>
         <View style={styles.modalView}>
@@ -126,12 +132,12 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.9)',
+    backgroundColor: 'rgba(0,0,0,0.9)', // Fond très sombre
   },
   modalView: {
     width: '90%',
     maxHeight: '85%',
-    backgroundColor: '#09090b',
+    backgroundColor: '#09090b', // Noir zinc
     borderRadius: 16,
     padding: 24,
     borderWidth: 1,
@@ -224,7 +230,7 @@ const styles = StyleSheet.create({
     textDecorationLine: 'underline',
   },
   button: {
-    backgroundColor: '#3b82f6',
+    backgroundColor: '#3b82f6', // Bleu tactique
     borderRadius: 8,
     padding: 16,
     elevation: 2,

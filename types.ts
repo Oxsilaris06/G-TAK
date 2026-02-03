@@ -1,29 +1,25 @@
-/**
- * Types globaux de l'application Praxis
- */
-
 export enum OperatorRole {
   HOST = 'HOST',
-  OPR = 'OPR',
+  OPR = 'OPR'
 }
 
 export enum OperatorStatus {
   CLEAR = 'CLEAR',
   CONTACT = 'CONTACT',
   BUSY = 'BUSY',
-  PROGRESSION = 'PROGRESSION',
+  PROGRESSION = 'PROGRESSION'
 }
 
 export type ViewType = 'login' | 'menu' | 'map' | 'ops' | 'settings';
 export type PingType = 'HOSTILE' | 'FRIEND' | 'INTEL';
 
 export interface HostileDetails {
-  position: string;
-  nature: string;
-  attitude: string;
-  volume: string;
-  armes: string;
-  substances: string;
+    position: string;
+    nature: string;
+    attitude: string;
+    volume: string;
+    armes: string;
+    substances: string;
 }
 
 export interface UserData {
@@ -37,7 +33,7 @@ export interface UserData {
   lng: number;
   head: number;
   lastMsg: string;
-  paxColor?: string;
+  paxColor?: string; // Couleur personnalisée
 }
 
 export interface PingData {
@@ -49,30 +45,28 @@ export interface PingData {
   sender: string;
   timestamp: number;
   details?: HostileDetails;
-  image?: string | null;
+  image?: string | null; // Champ ajouté pour la photo compressée
 }
 
 export interface LogEntry {
-  id: string;
-  timestamp: number;
-  heure: string;
-  pax: string;
-  paxColor: string;
-  category: string;
-  action: string;
-  lieu?: string;
-  remarques?: string;
+    id: string;
+    timestamp: number;
+    pax: string; // trigramme
+    category: string; // ex: 'CONTACT', 'RAS'
+    action: string;
+    lieu?: string;
+    remarques?: string;
 }
 
 export interface AppSettings {
   username: string;
-  gpsUpdateInterval: number;
-  orientationUpdateInterval: number;
+  gpsUpdateInterval: number; // ms
+  orientationUpdateInterval: number; // ms
   userArrowColor: string;
-  customMapUrl?: string;
+  customMapUrl?: string; // file:// ou http://
   quickMessages: string[];
   disableBackgroundNotifications: boolean;
-  maxTrailsPerUser: number;
+  maxTrailsPerUser: number; // Nouveau paramètre
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -81,15 +75,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   orientationUpdateInterval: 500,
   userArrowColor: '#3b82f6',
   quickMessages: [
-    'RAS / Effacer',
-    'En Position',
-    'Départ',
-    'Halte',
-    'Visuel',
-    'Contact',
-    'Reçu',
-    'Demande Radio',
+      "RAS / Effacer", "En Position", "Départ", "Halte", 
+      "Visuel", "Contact", "Reçu", "Demande Radio"
   ],
   disableBackgroundNotifications: false,
-  maxTrailsPerUser: 500,
+  maxTrailsPerUser: 500
 };

@@ -1,523 +1,547 @@
-/**
- * Service de Connectivité P2P
- * Gère les connexions PeerJS avec optimisation des performances
- */
-
-import Peer from 'peerjs';
-import { EventEmitter } from 'events';
-import { UserData, OperatorRole } from '../types';
+import Peer, { DataConnection } from 'peerjs';
+import NetInfo from '@react-native-community/netinfo';
+import { mmkvStorage } from './mmkvStorage';
 import { CONFIG } from '../constants';
+import { UserData, OperatorRole } from '../types';
+import { AppStateStatus } from 'react-native';
 
+// --- CONFIGURATION ---
+const STORAGE_KEY_ID = '@praxis_persistent_id';
+
+// Délais et Timeouts pour la robustesse
+const RECONNECT_INTERVAL = 5000;
+const HEALTH_CHECK_INTERVAL = 10000;
+const PEER_CREATION_TIMEOUT = 10000;
+const ACK_TIMEOUT = 2000; // Temps d'attente avant renvoi (2s)
+const MAX_RETRIES = 5;    // Nombre d'essais max
+
+// --- TYPES ---
 export type ConnectivityEvent =
-  | { type: 'PEER_OPEN'; id: string }
-  | { type: 'PEERS_UPDATED'; peers: Record<string, UserData> }
-  | { type: 'HOST_CONNECTED'; hostId: string }
-  | { type: 'TOAST'; msg: string; level: string }
-  | { type: 'DATA_RECEIVED'; data: any; from: string }
-  | { type: 'DISCONNECTED'; reason: 'KICKED' | 'NO_HOST' | 'ERROR' }
-  | { type: 'RECONNECTING'; attempt: number }
-  | { type: 'NEW_HOST_PROMOTED'; hostId: string };
+    | { type: 'PEER_OPEN'; id: string }
+    | { type: 'PEERS_UPDATED'; peers: Record<string, UserData> }
+    | { type: 'HOST_CONNECTED'; hostId: string }
+    | { type: 'DISCONNECTED'; reason: 'KICKED' | 'NO_HOST' | 'NETWORK_ERROR' | 'MANUAL' | 'PEER_TIMEOUT' }
+    | { type: 'RECONNECTING'; attempt: number }
+    | { type: 'TOAST'; msg: string; level: 'info' | 'error' | 'success' | 'warning' }
+    | { type: 'DATA_RECEIVED'; data: any; from: string }
+    | { type: 'MIGRATION_START' }
+    | { type: 'NEW_HOST_PROMOTED'; hostId: string };
 
-interface ConnectionState {
-  peer: Peer | null;
-  connections: Map<string, any>;
-  userData: UserData | null;
-  role: OperatorRole;
-  hostId: string;
-  isReconnecting: boolean;
-  reconnectAttempt: number;
+type Listener = (event: ConnectivityEvent) => void;
+
+interface PendingMessage {
+    id: string;
+    data: { targetId: string; payload: any };
+    timestamp: number;
+    retryCount: number;
+    lastRetry: number;
 }
-
-class ConnectivityEventEmitter extends EventEmitter {
-  constructor() {
-    super();
-    this.setMaxListeners(50);
-  }
-}
-
-const eventEmitter = new ConnectivityEventEmitter();
 
 class ConnectivityService {
-  private state: ConnectionState = {
-    peer: null,
-    connections: new Map(),
-    userData: null,
-    role: OperatorRole.OPR,
-    hostId: '',
-    isReconnecting: false,
-    reconnectAttempt: 0,
-  };
+    private peer: Peer | null = null;
+    private connections: Record<string, DataConnection> = {};
+    private listeners: Listener[] = [];
 
-  private reconnectTimeout: NodeJS.Timeout | null = null;
-  private heartbeatInterval: NodeJS.Timeout | null = null;
-  private readonly HEARTBEAT_INTERVAL = 10000;
-  private readonly MAX_RECONNECT_ATTEMPTS = 5;
+    private user: UserData | null = null;
+    private role: OperatorRole = OperatorRole.OPR;
+    private targetHostId: string = '';
 
-  /**
-   * Initialise la connexion PeerJS
-   */
-  async init(
-    userData: UserData,
-    role: OperatorRole,
-    hostId?: string
-  ): Promise<void> {
-    // Cleanup existant
-    this.cleanup();
+    // Base de données locale des pairs (Source de vérité)
+    private peersMap: Record<string, UserData> = {};
 
-    this.state.userData = userData;
-    this.state.role = role;
-    this.state.hostId = hostId || '';
+    // États de connexion
+    private isConnecting = false;
+    private isRefreshing = false;
+    private isDestroyed = false;
+    private reconnectAttempts = 0;
 
-    return new Promise((resolve, reject) => {
-      try {
-        // Créer le peer avec configuration optimisée
-        const peerId = role === OperatorRole.HOST ? undefined : undefined;
-        this.state.peer = new Peer(peerId, CONFIG.PEER_CONFIG);
+    // Timers
+    private retryTimeout: any;
+    private healthCheckInterval: any;
+    private networkSwitchTimeout: any;
+    private creationTimeout: any;
 
-        this.state.peer.on('open', (id) => {
-          console.log('[Connectivity] Peer opened:', id);
-          this.state.userData!.id = id;
+    // Monitoring Réseau
+    private netInfoUnsubscribe: (() => void) | null = null;
+    private lastNetworkType: string | null = null;
 
-          if (role === OperatorRole.HOST) {
-            this.state.hostId = id;
-          }
+    // --- SYSTÈME ACK (Fiabilité) ---
+    private pendingMessages: Map<string, PendingMessage> = new Map();
+    private processedMessageIds: Set<string> = new Set();
+    private ackCheckInterval: any;
 
-          this.emit({ type: 'PEER_OPEN', id });
-
-          // Connexion à l'hôte si client
-          if (role === OperatorRole.OPR && hostId) {
-            this.connectToHost(hostId);
-          }
-
-          this.startHeartbeat();
-          resolve();
-        });
-
-        this.state.peer.on('connection', (conn) => {
-          this.handleIncomingConnection(conn);
-        });
-
-        this.state.peer.on('error', (err) => {
-          console.error('[Connectivity] Peer error:', err);
-          this.handleError(err);
-          reject(err);
-        });
-
-        this.state.peer.on('disconnected', () => {
-          console.log('[Connectivity] Peer disconnected');
-          this.handleDisconnect();
-        });
-      } catch (e) {
-        console.error('[Connectivity] Init error:', e);
-        reject(e);
-      }
-    });
-  }
-
-  /**
-   * Connecte à l'hôte
-   */
-  private connectToHost(hostId: string): void {
-    if (!this.state.peer) return;
-
-    console.log('[Connectivity] Connecting to host:', hostId);
-    const conn = this.state.peer.connect(hostId, {
-      reliable: true,
-      serialization: 'json',
-    });
-
-    conn.on('open', () => {
-      console.log('[Connectivity] Connected to host');
-      this.state.connections.set(hostId, conn);
-      this.state.hostId = hostId;
-      this.emit({ type: 'HOST_CONNECTED', hostId });
-
-      // Envoyer HELLO
-      this.sendTo(hostId, {
-        type: 'HELLO',
-        user: this.state.userData,
-      });
-    });
-
-    conn.on('data', (data) => {
-      this.handleData(data, hostId);
-    });
-
-    conn.on('close', () => {
-      console.log('[Connectivity] Host connection closed');
-      this.state.connections.delete(hostId);
-      this.emit({ type: 'DISCONNECTED', reason: 'NO_HOST' });
-    });
-
-    conn.on('error', (err) => {
-      console.error('[Connectivity] Host connection error:', err);
-    });
-  }
-
-  /**
-   * Gère une connexion entrante (host uniquement)
-   */
-  private handleIncomingConnection(conn: any): void {
-    console.log('[Connectivity] Incoming connection from:', conn.peer);
-
-    conn.on('open', () => {
-      this.state.connections.set(conn.peer, conn);
-      this.broadcastPeerList();
-    });
-
-    conn.on('data', (data: any) => {
-      this.handleData(data, conn.peer);
-    });
-
-    conn.on('close', () => {
-      console.log('[Connectivity] Connection closed:', conn.peer);
-      this.state.connections.delete(conn.peer);
-      this.broadcastPeerList();
-    });
-
-    conn.on('error', (err: any) => {
-      console.error('[Connectivity] Connection error:', conn.peer, err);
-    });
-  }
-
-  /**
-   * Gère les données reçues
-   */
-  private handleData(data: any, from: string): void {
-    if (!data || typeof data !== 'object') return;
-
-    // Propager l'événement
-    this.emit({ type: 'DATA_RECEIVED', data, from });
-
-    // Gestion spéciale pour l'hôte
-    if (this.state.role === OperatorRole.HOST) {
-      this.handleHostData(data, from);
-    }
-  }
-
-  /**
-   * Gestion des données côté hôte (relaying)
-   */
-  private handleHostData(data: any, from: string): void {
-    switch (data.type) {
-      case 'HELLO':
-        // Nouveau client connecté, broadcaster la liste
-        this.broadcastPeerList();
-        break;
-
-      case 'UPDATE_USER':
-      case 'UPDATE':
-        // Propager la mise à jour à tous les autres
-        this.broadcastExcept(from, data);
-        break;
-
-      case 'PING':
-        // Propager le ping à tous
-        this.broadcast(data);
-        break;
-
-      case 'LOG_UPDATE':
-        // Propager les logs
-        this.broadcast(data);
-        break;
-
-      case 'PING_MOVE':
-      case 'PING_DELETE':
-      case 'PING_UPDATE':
-        // Propager les modifications de pings
-        this.broadcast(data);
-        break;
-
-      case 'CLIENT_LEAVING':
-        // Client qui quitte proprement
-        this.state.connections.delete(from);
-        this.broadcastPeerList();
-        break;
-    }
-  }
-
-  /**
-   * Diffuse la liste des peers à tous
-   */
-  private broadcastPeerList(): void {
-    const peers: Record<string, UserData> = {};
-
-    // Ajouter l'hôte
-    if (this.state.userData) {
-      peers[this.state.userData.id] = this.state.userData;
-    }
-
-    // Collecter les données des peers connectés
-    this.state.connections.forEach((_, peerId) => {
-      // Les données sont stockées lors des HELLO/UPDATE
-    });
-
-    this.broadcast({
-      type: 'PEERS_UPDATED',
-      peers,
-    });
-  }
-
-  /**
-   * Envoie des données à un peer spécifique
-   */
-  sendTo(peerId: string, data: any): boolean {
-    const conn = this.state.connections.get(peerId);
-    if (conn && conn.open) {
-      try {
-        conn.send(data);
-        return true;
-      } catch (e) {
-        console.error('[Connectivity] Send error:', e);
-        return false;
-      }
-    }
-    return false;
-  }
-
-  /**
-   * Diffuse des données à tous les peers
-   */
-  broadcast(data: any): void {
-    this.state.connections.forEach((conn) => {
-      if (conn.open) {
+    // --- GESTION ID PERSISTANT ---
+    private async getPersistentId(): Promise<string> {
         try {
-          conn.send(data);
-        } catch (e) {
-          console.error('[Connectivity] Broadcast error:', e);
+            const savedId = mmkvStorage.getString(STORAGE_KEY_ID);
+            if (savedId) return savedId;
+            const newId = this.generateShortId();
+            mmkvStorage.set(STORAGE_KEY_ID, newId);
+            return newId;
+        } catch (error) {
+            return this.generateShortId();
         }
-      }
-    });
-  }
+    }
 
-  /**
-   * Diffuse à tous sauf un peer
-   */
-  broadcastExcept(exceptPeerId: string, data: any): void {
-    this.state.connections.forEach((conn, peerId) => {
-      if (peerId !== exceptPeerId && conn.open) {
+    private generateShortId(): string {
+        return Math.random().toString(36).substr(2, 9).toUpperCase();
+    }
+
+    // --- INITIALISATION ---
+    public async init(user: UserData, role: OperatorRole, targetHostId: string = '') {
+        if (this.isConnecting) return;
+        this.cleanup(false);
+
+        this.isDestroyed = false;
+        this.isConnecting = true;
+
+        const persistentId = await this.getPersistentId();
+
+        this.user = { ...user, id: persistentId };
+        this.role = role;
+        this.targetHostId = targetHostId;
+
+        // IMPORTANT: Si je suis l'hôte, je m'ajoute moi-même à la liste immédiatement
+        if (this.role === OperatorRole.HOST && this.user) {
+            this.peersMap = { [this.user.id]: this.user };
+            this.notify({ type: 'PEERS_UPDATED', peers: this.peersMap });
+        } else {
+            this.peersMap = {};
+        }
+
+        this.setupNetworkMonitor();
+        this.connectToPeerServer(persistentId);
+        this.startHealthCheck();
+        this.startAckSystem();
+    }
+
+    // --- CONNEXION PEERJS ---
+    private connectToPeerServer(forceId: string) {
+        if (this.peer) {
+            try { this.peer.destroy(); } catch (e) { }
+        }
+
+        console.log(`[Conn] Init PeerJS ID: ${forceId}`);
+
         try {
-          conn.send(data);
+            this.peer = new Peer(forceId, CONFIG.PEER_CONFIG);
+
+            this.creationTimeout = setTimeout(() => {
+                if (this.peer && !this.peer.open) {
+                    console.warn("[Conn] Timeout Creation - Relance");
+                    this.handleConnectionError(new Error("Timeout Creation"));
+                }
+            }, PEER_CREATION_TIMEOUT);
+
+            this.peer.on('open', (id) => {
+                clearTimeout(this.creationTimeout);
+                this.isConnecting = false;
+                this.isRefreshing = false;
+                this.reconnectAttempts = 0;
+                console.log(`[Conn] OK: ${id}`);
+                this.notify({ type: 'PEER_OPEN', id });
+
+                if (this.role === OperatorRole.OPR && this.targetHostId) {
+                    this.connectToHost(this.targetHostId);
+                }
+            });
+
+            this.peer.on('connection', (conn) => {
+                this.handleIncomingConnection(conn);
+            });
+
+            this.peer.on('error', (err: any) => {
+                clearTimeout(this.creationTimeout);
+                if (this.isRefreshing) return;
+
+                console.error(`[Conn] Erreur: ${err.type}`, err);
+
+                if (err.type === 'unavailable-id') {
+                    setTimeout(() => this.connectToPeerServer(forceId), 3000);
+                } else if (err.type === 'peer-unavailable') {
+                    this.notify({ type: 'DISCONNECTED', reason: 'NO_HOST' });
+                } else if (err.type === 'network' || err.type === 'disconnected') {
+                    // Géré par le healthcheck
+                } else {
+                    this.handleConnectionError(err);
+                }
+            });
+
         } catch (e) {
-          console.error('[Connectivity] Broadcast error:', e);
+            this.handleConnectionError(e);
         }
-      }
-    });
-  }
+    }
 
-  /**
-   * Diffuse avec accusé de réception
-   */
-  async broadcastWithAck(data: any, timeout = 5000): Promise<void> {
-    const promises: Promise<void>[] = [];
+    private connectToHost(hostId: string) {
+        if (!this.peer || this.peer.destroyed || !this.peer.open) return;
+        if (this.connections[hostId] && this.connections[hostId].open) return;
 
-    this.state.connections.forEach((conn, peerId) => {
-      if (conn.open) {
-        promises.push(
-          new Promise((resolve, reject) => {
-            const ackTimeout = setTimeout(() => {
-              reject(new Error(`ACK timeout from ${peerId}`));
-            }, timeout);
+        console.log(`[Link] Connexion vers Hôte...`);
+        try {
+            const conn = this.peer.connect(hostId, {
+                reliable: true,
+                metadata: { user: this.user, version: '2.1-NOCOMPRESS' }
+            });
+            this.setupConnectionEvents(conn, true);
+        } catch (e) {
+            console.error("[Link] Echec", e);
+        }
+    }
 
-            const ackHandler = (response: any) => {
-              if (response.type === 'ACK' && response.ackId === data.id) {
-                clearTimeout(ackTimeout);
-                conn.off('data', ackHandler);
-                resolve();
-              }
-            };
+    private handleIncomingConnection(conn: DataConnection) {
+        if (this.role === OperatorRole.OPR && conn.peer !== this.targetHostId) {
+            console.log(`[Secu] Rejet connexion inconnue de ${conn.peer}`);
+            conn.close();
+            return;
+        }
+        this.setupConnectionEvents(conn, false);
+    }
 
-            conn.on('data', ackHandler);
+    private setupConnectionEvents(conn: DataConnection, isOutgoingToHost: boolean) {
+        conn.on('open', () => {
+            console.log(`[Link] Ouvert avec ${conn.peer}`);
+            this.connections[conn.peer] = conn;
+
+            if (isOutgoingToHost) {
+                this.notify({ type: 'HOST_CONNECTED', hostId: conn.peer });
+                this.sendTo(conn.peer, { type: 'HELLO', user: this.user });
+            }
+        });
+
+        conn.on('data', (data: any) => {
+            this.handleDataMessage(data, conn.peer);
+        });
+
+        conn.on('close', () => {
+            console.log(`[Link] Fermé avec ${conn.peer}`);
+            delete this.connections[conn.peer];
+
+            if (this.role === OperatorRole.HOST) {
+                if (this.peersMap[conn.peer]) {
+                    delete this.peersMap[conn.peer];
+                    this.broadcast({ type: 'SYNC_PEERS', peers: this.peersMap });
+                    this.notify({ type: 'PEERS_UPDATED', peers: this.peersMap });
+                }
+            }
+
+            if (isOutgoingToHost && !this.isDestroyed && !this.isRefreshing) {
+                this.notify({ type: 'DISCONNECTED', reason: 'NETWORK_ERROR' });
+                setTimeout(() => this.connectToHost(conn.peer), 1000);
+            }
+        });
+
+        conn.on('error', (e) => {
+            console.error(`[Link] Erreur avec ${conn.peer}`, e);
+            conn.close();
+        });
+    }
+
+    // --- TRAITEMENT DES MESSAGES ---
+    private handleDataMessage(data: any, fromId: string) {
+        // 1. Gestion ACK
+        if (data.type === 'ACK') {
+            if (this.pendingMessages.has(data.msgId)) {
+                this.pendingMessages.delete(data.msgId);
+            }
+            return;
+        }
+
+        // 2. Renvoi ACK si demandé
+        if (data._needsAck) {
+            this.sendTo(fromId, { type: 'ACK', msgId: data._msgId });
+        }
+
+        // 3. Déduplication
+        if (data._msgId) {
+            if (this.processedMessageIds.has(data._msgId)) return;
+            this.processedMessageIds.add(data._msgId);
+            if (this.processedMessageIds.size > 1000) this.processedMessageIds.clear();
+        }
+
+        if (data.type === 'KICK') {
+            this.cleanup(true);
+            this.notify({ type: 'DISCONNECTED', reason: 'KICKED' });
+            return;
+        }
+
+        // --- LOGIQUE HÔTE ---
+        if (this.role === OperatorRole.HOST) {
+            // GESTION DES UPDATES UTILISATEURS
+            if (data.type === 'HELLO' || data.type === 'UPDATE_USER' || data.type === 'UPDATE') {
+                if (data.user) {
+                    // Mise à jour de la fiche du pair
+                    this.peersMap[fromId] = { ...data.user, id: fromId };
+
+                    // 1. Notifier l'UI de l'hôte (pour la Map)
+                    this.notify({ type: 'PEERS_UPDATED', peers: this.peersMap });
+
+                    // 2. IMPORTANT: Notifier l'UI de l'hôte via DATA_RECEIVED 
+                    // C'est ce qui déclenche les TOASTS et NOTIFICATIONS (alertes statut) dans App.tsx
+                    this.notify({ type: 'DATA_RECEIVED', data: data, from: fromId });
+
+                    // 3. Rediffuser aux autres clients
+                    // On envoie le message original (UPDATE_USER) pour que les clients aient aussi leur Toast
+                    this.broadcast({ type: 'UPDATE_USER', user: this.peersMap[fromId] });
+
+                    // On peut aussi envoyer un SYNC pour être sûr, mais UPDATE_USER suffit souvent
+                    // this.broadcast({ type: 'SYNC_PEERS', peers: this.peersMap });
+                }
+            }
+            // Relayer les autres types de messages
+            else if (['PING', 'PING_MOVE', 'PING_UPDATE', 'PING_DELETE', 'LOG_UPDATE'].includes(data.type)) {
+                this.notify({ type: 'DATA_RECEIVED', data, from: fromId });
+
+                Object.values(this.connections).forEach(conn => {
+                    if (conn.open && conn.peer !== fromId) {
+                        this.sendInternal(conn, data);
+                    }
+                });
+            }
+        }
+        // --- LOGIQUE CLIENT ---
+        else {
+            if (data.type === 'SYNC_PEERS') {
+                this.peersMap = data.peers;
+                this.notify({ type: 'PEERS_UPDATED', peers: this.peersMap });
+            } else {
+                // On reçoit UPDATE_USER, PING, etc. -> Déclenche les Toasts dans App.tsx
+                this.notify({ type: 'DATA_RECEIVED', data, from: fromId });
+            }
+        }
+    }
+
+    // --- ENVOI DE DONNÉES ---
+
+    public sendTo(targetId: string, data: any) {
+        const conn = this.connections[targetId];
+        if (conn && conn.open) {
+            this.sendInternal(conn, data);
+        }
+    }
+
+    public async sendToWithAck(targetId: string, data: any): Promise<void> {
+        const msgId = Math.random().toString(36).substr(2, 9);
+        const payload = { ...data, _msgId: msgId, _needsAck: true };
+
+        this.pendingMessages.set(msgId, {
+            id: msgId,
+            data: { targetId, payload },
+            timestamp: Date.now(),
+            retryCount: 0,
+            lastRetry: Date.now()
+        });
+
+        this.sendTo(targetId, payload);
+        return Promise.resolve();
+    }
+
+    public async broadcastWithAck(data: any): Promise<void> {
+        if (this.role === OperatorRole.HOST) {
+            Object.keys(this.connections).forEach(id => {
+                this.sendToWithAck(id, data);
+            });
+        } else if (this.targetHostId) {
+            this.sendToWithAck(this.targetHostId, data);
+        }
+    }
+
+    public broadcast(data: any) {
+        if (this.role === OperatorRole.HOST) {
+            Object.values(this.connections).forEach(conn => {
+                if (conn.open) this.sendInternal(conn, data);
+            });
+        } else if (this.targetHostId) {
+            this.sendTo(this.targetHostId, data);
+        }
+    }
+
+    private sendInternal(conn: DataConnection, data: any) {
+        try {
             conn.send(data);
-          })
-        );
-      }
-    });
-
-    await Promise.allSettled(promises);
-  }
-
-  /**
-   * Met à jour les données utilisateur et broadcast
-   */
-  updateUser(updates: Partial<UserData>): void {
-    if (this.state.userData) {
-      this.state.userData = { ...this.state.userData, ...updates };
-      this.broadcast({
-        type: 'UPDATE_USER',
-        user: this.state.userData,
-      });
-    }
-  }
-
-  /**
-   * Met à jour la position et broadcast
-   */
-  updateUserPosition(lat: number, lng: number, head?: number): void {
-    if (this.state.userData) {
-      this.state.userData.lat = lat;
-      this.state.userData.lng = lng;
-      if (head !== undefined) {
-        this.state.userData.head = head;
-      }
-      this.broadcast({
-        type: 'UPDATE',
-        user: this.state.userData,
-      });
-    }
-  }
-
-  /**
-   * Exclut un utilisateur (host uniquement)
-   */
-  kickUser(peerId: string): void {
-    this.sendTo(peerId, { type: 'KICKED' });
-    const conn = this.state.connections.get(peerId);
-    if (conn) {
-      conn.close();
-      this.state.connections.delete(peerId);
-      this.broadcastPeerList();
-    }
-  }
-
-  /**
-   * Gère les erreurs de connexion
-   */
-  private handleError(error: any): void {
-    this.emit({
-      type: 'TOAST',
-      msg: `Erreur réseau: ${error.message || 'Inconnue'}`,
-      level: 'error',
-    });
-
-    // Tentative de reconnexion si pertinent
-    if (error.type === 'network' || error.type === 'disconnected') {
-      this.attemptReconnect();
-    }
-  }
-
-  /**
-   * Gère la déconnexion
-   */
-  private handleDisconnect(): void {
-    this.attemptReconnect();
-  }
-
-  /**
-   * Tente de se reconnecter
-   */
-  private attemptReconnect(): void {
-    if (
-      this.state.isReconnecting ||
-      this.state.reconnectAttempt >= this.MAX_RECONNECT_ATTEMPTS
-    ) {
-      this.emit({
-        type: 'DISCONNECTED',
-        reason: 'ERROR',
-      });
-      return;
+        } catch (e) {
+            console.error("Send failed", e);
+        }
     }
 
-    this.state.isReconnecting = true;
-    this.state.reconnectAttempt++;
-
-    this.emit({
-      type: 'RECONNECTING',
-      attempt: this.state.reconnectAttempt,
-    });
-
-    const delay = Math.min(1000 * Math.pow(2, this.state.reconnectAttempt), 30000);
-
-    this.reconnectTimeout = setTimeout(() => {
-      if (this.state.userData && this.state.role) {
-        this.init(this.state.userData, this.state.role, this.state.hostId || undefined)
-          .then(() => {
-            this.state.isReconnecting = false;
-            this.state.reconnectAttempt = 0;
-          })
-          .catch(() => {
-            this.state.isReconnecting = false;
-            this.attemptReconnect();
-          });
-      }
-    }, delay);
-  }
-
-  /**
-   * Démarre le heartbeat
-   */
-  private startHeartbeat(): void {
-    this.heartbeatInterval = setInterval(() => {
-      this.broadcast({ type: 'HEARTBEAT', timestamp: Date.now() });
-    }, this.HEARTBEAT_INTERVAL);
-  }
-
-  /**
-   * Arrête le heartbeat
-   */
-  private stopHeartbeat(): void {
-    if (this.heartbeatInterval) {
-      clearInterval(this.heartbeatInterval);
-      this.heartbeatInterval = null;
-    }
-  }
-
-  /**
-   * Gère le changement d'état de l'app
-   */
-  handleAppStateChange(state: 'active' | 'background'): void {
-    if (state === 'active') {
-      // Vérifier la connexion
-      if (this.state.peer && this.state.peer.disconnected) {
-        this.attemptReconnect();
-      }
-    }
-  }
-
-  /**
-   * S'abonne aux événements
-   */
-  subscribe(callback: (event: ConnectivityEvent) => void): () => void {
-    eventEmitter.on('event', callback);
-    return () => {
-      eventEmitter.off('event', callback);
-    };
-  }
-
-  /**
-   * Émet un événement
-   */
-  private emit(event: ConnectivityEvent): void {
-    eventEmitter.emit('event', event);
-  }
-
-  /**
-   * Nettoie toutes les connexions
-   */
-  cleanup(): void {
-    this.stopHeartbeat();
-
-    if (this.reconnectTimeout) {
-      clearTimeout(this.reconnectTimeout);
-      this.reconnectTimeout = null;
+    // --- SYSTÈME DE RETRY AUTOMATIQUE ---
+    private startAckSystem() {
+        if (this.ackCheckInterval) clearInterval(this.ackCheckInterval);
+        this.ackCheckInterval = setInterval(() => {
+            const now = Date.now();
+            this.pendingMessages.forEach((pending, key) => {
+                if (now - pending.lastRetry > ACK_TIMEOUT) {
+                    if (pending.retryCount < MAX_RETRIES) {
+                        pending.retryCount++;
+                        pending.lastRetry = now;
+                        this.sendTo(pending.data.targetId, pending.data.payload);
+                    } else {
+                        this.pendingMessages.delete(key);
+                    }
+                }
+            });
+        }, 1000);
     }
 
-    this.state.connections.forEach((conn) => {
-      if (conn.open) {
-        conn.close();
-      }
-    });
-    this.state.connections.clear();
+    // --- API UTILISATEUR ---
+    public updateUser(partialUser: Partial<UserData>) {
+        if (!this.user) return;
+        this.user = { ...this.user, ...partialUser };
 
-    if (this.state.peer) {
-      this.state.peer.destroy();
-      this.state.peer = null;
+        if (this.role === OperatorRole.HOST) {
+            this.peersMap[this.user.id] = this.user;
+            this.notify({ type: 'PEERS_UPDATED', peers: this.peersMap });
+            // CORRECTION: Diffuser l'événement UPDATE_USER pour que les clients aient le Toast
+            this.broadcast({ type: 'UPDATE_USER', user: this.user });
+        } else {
+            this.broadcast({ type: 'UPDATE_USER', user: this.user });
+        }
     }
 
-    this.state.isReconnecting = false;
-    this.state.reconnectAttempt = 0;
-  }
+    public updateUserPosition(lat: number, lng: number, head: number) {
+        if (!this.user) return;
+        this.user = { ...this.user, lat, lng, head };
+
+        if (this.role === OperatorRole.HOST) {
+            this.peersMap[this.user.id] = this.user;
+            this.notify({ type: 'PEERS_UPDATED', peers: this.peersMap });
+            this.broadcast({ type: 'SYNC_PEERS', peers: this.peersMap }); // Pour la position, SYNC suffit
+        } else {
+            this.broadcast({ type: 'UPDATE', user: this.user });
+        }
+    }
+
+    public kickUser(targetId: string) {
+        if (this.role !== OperatorRole.HOST) return;
+        this.sendTo(targetId, { type: 'KICK' });
+        setTimeout(() => {
+            const conn = this.connections[targetId];
+            if (conn) conn.close();
+            delete this.peersMap[targetId];
+            this.notify({ type: 'PEERS_UPDATED', peers: this.peersMap });
+            this.broadcast({ type: 'SYNC_PEERS', peers: this.peersMap });
+        }, 500);
+    }
+
+    public handleAppStateChange(status: AppStateStatus) {
+        if (status === 'active') {
+            if (this.peer && this.peer.disconnected && !this.peer.destroyed) {
+                try { this.peer.reconnect(); } catch (e) { }
+            }
+        }
+    }
+
+    // --- ROBUSTESSE RÉSEAU ---
+    private setupNetworkMonitor() {
+        if (this.netInfoUnsubscribe) this.netInfoUnsubscribe();
+
+        this.netInfoUnsubscribe = NetInfo.addEventListener(state => {
+            const currentType = state.type;
+
+            if (!state.isConnected) return;
+
+            if (this.lastNetworkType && this.lastNetworkType !== currentType) {
+                if (this.networkSwitchTimeout) clearTimeout(this.networkSwitchTimeout);
+                this.networkSwitchTimeout = setTimeout(() => this.refreshConnection(), 2000);
+            }
+            this.lastNetworkType = currentType;
+        });
+    }
+
+    public refreshConnection() {
+        if (this.isRefreshing || this.isDestroyed) return;
+
+        this.isRefreshing = true;
+
+        if (this.peer) {
+            this.peer.disconnect();
+
+            setTimeout(() => {
+                if (this.peer && !this.peer.destroyed) {
+                    try {
+                        this.peer.reconnect();
+                        setTimeout(() => { this.isRefreshing = false; }, 5000);
+                    } catch (e) {
+                        this.isRefreshing = false;
+                        this.handleConnectionError(new Error("Refresh Failed"));
+                    }
+                } else {
+                    this.isRefreshing = false;
+                }
+            }, 1500);
+        } else {
+            this.isRefreshing = false;
+        }
+    }
+
+    private handleConnectionError(error: any) {
+        if (this.isDestroyed || this.isRefreshing) return;
+        this.scheduleReconnect();
+    }
+
+    private scheduleReconnect() {
+        if (this.retryTimeout) clearTimeout(this.retryTimeout);
+        this.retryTimeout = setTimeout(() => {
+            if (!this.isDestroyed && this.user) {
+                this.reconnectAttempts++;
+                this.notify({ type: 'RECONNECTING', attempt: this.reconnectAttempts });
+                this.connectToPeerServer(this.user.id);
+            }
+        }, RECONNECT_INTERVAL);
+    }
+
+    private startHealthCheck() {
+        if (this.healthCheckInterval) clearInterval(this.healthCheckInterval);
+        this.healthCheckInterval = setInterval(() => {
+            if (this.isDestroyed || this.isRefreshing) return;
+
+            if (this.peer && this.peer.disconnected && !this.peer.destroyed) {
+                try { this.peer.reconnect(); } catch (e) { }
+            }
+
+            if (this.role === OperatorRole.OPR && this.targetHostId) {
+                const hostConn = this.connections[this.targetHostId];
+                if (!hostConn || !hostConn.open) {
+                    this.connectToHost(this.targetHostId);
+                }
+            }
+        }, HEALTH_CHECK_INTERVAL);
+    }
+
+    public cleanup(full = true) {
+        this.isDestroyed = full;
+        this.isConnecting = false;
+        this.isRefreshing = false;
+        if (this.retryTimeout) clearTimeout(this.retryTimeout);
+        if (this.creationTimeout) clearTimeout(this.creationTimeout);
+        if (this.healthCheckInterval) clearInterval(this.healthCheckInterval);
+        if (this.ackCheckInterval) clearInterval(this.ackCheckInterval);
+        if (this.networkSwitchTimeout) clearTimeout(this.networkSwitchTimeout);
+
+        if (full && this.netInfoUnsubscribe) {
+            this.netInfoUnsubscribe();
+            this.netInfoUnsubscribe = null;
+        }
+
+        Object.values(this.connections).forEach(c => { try { c.close(); } catch (e) { } });
+        this.connections = {};
+        this.peersMap = {};
+        this.pendingMessages.clear();
+        this.processedMessageIds.clear();
+
+        if (this.peer) {
+            try { this.peer.destroy(); } catch (e) { }
+            this.peer = null;
+        }
+    }
+
+    public subscribe(listener: Listener) {
+        this.listeners.push(listener);
+        return () => { this.listeners = this.listeners.filter(l => l !== listener); };
+    }
+
+    private notify(event: ConnectivityEvent) {
+        this.listeners.forEach(l => l(event));
+    }
 }
 
 export const connectivityService = new ConnectivityService();
-export default connectivityService;

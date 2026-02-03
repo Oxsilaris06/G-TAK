@@ -7,9 +7,7 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "prebuild": "expo prebuild",
-    "lint": "eslint . --ext .ts,.tsx",
-    "type-check": "tsc --noEmit"
+    "prebuild": "expo prebuild"
   },
   "dependencies": {
     "expo": "^51.0.0",
@@ -36,40 +34,29 @@
     "expo-image-picker": "~15.0.7",
     "expo-image-manipulator": "~12.0.5",
     "expo-print": "~13.0.1",
-    "expo-notifications": "~0.28.1",
-    "expo-splash-screen": "~0.27.5",
-    "expo-device": "~6.0.2",
     "@react-native-async-storage/async-storage": "1.23.1",
-    "@expo/vector-icons": "^14.0.0",
     "@react-native-community/netinfo": "11.3.1",
     "react-native-svg": "15.2.0",
     "react-native-qrcode-svg": "^6.3.0",
+    "peerjs": "^1.5.4",
     "react-native-get-random-values": "~1.11.0",
     "react-native-webview": "13.8.6",
+    "expo-notifications": "~0.28.1",
+    "date-fns": "^3.6.0",
+    "expo-splash-screen": "~0.27.5",
+    "@expo/vector-icons": "^14.0.0",
     "react-native-webrtc": "124.0.4",
     "@config-plugins/react-native-webrtc": "^9.0.0",
-    "peerjs": "^1.5.4",
-    "date-fns": "^3.6.0",
+    "expo-device": "~6.0.2",
+    "motion": "^10.17.0",
     "lz-string": "^1.5.0",
     "fast-text-encoding": "^1.0.6",
-    "motion": "^10.17.0",
-    "@maplibre/maplibre-react-native": "^10.0.0",
-    "react-native-mmkv": "^2.12.2",
-    "zustand": "^4.5.2",
-    "immer": "^10.0.4",
-    "events": "^3.3.0"
+    "@maplibre/maplibre-react-native": "^10.0.0"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",
     "@types/react": "~18.2.45",
-    "@types/node": "^20.12.0",
-    "@types/events": "^3.0.3",
-    "typescript": "~5.3.3",
-    "eslint": "^8.57.0",
-    "@typescript-eslint/eslint-plugin": "^7.0.0",
-    "@typescript-eslint/parser": "^7.0.0",
-    "react-native-dotenv": "^3.4.11",
-    "metro-cache": "^0.80.9"
+    "typescript": "~5.3.3"
   },
   "private": true
 }

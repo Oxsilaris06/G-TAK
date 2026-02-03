@@ -1,32 +1,13 @@
 const { getDefaultConfig } = require('expo/metro-config');
-const { FileStore } = require('metro-cache');
-const path = require('path');
 
 const config = getDefaultConfig(__dirname);
 
 const { assetExts, sourceExts } = config.resolver;
 
-// Assets supplémentaires
-config.resolver.assetExts = [...assetExts, 'css', 'html', 'mbtiles', 'pbf'];
+// 1. On ajoute css et html aux assets (pour qu'ils soient inclus dans l'update)
+config.resolver.assetExts = [...assetExts, 'css', 'html'];
 
-// Source extensions
+// 2. On s'assure qu'ils ne sont PAS dans les sources (pour éviter les erreurs de compilation)
 config.resolver.sourceExts = sourceExts.filter(ext => ext !== 'css' && ext !== 'html');
-
-// Optimisation du bundler
-config.transformer.minifierConfig = {
-  keep_classnames: true,
-  keep_fnames: true,
-  mangle: {
-    keep_classnames: true,
-    keep_fnames: true,
-  },
-};
-
-// Cache optimization
-config.cacheStores = [
-  new FileStore({
-    root: path.join(__dirname, '.metro-cache'),
-  }),
-];
 
 module.exports = config;
