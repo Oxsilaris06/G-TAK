@@ -57,6 +57,21 @@ class ConnectivityService {
   /**
    * Initialise la connexion PeerJS
    */
+  /**
+   * Génère un ID court (6 caractères alphanumériques majuscules)
+   */
+  private generateShortId(): string {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let result = '';
+    for (let i = 0; i < 6; i++) {
+      result += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return result;
+  }
+
+  /**
+   * Initialise la connexion PeerJS
+   */
   async init(
     userData: UserData,
     role: OperatorRole,
@@ -69,18 +84,20 @@ class ConnectivityService {
     this.state.role = role;
     this.state.hostId = hostId || '';
 
-    // Récupération de l'ID persistant
-    const storedId = mmkvStorage.getString(CONFIG.SESSION_STORAGE_KEY);
-    console.log('[Connectivity] Stored ID:', storedId);
+    // Récupération de l'ID persistant ou génération d'un nouveau
+    let storedId = mmkvStorage.getString(CONFIG.SESSION_STORAGE_KEY);
+
+    // Si pas d'ID stocké, on en génère un court tout de suite
+    if (!storedId) {
+      storedId = this.generateShortId();
+    }
+
+    console.log('[Connectivity] Using ID:', storedId);
 
     return new Promise((resolve, reject) => {
       try {
-        // Créer le peer avec configuration optimisée
-        // Si on a un ID stocké, on l'utilise, sinon undefined pour en générer un nouveau
-        const peerId = storedId || undefined;
-
-        // Note: Si l'ID est indisponible (déjà pris ailleurs), PeerJS renverra une erreur
-        this.state.peer = new Peer(peerId, CONFIG.PEER_CONFIG);
+        // Créer le peer avec l'ID court
+        this.state.peer = new Peer(storedId, CONFIG.PEER_CONFIG);
 
         this.state.peer.on('open', (id) => {
           console.log('[Connectivity] Peer opened:', id);
@@ -116,13 +133,14 @@ class ConnectivityService {
 
           // Gestion du cas où l'ID est déjà pris (unavailable-id)
           if (err.type === 'unavailable-id') {
-            console.log('[Connectivity] ID unavailable, improving robustness...');
-            // Si l'ID stocké est pris, on le supprime et on retente sans ID pour en avoir un nouveau
+            console.log('[Connectivity] ID unavailable, generating new one...');
+            // L'ID est pris, on doit en générer un nouveau
             mmkvStorage.delete(CONFIG.SESSION_STORAGE_KEY);
-            this.state.peer?.destroy();
 
-            // On retente l'initialisation sans ID imposé (récursion)
-            // Attention à la boucle infinie potentielle, mais ici on a supprimé la clé donc ça devrait aller
+            // Nettoyage propre sans déclencher de reconnexion
+            this.cleanup();
+
+            // Récursion avec un nouvel ID généré
             this.init(userData, role, hostId).then(resolve).catch(reject);
             return;
           }
@@ -539,6 +557,9 @@ class ConnectivityService {
     this.state.connections.clear();
 
     if (this.state.peer) {
+      // IMPORTANT: Enlever les listeners pour éviter que destroy() déclenche 'disconnected'
+      // Ce qui provoquerait une boucle infinie de reconnexions
+      this.state.peer.removeAllListeners();
       this.state.peer.destroy();
       this.state.peer = null;
     }
