@@ -57,7 +57,8 @@ const App: React.FC = () => {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
    
   const [user, setUser] = useState<UserData>({ 
-      id: '', callsign: '', role: OperatorRole.OPR, status: OperatorStatus.CLEAR, 
+      id: 'loading...', // ID Persistant en cours de chargement
+      callsign: '', role: OperatorRole.OPR, status: OperatorStatus.CLEAR, 
       joinedAt: Date.now(), bat: 100, head: 0, lat: 0, lng: 0, lastMsg: '' 
   });
 
@@ -246,6 +247,15 @@ const App: React.FC = () => {
             if(mounted && level) setUser(u => ({ ...u, bat: Math.round(level * 100) }));
         } catch(e) {}
         
+        // --- INITIALISATION ID PERSISTANT ---
+        // On initialise la connectivité dès le chargement pour récupérer l'ID unique stocké
+        try {
+            await connectivityService.init(
+                { ...user, id: 'loading...', role: OperatorRole.OPR }, 
+                OperatorRole.OPR
+            );
+        } catch(e) { console.log("Init Connectivity Error:", e); }
+
         if (mounted) { 
             setIsAppReady(true); 
             setTimeout(() => SplashScreen.hideAsync().catch(() => {}), 500); 
@@ -329,6 +339,7 @@ const App: React.FC = () => {
   const handleConnectivityEvent = (event: ConnectivityEvent) => {
       switch (event.type) {
           case 'PEER_OPEN': 
+              // C'est ici qu'on récupère le VRAI ID persistant depuis le service
               setUser(prev => ({ ...prev, id: event.id })); 
               if (userRef.current.role === OperatorRole.HOST) {
                   setHostId(event.id);
@@ -451,7 +462,8 @@ const App: React.FC = () => {
           magSubscription.current = null;
       }
       setPeers({}); setPings([]); setLogs([]); setHostId(''); setView('login'); 
-      setUser(prev => ({...prev, id: '', role: OperatorRole.OPR, status: OperatorStatus.CLEAR }));
+      // On garde l'ID persistant même après logout, on ne reset que le statut
+      setUser(prev => ({...prev, role: OperatorRole.OPR, status: OperatorStatus.CLEAR }));
   }, []);
 
   const joinSession = async (id?: string) => {
@@ -463,6 +475,8 @@ const App: React.FC = () => {
       setUser(prev => ({ ...prev, role: role, paxColor: settings.userArrowColor, joinedAt: now }));
       
       try {
+          // L'init ici sert à nettoyer les listeners précédents et se connecter à l'hôte
+          // L'ID persistant est conservé car géré par ConnectivityService
           await connectivityService.init({ ...user, role, paxColor: settings.userArrowColor, joinedAt: now }, role, finalId);
           setHostId(finalId);
           setView('map'); 
@@ -478,6 +492,7 @@ const App: React.FC = () => {
       const now = Date.now();
       setUser(prev => ({ ...prev, role: role, paxColor: settings.userArrowColor, joinedAt: now }));
       try {
+          // L'init ici configure le rôle Hôte
           await connectivityService.init({ ...user, role, paxColor: settings.userArrowColor, joinedAt: now }, role);
           setView('map'); 
           setLastOpsView('map');
@@ -748,6 +763,10 @@ const App: React.FC = () => {
             <View style={{flexDirection: 'row', justifyContent:'space-between', marginBottom: 20}}>
                 <Text style={styles.sectionTitle}>Praxis</Text>
                 <TouchableOpacity onPress={() => setShowSettings(true)}><MaterialIcons name="settings" size={24} color="white" /></TouchableOpacity>
+            </View>
+            <View style={{alignItems: 'center', marginBottom: 20}}>
+                <Text style={{color: '#52525b', fontSize: 10}}>ID TERMINAL</Text>
+                <Text style={{color: '#3b82f6', fontSize: 16, fontWeight: 'bold'}}>{user.id}</Text>
             </View>
             {hostId ? (
                 <>
@@ -1209,7 +1228,6 @@ const styles = StyleSheet.create({
   scannerClose: { position: 'absolute', top: 50, right: 20, padding: 10, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 20 },
   
   mapControls: { position: 'absolute', top: 16, right: 16, gap: 12, zIndex: 2000, elevation: 2000 },
-  // UPDATE: Code 2 Map Button Style
   mapBtn: { 
     width: 48, height: 48, borderRadius: 24, 
     backgroundColor: 'rgba(24, 24, 27, 0.9)', 
@@ -1222,7 +1240,6 @@ const styles = StyleSheet.create({
   footerLandscape: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: 'transparent', zIndex: 2000, paddingBottom: 10, borderTopWidth: 0 },
   
   statusRow: { flexDirection: 'row', padding: 12, gap: 8, flexWrap: 'wrap', justifyContent: 'center' },
-  // UPDATE: Code 2 Status Button Style + Flex Fix
   statusBtn: { 
     flex: 1,
     paddingHorizontal: 16, paddingVertical: 12, 
@@ -1293,7 +1310,6 @@ const styles = StyleSheet.create({
   
   nightOpsOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(127, 29, 29, 0.2)', zIndex: 99999, pointerEvents: 'none' },
 
-  // Styles Photo
   photoContainer: { width: '100%', marginVertical: 10, alignItems: 'center', justifyContent: 'center' },
   addPhotoBtn: { height: 100, borderRadius: 12, borderWidth: 2, borderColor: '#333', borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.05)' },
   removePhotoBtn: { position: 'absolute', top: 5, right: 5, backgroundColor: 'rgba(239, 68, 68, 0.8)', borderRadius: 15, width: 30, height: 30, justifyContent: 'center', alignItems: 'center' }
