@@ -4,7 +4,7 @@ import MapLibreGL from '@maplibre/maplibre-react-native';
 import { UserData, PingData } from '../types';
 import { MaterialIcons } from '@expo/vector-icons';
 
-// Configuration de MapLibre (Pas de token nécessaire pour les sources ouvertes)
+// Configuration de MapLibre
 MapLibreGL.setAccessToken(null);
 
 interface TacticalMapProps {
@@ -22,10 +22,9 @@ interface TacticalMapProps {
   nightOpsMode?: boolean;
   initialCenter?: {lat: number, lng: number, zoom: number};
   
-  // --- Props ajoutées pour compatibilité App.tsx ---
+  // Props de compatibilité
   isLandscape?: boolean;
   maxTrailsPerUser?: number;
-  // -----------------------------------------------
 
   onPing: (loc: { lat: number; lng: number }) => void;
   onPingMove: (ping: PingData) => void;
@@ -68,7 +67,7 @@ const MAP_STYLES = {
 const TacticalMap: React.FC<TacticalMapProps> = ({
   me, peers, pings, mapMode, customMapUrl, showTrails, showPings, isHost, userArrowColor, navTargetId, pingMode, nightOpsMode, initialCenter,
   isLandscape, 
-  maxTrailsPerUser = 50, // Valeur par défaut
+  maxTrailsPerUser = 50,
   onPing, onPingMove, onPingClick, onPingLongPress, onNavStop, onMapMoveEnd
 }) => {
   const cameraRef = useRef<MapLibreGL.Camera>(null);
@@ -82,6 +81,64 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
   
   // État pour l'orientation visuelle de la boussole
   const [mapHeading, setMapHeading] = useState(0);
+
+  // --- GESTION DE LA CAMÉRA (RÉACTIVE AUX PROPS) ---
+
+  // 1. Réaction au changement de Cible de Navigation (FitBounds)
+  useEffect(() => {
+    if (!isMapReady || !cameraRef.current) return;
+
+    if (navTargetId && me.location) {
+        // Trouver la cible (Ping ou Peer)
+        let targetLoc = null;
+        const targetPing = pings.find(p => p.id === navTargetId);
+        if (targetPing) targetLoc = targetPing.location;
+        else {
+            const targetPeer = peers[navTargetId];
+            if (targetPeer) targetLoc = targetPeer.location;
+        }
+
+        if (targetLoc) {
+            // Calculer la bounding box [minLng, minLat, maxLng, maxLat]
+            const minLng = Math.min(me.location.lng, targetLoc.lng);
+            const minLat = Math.min(me.location.lat, targetLoc.lat);
+            const maxLng = Math.max(me.location.lng, targetLoc.lng);
+            const maxLat = Math.max(me.location.lat, targetLoc.lat);
+
+            // Désactiver le suivi utilisateur strict pour permettre le fitBounds
+            setUserTrackingMode(MapLibreGL.UserTrackingMode.None);
+
+            cameraRef.current.fitBounds(
+                [maxLng, maxLat], // NorthEast
+                [minLng, minLat], // SouthWest
+                50, // Padding
+                1000 // Animation duration
+            );
+        }
+    } else if (!navTargetId && me.location) {
+        // Si on arrête la navigation, on retourne sur l'utilisateur
+        setUserTrackingMode(MapLibreGL.UserTrackingMode.Follow);
+        cameraRef.current.setCamera({
+            centerCoordinate: [me.location.lng, me.location.lat],
+            zoomLevel: 15,
+            animationDuration: 1000
+        });
+    }
+  }, [navTargetId, isMapReady]); // Dépend de navTargetId
+
+  // 2. Réaction au changement d'InitialCenter (Si App.tsx force un recentrage via cette prop)
+  useEffect(() => {
+      if (!isMapReady || !cameraRef.current || !initialCenter) return;
+      
+      // Si App.tsx change initialCenter, on déplace la caméra explicitement
+      cameraRef.current.setCamera({
+          centerCoordinate: [initialCenter.lng, initialCenter.lat],
+          zoomLevel: initialCenter.zoom,
+          animationDuration: 500
+      });
+  }, [initialCenter, isMapReady]);
+
+  // --- FIN GESTION CAMÉRA ---
 
   // Mise à jour des traces
   useEffect(() => {
@@ -98,9 +155,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                 const currentPos = [peer.location.lng, peer.location.lat];
                 const lastPos = newTrails[peer.id][newTrails[peer.id].length - 1];
                 
-                // Vérification de mouvement minimal pour éviter de spammer des points au même endroit
                 if (!lastPos || (Math.abs(lastPos[0] - currentPos[0]) > 0.0001 || Math.abs(lastPos[1] - currentPos[1]) > 0.0001)) {
-                    // Utilisation de maxTrailsPerUser pour limiter la longueur de la traînée
                     newTrails[peer.id] = [...newTrails[peer.id], currentPos].slice(-maxTrailsPerUser);
                 }
             }
@@ -111,42 +166,30 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
 
   // Fonction de bascule de la boussole
   const toggleCompass = () => {
-    // Si on est déjà en mode boussole (suivi du cap)
     if (userTrackingMode === MapLibreGL.UserTrackingMode.FollowWithHeading) {
-        // Clic 2 : Retour au Nord (Follow simple)
         setUserTrackingMode(MapLibreGL.UserTrackingMode.Follow);
-        // On force l'animation de retour à 0°
         cameraRef.current?.setCamera({ heading: 0, animationDuration: 500 });
         setMapHeading(0); 
     } else {
-        // Clic 1 : Mode Boussole (Heading)
         setUserTrackingMode(MapLibreGL.UserTrackingMode.FollowWithHeading);
     }
   };
 
-  // Sources GeoJSON
   const trailsSource = useMemo(() => {
     if (!showTrails) return { type: 'FeatureCollection', features: [] };
-    
     const features = Object.entries(trails).map(([id, coordinates]) => {
         if (coordinates.length < 2) return null;
         return {
             type: 'Feature',
-            geometry: {
-                type: 'LineString',
-                coordinates: coordinates
-            },
+            geometry: { type: 'LineString', coordinates: coordinates },
             properties: { id }
         };
     }).filter(f => f !== null);
-
     return { type: 'FeatureCollection', features };
   }, [trails, showTrails]);
 
-  // Données des pairs avec orientation
   const peerFeatureCollection = useMemo(() => {
     const features = Object.values(peers)
-    // Sécurité : On filtre les pairs qui n'ont pas de location valide
     .filter(peer => peer.location && peer.location.lng !== undefined && peer.location.lat !== undefined)
     .map(peer => ({
       type: 'Feature',
@@ -161,7 +204,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         name: peer.username,
         role: peer.role,
         team: peer.team || 'NEUTRAL',
-        // Orientation pour le cône de vision (0 = Nord, rotation horaire)
         heading: peer.orientation || 0,
         color: peer.team === 'RED' ? '#ef4444' : (peer.team === 'BLUE' ? '#3b82f6' : '#10b981')
       }
@@ -169,14 +211,19 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
     return { type: 'FeatureCollection', features };
   }, [peers]);
 
-  const mapStyle = useMemo(() => {
+  // Séparation explicite StyleURL vs StyleJSON pour éviter les conflits
+  const currentStyleURL = useMemo(() => {
+    if (mapMode === 'satellite') return undefined; // On utilise JSON pour satellite
     if (mapMode === 'custom' && customMapUrl) return customMapUrl;
-    if (mapMode === 'satellite') return JSON.stringify(SATELLITE_STYLE);
     if (mapMode === 'light') return MAP_STYLES.light;
     return MAP_STYLES.dark;
   }, [mapMode, customMapUrl]);
 
-  // Handlers
+  const currentStyleJSON = useMemo(() => {
+    if (mapMode === 'satellite') return JSON.stringify(SATELLITE_STYLE);
+    return undefined;
+  }, [mapMode]);
+
   const handlePress = (e: any) => {
     const { geometry } = e;
     if (geometry && geometry.coordinates) {
@@ -199,7 +246,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
 
   const navLineSource = useMemo(() => {
     if (!navTargetId) return { type: 'FeatureCollection', features: [] };
-    
     let targetLoc = null;
     const targetPing = pings.find(p => p.id === navTargetId);
     if (targetPing) targetLoc = targetPing.location;
@@ -207,7 +253,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         const targetPeer = peers[navTargetId];
         if (targetPeer) targetLoc = targetPeer.location;
     }
-
     if (targetLoc && me.location) {
         return {
             type: 'FeatureCollection',
@@ -232,16 +277,17 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
     <View style={styles.container}>
       <MapLibreGL.MapView
         style={styles.map}
-        styleJSON={mapMode === 'satellite' ? JSON.stringify(SATELLITE_STYLE) : undefined}
-        styleURL={mapMode !== 'satellite' ? (mapStyle as string) : undefined}
+        // Gestion robuste du style : soit URL, soit JSON, jamais les deux en conflit
+        styleURL={currentStyleURL}
+        styleJSON={currentStyleJSON}
+        
         logoEnabled={false}
         attributionEnabled={false}
         rotateEnabled={true}
-        compassEnabled={false} // Désactivé pour utiliser notre boussole custom
+        compassEnabled={false}
         onPress={handlePress}
         onLongPress={handleLongPress}
         onDidFinishLoadingMap={() => setIsMapReady(true)}
-        // Mise à jour de l'orientation de la boussole
         onRegionIsChanging={(e) => {
             if (e.properties && typeof e.properties.heading === 'number') {
                 setMapHeading(e.properties.heading);
@@ -262,18 +308,16 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         <MapLibreGL.Camera
           ref={cameraRef}
           defaultSettings={{
-            // Sécurité : Si me.location n'existe pas encore, on centre sur 0,0 ou on garde initialCenter
             centerCoordinate: initialCenter 
               ? [initialCenter.lng, initialCenter.lat] 
               : (me.location ? [me.location.lng, me.location.lat] : [0, 0]),
             zoomLevel: initialCenter ? initialCenter.zoom : 15,
           }}
+          // On ne force le suivi que si PAS de navigation en cours
           followUserLocation={!navTargetId && !!me.location}
           followUserMode={userTrackingMode}
         />
 
-        {/* --- COUCHE JOUEUR LOCAL (Me) --- */}
-        {/* Utilise le capteur natif avec le style par défaut qui est un cercle avec cône de vision */}
         <MapLibreGL.UserLocation
           visible={true}
           animated={true}
@@ -308,13 +352,10 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
             </MapLibreGL.ShapeSource>
         )}
 
-        {/* --- COUCHE PEERS (Autres Opérateurs) --- */}
         <MapLibreGL.ShapeSource id="peersSource" shape={peerFeatureCollection as any}>
-            {/* 1. Cercle de position (Semi-transparent et taille dynamique) */}
             <MapLibreGL.CircleLayer
                 id="peerCircles"
                 style={{
-                    // Rayon interpolé selon le zoom : Zoom 10 -> 4px, Zoom 15 -> 10px, Zoom 20 -> 25px
                     circleRadius: [
                         'interpolate', ['linear'], ['zoom'],
                         10, 4,
@@ -324,16 +365,13 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                     circleColor: ['get', 'color'],
                     circleStrokeWidth: 2,
                     circleStrokeColor: '#FFFFFF',
-                    circleOpacity: 0.6 // Semi-transparent
+                    circleOpacity: 0.6
                 }}
             />
-            
-            {/* 2. CÔNE DE VISION / FLÈCHE DE DIRECTION */}
             <MapLibreGL.SymbolLayer
                 id="peerDirection"
                 style={{
                     textField: '▲', 
-                    // Taille interpolée selon le zoom pour rester proportionnelle
                     textSize: [
                         'interpolate', ['linear'], ['zoom'],
                         10, 8,
@@ -343,14 +381,12 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                     textColor: ['get', 'color'],
                     textRotate: ['get', 'heading'], 
                     textRotationAlignment: 'map', 
-                    textAllowOverlap: true,   // Permet la superposition
-                    textIgnorePlacement: true, // Ignore les collisions
+                    textAllowOverlap: true,
+                    textIgnorePlacement: true,
                     textOffset: [0, 0], 
                     textOpacity: 0.9
                 }}
             />
-
-            {/* 3. Nom de l'opérateur */}
             <MapLibreGL.SymbolLayer
                 id="peerLabels"
                 style={{
@@ -360,14 +396,13 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                     textColor: '#FFFFFF',
                     textHaloColor: '#000000',
                     textHaloWidth: 1,
-                    textAllowOverlap: true,   // Les noms peuvent se superposer
-                    textIgnorePlacement: true // Les noms s'affichent toujours
+                    textAllowOverlap: true,
+                    textIgnorePlacement: true
                 }}
             />
         </MapLibreGL.ShapeSource>
 
         {showPings && pings.map((ping) => {
-            // Sécurité : On ignore les pings sans location
             if (!ping.location || ping.location.lng === undefined) return null;
             return (
             <MapLibreGL.PointAnnotation
@@ -400,7 +435,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
 
       {/* --- UI OVERLAYS --- */}
       
-      {/* BOUSSOLE INTÉRACTIVE */}
       <TouchableOpacity style={styles.compassBtn} onPress={toggleCompass} activeOpacity={0.7}>
           <MaterialIcons 
             name="explore" 
@@ -410,7 +444,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
           />
       </TouchableOpacity>
 
-      {/* Bouton pour Arrêter la Navigation */}
       {navTargetId && (
           <View style={styles.navControls}>
               <TouchableOpacity style={styles.stopNavBtn} onPress={onNavStop}>
