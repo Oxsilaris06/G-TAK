@@ -57,7 +57,7 @@ const App: React.FC = () => {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
    
   const [user, setUser] = useState<UserData>({ 
-      id: 'loading...', // ID Persistant en cours de chargement
+      id: '', // Initialisé via AsyncStorage
       callsign: '', role: OperatorRole.OPR, status: OperatorStatus.CLEAR, 
       joinedAt: Date.now(), bat: 100, head: 0, lat: 0, lng: 0, lastMsg: '' 
   });
@@ -247,12 +247,22 @@ const App: React.FC = () => {
             if(mounted && level) setUser(u => ({ ...u, bat: Math.round(level * 100) }));
         } catch(e) {}
         
-        // --- INITIALISATION ID PERSISTANT ---
-        // On initialise la connectivité dès le chargement pour récupérer l'ID unique stocké
-        // Le service s'occupera d'écraser 'loading...' avec le vrai ID
+        // --- INITIALISATION ID PERSISTANT (CORRECTIF) ---
+        // 1. On récupère l'ID manuellement pour l'afficher tout de suite
+        // 2. On le passe au service pour éviter qu'il en regénère un ou utilise un UUID long
         try {
+            const STORAGE_KEY_ID = '@praxis_persistent_id';
+            let savedId = await AsyncStorage.getItem(STORAGE_KEY_ID);
+            if (!savedId) {
+                savedId = Math.random().toString(36).substr(2, 9).toUpperCase();
+                await AsyncStorage.setItem(STORAGE_KEY_ID, savedId);
+            }
+            // Mise à jour immédiate de l'ID utilisateur dans l'état
+            if (mounted) setUser(prev => ({ ...prev, id: savedId || '' }));
+
+            // Initialisation du service avec cet ID explicite
             await connectivityService.init(
-                { ...user, id: 'loading...', role: OperatorRole.OPR }, 
+                { ...user, id: savedId || '', role: OperatorRole.OPR }, 
                 OperatorRole.OPR
             );
         } catch(e) { console.log("Init Connectivity Error:", e); }
@@ -339,8 +349,8 @@ const App: React.FC = () => {
   const handleConnectivityEvent = (event: ConnectivityEvent) => {
       switch (event.type) {
           case 'PEER_OPEN': 
-              // C'est ici qu'on récupère le VRAI ID persistant depuis le service
-              console.log("[App] ID Persistant récupéré:", event.id);
+              // ID confirmé par le service (devrait être le même que celui initialisé)
+              console.log("[App] ID Confirmé:", event.id);
               setUser(prev => ({ ...prev, id: event.id })); 
               if (userRef.current.role === OperatorRole.HOST) {
                   setHostId(event.id);
@@ -382,9 +392,12 @@ const App: React.FC = () => {
   };
 
   const handleProtocolData = (data: any, fromId: string) => {
-      const senderName = peersRef.current[fromId]?.callsign || fromId.substring(0,4);
+      // Use Ref to avoid stale closures
+      const currentUser = userRef.current;
+      const currentPeers = peersRef.current;
+      const senderName = currentPeers[fromId]?.callsign || fromId.substring(0,4);
       
-      if (data.type === 'HELLO' && user.role === OperatorRole.HOST) {
+      if (data.type === 'HELLO' && currentUser.role === OperatorRole.HOST) {
           connectivityService.sendTo(fromId, { type: 'SYNC_PINGS', pings: pingsRef.current });
           connectivityService.sendTo(fromId, { type: 'SYNC_LOGS', logs: logsRef.current });
       }
@@ -422,8 +435,8 @@ const App: React.FC = () => {
        
       else if ((data.type === 'UPDATE_USER' || data.type === 'UPDATE') && data.user) {
           const u = data.user as UserData;
-          const prevStatus = peersRef.current[u.id]?.status;
-          const prevMsg = peersRef.current[u.id]?.lastMsg;
+          const prevStatus = currentPeers[u.id]?.status;
+          const prevMsg = currentPeers[u.id]?.lastMsg;
 
           setPeers(prev => ({
               ...prev,
@@ -830,7 +843,8 @@ const App: React.FC = () => {
                       mapMode={mapMode} customMapUrl={settings.customMapUrl}
                       showTrails={showTrails} showPings={showPings} 
                       isHost={user.role === OperatorRole.HOST} 
-                      userArrowColor={settings.userArrowColor}
+                      // CORRECTION COULEUR: Change selon le statut (Rouge si CONTACT)
+                      userArrowColor={user.status === OperatorStatus.CONTACT ? STATUS_COLORS.CONTACT : settings.userArrowColor}
                       pingMode={isPingMode} navTargetId={navTargetId}
                       nightOpsMode={nightOpsMode} 
                       initialCenter={mapState} 
