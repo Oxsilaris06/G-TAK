@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useMemo, useState } from 'react';
 import { View, StyleSheet, Text, TouchableOpacity } from 'react-native';
 import MapLibreGL from '@maplibre/maplibre-react-native';
 import { UserData, PingData } from '../types';
-import { MaterialIcons } from '@expo/vector-icons'; // Assure-toi d'avoir les icônes
+import { MaterialIcons } from '@expo/vector-icons';
 
 // Configuration de MapLibre (Pas de token nécessaire pour les sources ouvertes)
 MapLibreGL.setAccessToken(null);
@@ -66,14 +66,16 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
   const cameraRef = useRef<MapLibreGL.Camera>(null);
   const [isMapReady, setIsMapReady] = useState(false);
   
-  // État local pour stocker les traces (historique des positions)
+  // État local pour stocker les traces
   const [trails, setTrails] = useState<Record<string, number[][]>>({});
 
   // État pour le mode de suivi (Nord ou Boussole)
-  // Par défaut : Follow (Nord en haut)
   const [userTrackingMode, setUserTrackingMode] = useState<any>(MapLibreGL.UserTrackingModes.Follow);
+  
+  // État pour l'orientation visuelle de la boussole
+  const [mapHeading, setMapHeading] = useState(0);
 
-  // Mise à jour des traces quand les pairs bougent
+  // Mise à jour des traces
   useEffect(() => {
     if (!showTrails) {
         setTrails({});
@@ -88,9 +90,8 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                 const currentPos = [peer.location.lng, peer.location.lat];
                 const lastPos = newTrails[peer.id][newTrails[peer.id].length - 1];
                 
-                // On ajoute seulement si la position a changé significativement
                 if (!lastPos || (Math.abs(lastPos[0] - currentPos[0]) > 0.0001 || Math.abs(lastPos[1] - currentPos[1]) > 0.0001)) {
-                    newTrails[peer.id] = [...newTrails[peer.id], currentPos].slice(-50); // Garder les 50 derniers points
+                    newTrails[peer.id] = [...newTrails[peer.id], currentPos].slice(-50);
                 }
             }
         });
@@ -100,18 +101,20 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
 
   // Fonction de bascule de la boussole
   const toggleCompass = () => {
+    // Si on est déjà en mode boussole (suivi du cap)
     if (userTrackingMode === MapLibreGL.UserTrackingModes.FollowWithHeading) {
-        // Retour au mode Nord par défaut
+        // Clic 2 : Retour au Nord (Follow simple)
         setUserTrackingMode(MapLibreGL.UserTrackingModes.Follow);
-        // Force la caméra à revenir au Nord (0)
+        // On force l'animation de retour à 0°
         cameraRef.current?.setCamera({ heading: 0, animationDuration: 500 });
+        setMapHeading(0); 
     } else {
-        // Active le mode Boussole (la carte tourne avec le téléphone)
+        // Clic 1 : Mode Boussole (Heading)
         setUserTrackingMode(MapLibreGL.UserTrackingModes.FollowWithHeading);
     }
   };
 
-  // Source GeoJSON pour les Trails
+  // Sources GeoJSON
   const trailsSource = useMemo(() => {
     if (!showTrails) return { type: 'FeatureCollection', features: [] };
     
@@ -130,7 +133,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
     return { type: 'FeatureCollection', features };
   }, [trails, showTrails]);
 
-  // Conversion des pairs en GeoJSON
+  // Données des pairs avec orientation
   const peerFeatureCollection = useMemo(() => {
     const features = Object.values(peers).map(peer => ({
       type: 'Feature',
@@ -145,13 +148,14 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         name: peer.username,
         role: peer.role,
         team: peer.team || 'NEUTRAL',
+        // Orientation pour le cône de vision (0 = Nord, rotation horaire)
         heading: peer.orientation || 0,
+        color: peer.team === 'RED' ? '#ef4444' : (peer.team === 'BLUE' ? '#3b82f6' : '#10b981')
       }
     }));
     return { type: 'FeatureCollection', features };
   }, [peers]);
 
-  // Gestion du style de carte
   const mapStyle = useMemo(() => {
     if (mapMode === 'custom' && customMapUrl) return customMapUrl;
     if (mapMode === 'satellite') return JSON.stringify(SATELLITE_STYLE);
@@ -159,7 +163,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
     return MAP_STYLES.dark;
   }, [mapMode, customMapUrl]);
 
-  // Gestion des clics sur la carte
+  // Handlers
   const handlePress = (e: any) => {
     const { geometry } = e;
     if (geometry && geometry.coordinates) {
@@ -173,7 +177,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
   const handleLongPress = (e: any) => {
     const { geometry } = e;
     if (geometry && geometry.coordinates) {
-        // En MapLibre natif, on peut utiliser ceci pour un ping spécial ou menu
         onPing({
             lng: geometry.coordinates[0],
             lat: geometry.coordinates[1]
@@ -181,7 +184,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
     }
   };
 
-  // Trajectoire de navigation
   const navLineSource = useMemo(() => {
     if (!navTargetId) return { type: 'FeatureCollection', features: [] };
     
@@ -222,12 +224,20 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         logoEnabled={false}
         attributionEnabled={false}
         rotateEnabled={true}
-        compassEnabled={false} // On désactive la boussole native pour utiliser notre bouton custom
+        compassEnabled={false} // Désactivé pour utiliser notre boussole custom
         onPress={handlePress}
         onLongPress={handleLongPress}
         onDidFinishLoadingMap={() => setIsMapReady(true)}
-        // Ajout de la détection de mouvement pour parité complète
+        // Mise à jour de l'orientation de la boussole
+        onRegionIsChanging={(e) => {
+            if (e.properties && typeof e.properties.heading === 'number') {
+                setMapHeading(e.properties.heading);
+            }
+        }}
         onRegionDidChange={(e) => {
+            if (e.properties && typeof e.properties.heading === 'number') {
+                setMapHeading(e.properties.heading);
+            }
             if (onMapMoveEnd && e.geometry && e.properties) {
                 onMapMoveEnd(
                     { lng: e.geometry.coordinates[0], lat: e.geometry.coordinates[1] },
@@ -242,19 +252,19 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
             centerCoordinate: initialCenter ? [initialCenter.lng, initialCenter.lat] : [me.location.lng, me.location.lat],
             zoomLevel: initialCenter ? initialCenter.zoom : 15,
           }}
-          followUserLocation={!navTargetId} // Si on a une cible nav, on ne force pas le suivi auto
-          followUserMode={userTrackingMode} // Utilisation de l'état dynamique (Follow ou FollowWithHeading)
+          followUserLocation={!navTargetId}
+          followUserMode={userTrackingMode}
         />
 
-        {/* --- COUCHE JOUEUR (Me) --- */}
+        {/* --- COUCHE JOUEUR LOCAL (Me) --- */}
+        {/* Utilise le capteur natif avec le style par défaut qui est un cercle avec cône de vision */}
         <MapLibreGL.UserLocation
           visible={true}
           animated={true}
-          showsUserHeadingIndicator={true}
+          showsUserHeadingIndicator={true} 
           renderMode="normal"
         />
 
-        {/* --- COUCHE TRAILS (Traces historiques) --- */}
         {showTrails && (
              <MapLibreGL.ShapeSource id="trailsSource" shape={trailsSource as any}>
                 <MapLibreGL.LineLayer
@@ -268,7 +278,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
             </MapLibreGL.ShapeSource>
         )}
 
-        {/* --- COUCHE NAVIGATION --- */}
         {navTargetId && (
             <MapLibreGL.ShapeSource id="navLineSource" shape={navLineSource as any}>
                 <MapLibreGL.LineLayer
@@ -283,39 +292,64 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
             </MapLibreGL.ShapeSource>
         )}
 
-        {/* --- COUCHE PEERS (Opérateurs) --- */}
+        {/* --- COUCHE PEERS (Autres Opérateurs) --- */}
         <MapLibreGL.ShapeSource id="peersSource" shape={peerFeatureCollection as any}>
+            {/* 1. Cercle de position (Semi-transparent et taille dynamique) */}
             <MapLibreGL.CircleLayer
                 id="peerCircles"
                 style={{
-                    circleRadius: 10,
-                    circleColor: [
-                        'match',
-                        ['get', 'team'],
-                        'BLUE', '#3b82f6',
-                        'RED', '#ef4444',
-                        '#10b981'
+                    // Rayon interpolé selon le zoom : Zoom 10 -> 4px, Zoom 15 -> 10px, Zoom 20 -> 25px
+                    circleRadius: [
+                        'interpolate', ['linear'], ['zoom'],
+                        10, 4,
+                        15, 10,
+                        22, 30
                     ],
+                    circleColor: ['get', 'color'],
                     circleStrokeWidth: 2,
                     circleStrokeColor: '#FFFFFF',
-                    circleOpacity: 0.8
+                    circleOpacity: 0.6 // Semi-transparent
                 }}
             />
+            
+            {/* 2. CÔNE DE VISION / FLÈCHE DE DIRECTION */}
+            <MapLibreGL.SymbolLayer
+                id="peerDirection"
+                style={{
+                    textField: '▲', 
+                    // Taille interpolée selon le zoom pour rester proportionnelle
+                    textSize: [
+                        'interpolate', ['linear'], ['zoom'],
+                        10, 8,
+                        15, 18,
+                        22, 40
+                    ],
+                    textColor: ['get', 'color'],
+                    textRotate: ['get', 'heading'], 
+                    textRotationAlignment: 'map', 
+                    textAllowOverlap: true,   // Permet la superposition
+                    textIgnorePlacement: true, // Ignore les collisions
+                    textOffset: [0, 0], 
+                    textOpacity: 0.9
+                }}
+            />
+
+            {/* 3. Nom de l'opérateur */}
             <MapLibreGL.SymbolLayer
                 id="peerLabels"
                 style={{
                     textField: ['get', 'name'],
                     textSize: 12,
-                    textOffset: [0, 1.5],
+                    textOffset: [0, 2], 
                     textColor: '#FFFFFF',
                     textHaloColor: '#000000',
                     textHaloWidth: 1,
-                    textAllowOverlap: false
+                    textAllowOverlap: true,   // Les noms peuvent se superposer
+                    textIgnorePlacement: true // Les noms s'affichent toujours
                 }}
             />
         </MapLibreGL.ShapeSource>
 
-        {/* --- COUCHE PINGS (Interactifs / Draggable) --- */}
         {showPings && pings.map((ping) => (
             <MapLibreGL.PointAnnotation
                 key={ping.id}
@@ -347,16 +381,17 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
 
       {/* --- UI OVERLAYS --- */}
       
-      {/* Bouton Boussole Custom (Top Right) */}
-      <TouchableOpacity style={styles.compassBtn} onPress={toggleCompass}>
+      {/* BOUSSOLE INTÉRACTIVE */}
+      <TouchableOpacity style={styles.compassBtn} onPress={toggleCompass} activeOpacity={0.7}>
           <MaterialIcons 
             name="explore" 
-            size={28} 
+            size={36} 
             color={userTrackingMode === MapLibreGL.UserTrackingModes.FollowWithHeading ? "#FFD700" : "white"} 
+            style={{ transform: [{ rotate: `${-mapHeading}deg` }] }}
           />
       </TouchableOpacity>
 
-      {/* Bouton pour Arrêter la Navigation (si active) */}
+      {/* Bouton pour Arrêter la Navigation */}
       {navTargetId && (
           <View style={styles.navControls}>
               <TouchableOpacity style={styles.stopNavBtn} onPress={onNavStop}>
@@ -367,7 +402,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
           </View>
       )}
 
-      {/* Overlay NightOps */}
       {nightOpsMode && (
         <View style={styles.nightOpsOverlay} pointerEvents="none" />
       )}
@@ -409,15 +443,16 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 50,
     right: 16,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(0,0,0,0.6)',
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#444',
-    zIndex: 100
+    borderColor: 'rgba(255,255,255,0.3)',
+    zIndex: 100,
+    elevation: 4
   },
   navControls: {
       position: 'absolute',
