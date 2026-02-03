@@ -1,4 +1,6 @@
 const { getDefaultConfig } = require('expo/metro-config');
+const { FileStore } = require('metro-cache');
+const path = require('path');
 
 const config = getDefaultConfig(__dirname);
 
@@ -22,8 +24,8 @@ config.transformer.minifierConfig = {
 
 // Cache optimization
 config.cacheStores = [
-  require('metro-cache'). new FileStore({
-    root: require('path').join(__dirname, '.metro-cache'),
+  new FileStore({
+    root: path.join(__dirname, '.metro-cache'),
   }),
 ];
 
