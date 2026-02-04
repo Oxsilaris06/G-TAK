@@ -144,18 +144,26 @@ interface TacticalCompassProps {
 }
 
 const TacticalCompass = ({ heading, isLandscape, onPress, mode }: TacticalCompassProps) => {
+  // Correction: En mode Paysage, l'orientation est inversée de 180° selon le retour utilisateur
+  const displayHeading = isLandscape ? (heading + 180) % 360 : heading;
+
+  // Correction positionnement paysage (Absolu explicite)
+  const containerStyle = isLandscape
+    ? { position: 'absolute' as 'absolute', bottom: 120, left: 20 }
+    : { position: 'absolute' as 'absolute', top: 20, left: 20 };
+
   return (
     <TouchableOpacity
       onPress={onPress}
       activeOpacity={0.7}
-      style={[styles.compassContainer, isLandscape ? styles.compassLandscape : null]}
+      style={[styles.compassContainer, containerStyle]}
     >
       <View style={styles.compassIndicator} />
       <View style={[
         styles.compassRose,
         {
           transform: [{
-            rotate: mode === 'heading' ? `${-heading}deg` : '0deg'
+            rotate: mode === 'heading' ? `${-displayHeading}deg` : '0deg'
           }]
         }
       ]}>
@@ -173,6 +181,7 @@ const TacticalCompass = ({ heading, isLandscape, onPress, mode }: TacticalCompas
   );
 };
 
+
 // 3. Marker Ping
 interface PingMarkerProps {
   ping: PingData;
@@ -182,6 +191,16 @@ interface PingMarkerProps {
 }
 
 const PingMarker = ({ ping, nightOpsMode, onPress, onLongPress }: PingMarkerProps) => {
+  const lastTap = useRef<number>(0);
+
+  const handlePress = () => {
+    const now = Date.now();
+    if (now - lastTap.current < 300) {
+      onPress(); // Double tap reconnu = Edition
+    }
+    lastTap.current = now;
+  };
+
   const getPingColors = () => {
     switch (ping.type) {
       case 'HOSTILE': return { bg: '#450a0a', border: '#ef4444', text: '#ef4444' };
@@ -196,13 +215,14 @@ const PingMarker = ({ ping, nightOpsMode, onPress, onLongPress }: PingMarkerProp
 
   return (
     <TouchableOpacity
-      onPress={onPress}
+      onPress={handlePress}
       onLongPress={onLongPress}
-      activeOpacity={0.8}
+      activeOpacity={0.6}
       style={styles.pingMarkerContainer}
     >
+      {/* Taille réduite pour précision (28x28) */}
       <View style={[styles.pingMarker, { backgroundColor: colors.bg, borderColor: colors.border }]}>
-        <MaterialIcons name={iconName} size={20} color={colors.text} />
+        <MaterialIcons name={iconName} size={16} color={colors.text} />
       </View>
       <View style={styles.pingLabelContainer}>
         <Text style={[styles.pingLabel, { color: colors.text }]} numberOfLines={1}>
@@ -244,8 +264,8 @@ const TacticalMap = ({
   const [isMapReady, setIsMapReady] = useState(false);
   const [followUser, setFollowUser] = useState(true);
   const [trails, setTrails] = useState<Record<string, { coords: [number, number][], color: string }[]>>({});
-  // Mode Boussole
-  const [compassMode, setCompassMode] = useState<'north' | 'heading'>('heading');
+  // Mode Boussole : Par défaut au NORD
+  const [compassMode, setCompassMode] = useState<'north' | 'heading'>('north');
 
   // Effet pour la boussole magnétique
   useEffect(() => {
@@ -335,16 +355,21 @@ const TacticalMap = ({
     }
   }, [isMapReady, navTargetId, peers, followUser, me.lat, me.lng]);
 
-  // Initial Center
+  // Initial Center & Systematic User Center on Load
+  const initialCenterDone = useRef(false);
+
   useEffect(() => {
-    if (isMapReady && initialCenter) {
+    if (isMapReady && me.lat && me.lng && !initialCenterDone.current) {
+      // Force centering on user at startup AND Force North orientation
       cameraRef.current?.setCamera({
-        centerCoordinate: [initialCenter.lng, initialCenter.lat],
-        zoomLevel: initialCenter.zoom,
-        animationDuration: 0
+        centerCoordinate: [me.lng, me.lat],
+        zoomLevel: initialCenter?.zoom || 15,
+        heading: 0,
+        animationDuration: 1000
       });
+      initialCenterDone.current = true;
     }
-  }, [isMapReady, initialCenter]);
+  }, [isMapReady, me.lat, me.lng, initialCenter]);
 
   // GeoJSON Trails
   const trailsGeoJSON = useMemo(() => {
@@ -479,7 +504,7 @@ const TacticalMap = ({
         {/* --- PINGS (Draggable) --- */}
         {showPings && pings.map((ping) => (
           <PointAnnotation
-            key={`${ping.id}-${mapMode}`}
+            key={`${ping.id}-${mapMode}-${nightOpsMode}`} // Force re-render on NightOps toggle
             id={ping.id}
             coordinate={[ping.lng, ping.lat]}
             draggable
@@ -502,6 +527,8 @@ const TacticalMap = ({
         onPress={() => {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
           setCompassMode(prev => prev === 'north' ? 'heading' : 'north');
+          // If we are switching TO heading (current is north), we don't need to reset camera here
+          // If we are switching TO north (current is heading), reset camera
           if (compassMode === 'heading') {
             cameraRef.current?.setCamera({
               heading: 0,
@@ -510,6 +537,11 @@ const TacticalMap = ({
           }
         }}
       />
+
+      {/* --- NIGHT OPS OVERLAY (Global Red Filter) --- */}
+      {nightOpsMode && (
+        <View style={styles.nightOpsOverlay} pointerEvents="none" />
+      )}
 
       {pingMode && (
         <View style={styles.pingModeIndicator}>
@@ -545,6 +577,14 @@ const TacticalMap = ({
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
   map: { flex: 1 },
+
+  // Night Ops Overlay
+  nightOpsOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(50, 0, 0, 0.3)', // Red/Sepia tint
+    zIndex: 999, // On top of everything
+    pointerEvents: 'none', // Allow touches to pass through
+  },
 
   // Marker Opérateur
   markerRoot: {
@@ -589,11 +629,14 @@ const styles = StyleSheet.create({
   },
 
   // Ping Marker
-  pingMarkerContainer: { alignItems: 'center' },
+  pingMarkerContainer: {
+    alignItems: 'center',
+    zIndex: 1000 // Ensure it's clickable
+  },
   pingMarker: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     borderWidth: 2,
     alignItems: 'center',
     justifyContent: 'center',
@@ -622,19 +665,13 @@ const styles = StyleSheet.create({
   // Boussole
   compassContainer: {
     position: 'absolute',
-    top: 20,
-    left: 20,
     width: 60,
     height: 60,
     zIndex: 90,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  compassLandscape: {
-    top: 'auto',
-    bottom: 80,
-    left: 20,
-  },
+  // Removed implicit merging issue by handling in render
   compassRose: {
     width: 60,
     height: 60,
