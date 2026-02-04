@@ -420,7 +420,7 @@ const TacticalMap = ({
 
         {/* --- TRAILS --- */}
         {showTrails && (
-          <ShapeSource id="trailsSource" shape={trailsGeoJSON}>
+          <ShapeSource id="trailsSource" key={`trails-${mapMode}`} shape={trailsGeoJSON}>
             <LineLayer
               id="trailsLayer"
               style={{
@@ -436,7 +436,7 @@ const TacticalMap = ({
 
         {/* --- PINGS (Background Circles) --- */}
         {showPings && (
-          <ShapeSource id="pingsSource" shape={pingsGeoJSON}>
+          <ShapeSource id="pingsSource" key={`pings-${mapMode}`} shape={pingsGeoJSON}>
             <CircleLayer
               id="pingsCircle"
               style={{
@@ -480,17 +480,16 @@ const TacticalMap = ({
         {/* --- PINGS (Draggable) --- */}
         {showPings && pings.map((ping) => (
           <PointAnnotation
-            key={ping.id}
+            key={`${ping.id}-${mapMode}`}
             id={ping.id}
             coordinate={[ping.lng, ping.lat]}
             draggable
             onDragEnd={(e) => handlePingDragEnd(e, ping)}
-            onSelected={() => onPingClick(ping.id)}
           >
             <PingMarker
               ping={ping}
               nightOpsMode={nightOpsMode}
-              onPress={() => { }} // Handled by onSelected
+              onPress={() => onPingClick(ping.id)}
               onLongPress={() => { }} // Handled by draggable
             />
           </PointAnnotation>
