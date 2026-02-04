@@ -145,13 +145,20 @@ interface TacticalCompassProps {
 
 const TacticalCompass = ({ heading, isLandscape, onPress, mode }: TacticalCompassProps) => {
   // Correction: En mode Paysage, l'orientation est inversée de 180° selon le retour utilisateur
-  const displayHeading = isLandscape ? heading + 180 : heading;
+  // SI le heading est correct dans App.tsx, ici on l'affiche tel quel. 
+  // Si le mode est 'Heading', la map tourne, donc la boussole doit compenser OU afficher le Nord.
+  const displayHeading = heading; // On tente sans correction forcée ici si App.tsx est corrigé.
+
+  // Correction positionnement paysage (Absolu explicite)
+  const containerStyle = isLandscape
+    ? { position: 'absolute' as 'absolute', bottom: 100, left: 20 }
+    : { position: 'absolute' as 'absolute', top: 20, left: 20 };
 
   return (
     <TouchableOpacity
       onPress={onPress}
       activeOpacity={0.7}
-      style={[styles.compassContainer, isLandscape ? styles.compassLandscape : null]}
+      style={[styles.compassContainer, containerStyle]}
     >
       <View style={styles.compassIndicator} />
       <View style={[
@@ -258,8 +265,8 @@ const TacticalMap = ({
   const [isMapReady, setIsMapReady] = useState(false);
   const [followUser, setFollowUser] = useState(true);
   const [trails, setTrails] = useState<Record<string, { coords: [number, number][], color: string }[]>>({});
-  // Mode Boussole
-  const [compassMode, setCompassMode] = useState<'north' | 'heading'>('heading');
+  // Mode Boussole : Par défaut au NORD
+  const [compassMode, setCompassMode] = useState<'north' | 'heading'>('north');
 
   // Effet pour la boussole magnétique
   useEffect(() => {
@@ -349,16 +356,17 @@ const TacticalMap = ({
     }
   }, [isMapReady, navTargetId, peers, followUser, me.lat, me.lng]);
 
-  // Initial Center
+  // Initial Center & Systematic User Center on Load
   useEffect(() => {
-    if (isMapReady && initialCenter) {
+    if (isMapReady && me.lat && me.lng) {
+      // Force centering on user at startup
       cameraRef.current?.setCamera({
-        centerCoordinate: [initialCenter.lng, initialCenter.lat],
-        zoomLevel: initialCenter.zoom,
-        animationDuration: 0
+        centerCoordinate: [me.lng, me.lat],
+        zoomLevel: initialCenter?.zoom || 15,
+        animationDuration: 1000
       });
     }
-  }, [isMapReady, initialCenter]);
+  }, [isMapReady, /* Run once when map becomes ready or me.lat appears */]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // GeoJSON Trails
   const trailsGeoJSON = useMemo(() => {
@@ -525,6 +533,11 @@ const TacticalMap = ({
         }}
       />
 
+      {/* --- NIGHT OPS OVERLAY (Global Red Filter) --- */}
+      {nightOpsMode && (
+        <View style={styles.nightOpsOverlay} pointerEvents="none" />
+      )}
+
       {pingMode && (
         <View style={styles.pingModeIndicator}>
           <MaterialIcons name="touch-app" size={24} color="#ef4444" />
@@ -559,6 +572,14 @@ const TacticalMap = ({
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
   map: { flex: 1 },
+
+  // Night Ops Overlay
+  nightOpsOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(50, 0, 0, 0.3)', // Red/Sepia tint
+    zIndex: 999, // On top of everything
+    pointerEvents: 'none', // Allow touches to pass through
+  },
 
   // Marker Opérateur
   markerRoot: {
@@ -603,7 +624,10 @@ const styles = StyleSheet.create({
   },
 
   // Ping Marker
-  pingMarkerContainer: { alignItems: 'center' },
+  pingMarkerContainer: {
+    alignItems: 'center',
+    zIndex: 1000 // Ensure it's clickable
+  },
   pingMarker: {
     width: 28,
     height: 28,
@@ -636,19 +660,13 @@ const styles = StyleSheet.create({
   // Boussole
   compassContainer: {
     position: 'absolute',
-    top: 20,
-    left: 20,
     width: 60,
     height: 60,
     zIndex: 90,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  compassLandscape: {
-    top: 'auto',
-    bottom: 100, // Juste au dessus de la barre de statut (PROGRESSION etc)
-    left: 20,
-  },
+  // Removed implicit merging issue by handling in render
   compassRose: {
     width: 60,
     height: 60,
