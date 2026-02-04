@@ -531,7 +531,7 @@ const TacticalMap = ({
         <View style={styles.navIndicator}>
           <MaterialIcons name="navigation" size={20} color="#06b6d4" />
           <Text style={styles.navText}>
-            {`CIBLE: ${peers[navTargetId].callsign}`}
+            CIBLE: {peers[navTargetId].callsign}
           </Text>
           <TouchableOpacity onPress={onNavStop} style={styles.navStopBtn}>
             <MaterialIcons name="close" size={20} color="#ef4444" />
