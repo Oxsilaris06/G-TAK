@@ -317,8 +317,11 @@ const App: React.FC = () => {
                 let angle = Math.atan2(y, x) * (180 / Math.PI);
                 angle = angle - 90;
                 if (isLandscape) angle = angle + 90;
+                // Correction utilisateur: Heading faux de 180°
+                angle = angle + 180;
+
                 if (angle < 0) angle = angle + 360;
-                const heading = Math.floor(angle);
+                const heading = Math.floor(angle) % 360;
 
                 setUser(prev => ({ ...prev, head: heading }));
 
@@ -335,6 +338,14 @@ const App: React.FC = () => {
         }
         return () => { if (magSubscription.current) magSubscription.current.remove(); }
     }, [view, settings.gpsUpdateInterval, hostId, isLandscape]);
+
+    // Initialize ID immediately
+    useEffect(() => {
+        const storedId = mmkvStorage.getString(CONFIG.SESSION_STORAGE_KEY);
+        if (storedId) {
+            setUser(prev => ({ ...prev, id: storedId }));
+        }
+    }, []);
 
     const handleConnectivityEvent = (event: ConnectivityEvent) => {
         switch (event.type) {
@@ -1196,8 +1207,6 @@ const App: React.FC = () => {
             <Modal visible={showScanner} animationType="slide"><View style={{ flex: 1, backgroundColor: 'black' }}><CameraView style={{ flex: 1 }} onBarcodeScanned={handleScannerBarCodeScanned} barcodeScannerSettings={{ barcodeTypes: ["qr"] }} /><View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center' }}><View style={{ width: 250, height: 250, borderWidth: 2, borderColor: '#3b82f6', backgroundColor: 'transparent' }} /><Text style={{ color: 'white', marginTop: 20, backgroundColor: 'rgba(0,0,0,0.5)', padding: 5 }}>Visez le QR Code de l'Hôte</Text></View><TouchableOpacity onPress={() => setShowScanner(false)} style={styles.scannerClose}><MaterialIcons name="close" size={30} color="white" /></TouchableOpacity></View></Modal>
 
             {activeNotif && <NotificationToast message={activeNotif.msg} type={activeNotif.type} isNightOps={nightOpsMode} onDismiss={() => setActiveNotif(null)} />}
-
-            {nightOpsMode && <View style={styles.nightOpsOverlay} pointerEvents="none" />}
         </View>
     );
 };

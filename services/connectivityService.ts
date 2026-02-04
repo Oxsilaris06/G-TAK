@@ -60,15 +60,13 @@ class ConnectivityService {
    * Initialise la connexion PeerJS
    */
   /**
-   * Génère un ID court (6 caractères alphanumériques majuscules)
+   * Génère un UUID v4 (pseudo-random) pour l'ID persistant
    */
-  private generateShortId(): string {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    let result = '';
-    for (let i = 0; i < 6; i++) {
-      result += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return result;
+  private generateUUID(): string {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+      var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
   }
 
   /**
@@ -81,10 +79,15 @@ class ConnectivityService {
   ): Promise<void> {
     // 1. Récupération de l'ID persistant
     let storedId = mmkvStorage.getString(CONFIG.SESSION_STORAGE_KEY);
+
+    // STRICTEMENT Persistant : Si pas d'ID, on en crée un et on le garde A VIE.
     if (!storedId) {
-      storedId = this.generateShortId();
+      storedId = this.generateUUID();
+      mmkvStorage.set(CONFIG.SESSION_STORAGE_KEY, storedId);
+      console.log('[Connectivity] Created NEW Persistent UUID:', storedId);
+    } else {
+      console.log('[Connectivity] Loaded Persistent UUID:', storedId);
     }
-    console.log('[Connectivity] Target Persistent ID:', storedId);
 
     // 2. Vérifier si on peut réutiliser la connexion existante
     if (this.state.peer && !this.state.peer.disconnected && !this.state.peer.destroyed) {
@@ -118,15 +121,16 @@ class ConnectivityService {
     return new Promise((resolve, reject) => {
       try {
         // Créer le peer avec l'ID persistant
+        // NOTE: Si l'ID est déjà pris sur le serveur (zombie), PeerJS renverra 'unavailable-id'
         this.state.peer = new Peer(storedId, CONFIG.PEER_CONFIG);
 
         this.state.peer.on('open', (id) => {
           console.log('[Connectivity] Peer opened:', id);
           this.state.userData!.id = id;
 
-          // Si l'ID a changé (conflit résolu par le serveur?), on sauvegarde le nouveau
+          // Si l'ID a changé (ce qui ne devrait pas arriver avec un UUID sauf collision cosmique)
           if (id !== storedId) {
-            console.log('[Connectivity] Saving new persistent ID:', id);
+            console.warn('[Connectivity] ID changed by server (unexpected):', id);
             mmkvStorage.set(CONFIG.SESSION_STORAGE_KEY, id);
           }
 

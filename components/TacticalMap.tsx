@@ -198,11 +198,12 @@ const PingMarker = ({ ping, nightOpsMode, onPress, onLongPress }: PingMarkerProp
     <TouchableOpacity
       onPress={onPress}
       onLongPress={onLongPress}
-      activeOpacity={0.8}
+      activeOpacity={0.6}
       style={styles.pingMarkerContainer}
     >
+      {/* Taille réduite pour précision (28x28) */}
       <View style={[styles.pingMarker, { backgroundColor: colors.bg, borderColor: colors.border }]}>
-        <MaterialIcons name={iconName} size={20} color={colors.text} />
+        <MaterialIcons name={iconName} size={16} color={colors.text} />
       </View>
       <View style={styles.pingLabelContainer}>
         <Text style={[styles.pingLabel, { color: colors.text }]} numberOfLines={1}>
@@ -591,9 +592,9 @@ const styles = StyleSheet.create({
   // Ping Marker
   pingMarkerContainer: { alignItems: 'center' },
   pingMarker: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     borderWidth: 2,
     alignItems: 'center',
     justifyContent: 'center',
@@ -632,7 +633,7 @@ const styles = StyleSheet.create({
   },
   compassLandscape: {
     top: 'auto',
-    bottom: 80,
+    bottom: 100, // Juste au dessus de la barre de statut (PROGRESSION etc)
     left: 20,
   },
   compassRose: {
