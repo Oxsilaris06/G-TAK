@@ -126,7 +126,7 @@ const App: React.FC = () => {
 
     const showToast = useCallback((msg: string, type: 'info' | 'error' | 'success' | 'warning' = 'info') => {
         setActiveNotif({ id: Date.now().toString(), msg, type });
-        if (type === 'alert' || type === 'error' || type === 'warning') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        if (type === 'error' || type === 'warning') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         else if (type === 'success') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     }, []);
 
@@ -678,7 +678,7 @@ const App: React.FC = () => {
                         <MaterialIcons name="navigation" size={24} color="#06b6d4" />
                         <View>
                             <Text style={{ color: '#06b6d4', fontWeight: 'bold', fontSize: 16 }}>RALLIEMENT</Text>
-                            <Text style={{ color: 'white', fontSize: 12 }}>{`${peers[navTargetId]?.callsign} - ${navInfo.dist} - ${navInfo.time}`}</Text>
+                            <Text style={{ color: 'white', fontSize: 12 }}>{peers[navTargetId]?.callsign} - {navInfo.dist} - {navInfo.time}</Text>
                         </View>
                     </View>
                     <View style={{ flexDirection: 'row', gap: 15, alignItems: 'center' }}>
@@ -1037,7 +1037,7 @@ const App: React.FC = () => {
 
                             {currentPingType === 'HOSTILE' && (
                                 <View style={{ width: '100%' }}>
-                                    <Text style={[styles.label, { color: '#ef4444', marginTop: 10, marginBottom: 10 }]}>Canevas Tactique (SALUTA)</Text>
+                                    <Text style={[styles.label, { color: '#ef4444', marginTop: 10, marginBottom: 10 }]}>PNAVSA</Text>
                                     <View style={styles.canevaContainer}>
                                         <View style={styles.canevaRow}>
                                             <TextInput style={styles.detailInputHalf} placeholder="Position" placeholderTextColor="#52525b" value={hostileDetails.position} onChangeText={t => setHostileDetails({ ...hostileDetails, position: t })} />
@@ -1241,15 +1241,16 @@ const styles = StyleSheet.create({
 
     footerLandscape: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: 'transparent', zIndex: 2000, paddingBottom: 10, borderTopWidth: 0 },
 
-    statusRow: { flexDirection: 'row', padding: 12, gap: 8, flexWrap: 'wrap', justifyContent: 'center' },
+    statusRow: { flexDirection: 'row', padding: 8, gap: 8, flexWrap: 'wrap', justifyContent: 'center' },
     statusBtn: {
-        flex: 1,
-        paddingHorizontal: 16, paddingVertical: 12,
+        flexGrow: 1, // Permet de grandir mais pas forcément rétrécir à l'infini
+        minWidth: 80, // Force le wrap si l'écran est trop étroit
+        paddingHorizontal: 8, paddingVertical: 12,
         borderRadius: 8, backgroundColor: '#18181b',
         borderWidth: 1, borderColor: '#27272a',
         alignItems: 'center', justifyContent: 'center'
     },
-    statusBtnText: { color: '#71717a', fontSize: 12, fontWeight: 'bold' },
+    statusBtnText: { color: '#71717a', fontSize: 13, fontWeight: 'bold' },
 
     modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center', alignItems: 'center', padding: 20 },
     modalContent: {
