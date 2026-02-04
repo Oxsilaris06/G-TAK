@@ -144,6 +144,9 @@ interface TacticalCompassProps {
 }
 
 const TacticalCompass = ({ heading, isLandscape, onPress, mode }: TacticalCompassProps) => {
+  // Correction: En mode Paysage, l'orientation est inversée de 180° selon le retour utilisateur
+  const displayHeading = isLandscape ? heading + 180 : heading;
+
   return (
     <TouchableOpacity
       onPress={onPress}
@@ -155,7 +158,7 @@ const TacticalCompass = ({ heading, isLandscape, onPress, mode }: TacticalCompas
         styles.compassRose,
         {
           transform: [{
-            rotate: mode === 'heading' ? `${-heading}deg` : '0deg'
+            rotate: mode === 'heading' ? `${-displayHeading}deg` : '0deg'
           }]
         }
       ]}>
@@ -182,6 +185,16 @@ interface PingMarkerProps {
 }
 
 const PingMarker = ({ ping, nightOpsMode, onPress, onLongPress }: PingMarkerProps) => {
+  const lastTap = useRef<number>(0);
+
+  const handlePress = () => {
+    const now = Date.now();
+    if (now - lastTap.current < 300) {
+      onPress(); // Double tap reconnu = Edition
+    }
+    lastTap.current = now;
+  };
+
   const getPingColors = () => {
     switch (ping.type) {
       case 'HOSTILE': return { bg: '#450a0a', border: '#ef4444', text: '#ef4444' };
@@ -196,7 +209,7 @@ const PingMarker = ({ ping, nightOpsMode, onPress, onLongPress }: PingMarkerProp
 
   return (
     <TouchableOpacity
-      onPress={onPress}
+      onPress={handlePress}
       onLongPress={onLongPress}
       activeOpacity={0.6}
       style={styles.pingMarkerContainer}
