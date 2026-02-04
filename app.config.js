@@ -99,7 +99,8 @@ export default {
             ]
           },
           ios: {
-            newArchEnabled: false
+            newArchEnabled: false,
+            useFrameworks: 'static'
           }
         }
       ],
