@@ -145,13 +145,14 @@ interface TacticalCompassProps {
 
 const TacticalCompass = ({ heading, isLandscape, onPress, mode }: TacticalCompassProps) => {
   // Correction: En mode Paysage, l'orientation est inversée de 180° selon le retour utilisateur
-  // SI le heading est correct dans App.tsx, ici on l'affiche tel quel. 
-  // Si le mode est 'Heading', la map tourne, donc la boussole doit compenser OU afficher le Nord.
-  const displayHeading = heading; // On tente sans correction forcée ici si App.tsx est corrigé.
+  // Si App.tsx gère déjà la rotation Paysage, on ne doit pas la doubler ici.
+  // On suppose que 'heading' arrive correct (0-360).
+  const displayHeading = heading;
 
   // Correction positionnement paysage (Absolu explicite)
+  // Correction positionnement paysage (Absolu explicite)
   const containerStyle = isLandscape
-    ? { position: 'absolute' as 'absolute', bottom: 100, left: 20 }
+    ? { position: 'absolute' as 'absolute', bottom: 40, left: 20 }
     : { position: 'absolute' as 'absolute', top: 20, left: 20 };
 
   return (
@@ -265,8 +266,8 @@ const TacticalMap = ({
   const [isMapReady, setIsMapReady] = useState(false);
   const [followUser, setFollowUser] = useState(true);
   const [trails, setTrails] = useState<Record<string, { coords: [number, number][], color: string }[]>>({});
-  // Mode Boussole : Par défaut au NORD
-  const [compassMode, setCompassMode] = useState<'north' | 'heading'>('north');
+  // Mode Boussole
+  const [compassMode, setCompassMode] = useState<'north' | 'heading'>('heading');
 
   // Effet pour la boussole magnétique
   useEffect(() => {
@@ -356,17 +357,20 @@ const TacticalMap = ({
     }
   }, [isMapReady, navTargetId, peers, followUser, me.lat, me.lng]);
 
-  // Initial Center & Systematic User Center on Load
+  // Initial Center & Systematic User Center on Load (Restored)
+  const initialCenterDone = useRef(false);
+
   useEffect(() => {
-    if (isMapReady && me.lat && me.lng) {
-      // Force centering on user at startup
+    if (isMapReady && me.lat && me.lng && !initialCenterDone.current) {
+      // Force le centrage sur l'utilisateur au démarrage
       cameraRef.current?.setCamera({
         centerCoordinate: [me.lng, me.lat],
         zoomLevel: initialCenter?.zoom || 15,
         animationDuration: 1000
       });
+      initialCenterDone.current = true;
     }
-  }, [isMapReady, /* Run once when map becomes ready or me.lat appears */]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isMapReady, me.lat, me.lng, initialCenter]);
 
   // GeoJSON Trails
   const trailsGeoJSON = useMemo(() => {
@@ -547,10 +551,14 @@ const TacticalMap = ({
 
       {!followUser && !navTargetId && (
         <TouchableOpacity
-          style={[styles.recenterButton, isLandscape && styles.recenterButtonLand]}
+          style={[
+            styles.recenterButton,
+            isLandscape && styles.recenterButtonLand,
+            nightOpsMode && { borderColor: '#ef4444' } // Night Ops Border
+          ]}
           onPress={() => { setFollowUser(true); setCompassMode('north'); }}
         >
-          <MaterialIcons name="my-location" size={24} color="#3b82f6" />
+          <MaterialIcons name="my-location" size={24} color={nightOpsMode ? "#ef4444" : "#3b82f6"} />
         </TouchableOpacity>
       )}
 
@@ -576,7 +584,7 @@ const styles = StyleSheet.create({
   // Night Ops Overlay
   nightOpsOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(50, 0, 0, 0.3)', // Red/Sepia tint
+    backgroundColor: 'rgba(50, 0, 0, 0.1)', // CORRECTIF: Réduit encore (0.3 -> 0.1) pour garantir visibilité pings
     zIndex: 999, // On top of everything
     pointerEvents: 'none', // Allow touches to pass through
   },
