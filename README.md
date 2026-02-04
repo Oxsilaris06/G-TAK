@@ -30,17 +30,25 @@ Support Custom : Possibilité de charger des tuiles personnalisées (URL ou fich
 
 Mode Night Ops : Interface basculant intégralement en Rouge/Noir pour préserver la vision nocturne et réduire la signature lumineuse (écrans OLED).
 
+ Mode Paysage : Interface optimisée avec boussole déportée pour ne pas gêner la vue.
+
 Blue Force Tracking (BFT) :
 
-Position GPS et orientation (Compas) de tous les équipiers en temps réel.
+Position GPS et orientation (Compas) de tous les équipiers en temps réel (Visibilité Immédiate dès connexion).
+
+ Mode Heading-Up : La carte s'oriente automatiquement selon votre cap (Cône et Boussole synchronisés).
 
 Codes couleurs personnalisables par opérateur (Cyan, Rose, Violet, Orange) pour identifier les chefs d'équipe.
 
 Statuts opérationnels (CLEAR, CONTACT, PROGRESSION, BUSY).
+ 
+ Animation 'Heartbeat' : Pulsation rouge sur la carte et le tableau de bord en cas de statut CONTACT.
 
 Système de Pings & Alertes :
 
-🔴 Hostile : Caneva PNAVAS complet (Position, Nature, Volume, Attitude, Armement).
+🔴 Hostile : Caneva PNAVAS complet (Position, Nature, Volume, Attitude, Armement). Support Drag & Drop (Appui long pour déplacer) et édition (Tap).
+
+ 📷 Support Photos : Ajout de photos (Caméra/Galerie) aux pings Hostile et Intel.
 
 🟢 Ami : Points de ralliement, positions alliées.
 
@@ -138,7 +146,7 @@ Frontend : React Native (Expo SDK 51).
 
 Langage : TypeScript.
 
-Cartographie : Leaflet (via WebView) injecté dynamiquement.
+Cartographie : MapLibre GL (Vecteur & Raster).
 
 Réseau : PeerJS (WebRTC Data Channels) avec configuration STUN Google & Twilio.
 

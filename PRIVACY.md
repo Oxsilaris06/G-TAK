@@ -13,8 +13,11 @@ Praxis est conçue selon un principe de "Privacy by Design". Nous ne collectons,
    * Usage : Afficher votre position sur la carte et la partager avec les membres de votre groupe connectés à la même session.
    * Confidentialité : Vos coordonnées GPS ne sont partagées qu'avec les pairs connectés à votre session temporaire. Elles ne sont jamais envoyées à un serveur tiers.
  * Caméra :
-   * Usage : Uniquement pour scanner les QR Codes de connexion afin de rejoindre une session rapidement.
-   * Confidentialité : Aucune image n'est enregistrée ou transmise. Le flux vidéo est traité localement pour la reconnaissance du code.
+   * Usage : Scanner les QR Codes de connexion et capturer des photos pour les Pings (Hostile/Intel).
+   * Confidentialité : Les images sont compressées localement et transmises uniquement aux pairs de la session. Aucune sauvegarde cloud.
+ * Galerie :
+   * Usage : Joindre des images existantes aux Pings.
+   * Confidentialité : Accès uniquement aux images sélectionnées.
  * Notifications :
    * Usage : Vous alerter (son/vibration) lorsqu'un équipier signale un danger (Ping Hostile) ou envoie un message prioritaire, même si l'écran est éteint.
  * Services Tiers
