@@ -60,13 +60,15 @@ class ConnectivityService {
    * Initialise la connexion PeerJS
    */
   /**
-   * Génère un UUID v4 (pseudo-random) pour l'ID persistant
+   * Génère un ID simplifié et lisible (6 caractères)
    */
-  private generateUUID(): string {
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
-      var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
-      return v.toString(16);
-    });
+  private generateSimplifiedId(): string {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Exclut I, O, 1, 0 pour éviter confusion
+    let result = '';
+    for (let i = 0; i < 6; i++) {
+      result += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return result;
   }
 
   /**
@@ -80,13 +82,19 @@ class ConnectivityService {
     // 1. Récupération de l'ID persistant
     let storedId = mmkvStorage.getString(CONFIG.SESSION_STORAGE_KEY);
 
+    // MIGRATION: Si l'ID est un UUID (long), on force la regénération vers un ID court
+    if (storedId && storedId.length > 10) {
+      console.log('[Connectivity] Migrating legacy UUID to Simplified ID');
+      storedId = undefined; // Force la régénération
+    }
+
     // STRICTEMENT Persistant : Si pas d'ID, on en crée un et on le garde A VIE.
     if (!storedId) {
-      storedId = this.generateUUID();
+      storedId = this.generateSimplifiedId();
       mmkvStorage.set(CONFIG.SESSION_STORAGE_KEY, storedId);
-      console.log('[Connectivity] Created NEW Persistent UUID:', storedId);
+      console.log('[Connectivity] Created NEW Persistent Short ID:', storedId);
     } else {
-      console.log('[Connectivity] Loaded Persistent UUID:', storedId);
+      console.log('[Connectivity] Loaded Persistent Short ID:', storedId);
     }
 
     // 2. Vérifier si on peut réutiliser la connexion existante
