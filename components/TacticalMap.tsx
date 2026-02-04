@@ -245,7 +245,8 @@ const TacticalMap = ({
   const [isMapReady, setIsMapReady] = useState(false);
   const [followUser, setFollowUser] = useState(true);
   const [trails, setTrails] = useState<Record<string, { coords: [number, number][], color: string }[]>>({});
-  const [compassMode, setCompassMode] = useState<'north' | 'heading'>('north');
+  // Mode Boussole
+  const [compassMode, setCompassMode] = useState<'north' | 'heading'>('heading');
 
   // Effet pour la boussole magnétique
   useEffect(() => {
@@ -439,7 +440,7 @@ const TacticalMap = ({
             <CircleLayer
               id="pingsCircle"
               style={{
-                circleRadius: 20,
+                circleRadius: 5,
                 circleColor: [
                   'match', ['get', 'type'],
                   'HOSTILE', '#ef4444',
@@ -484,12 +485,13 @@ const TacticalMap = ({
             coordinate={[ping.lng, ping.lat]}
             draggable
             onDragEnd={(e) => handlePingDragEnd(e, ping)}
+            onSelected={() => onPingClick(ping.id)}
           >
             <PingMarker
               ping={ping}
               nightOpsMode={nightOpsMode}
-              onPress={() => onPingClick(ping.id)}
-              onLongPress={() => onPingLongPress(ping.id)}
+              onPress={() => { }} // Handled by onSelected
+              onLongPress={() => { }} // Handled by draggable
             />
           </PointAnnotation>
         ))}
