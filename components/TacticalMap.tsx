@@ -25,7 +25,6 @@ import MapLibreGL, {
 } from '@maplibre/maplibre-react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { Magnetometer } from 'expo-sensors';
 import Svg, { Path } from 'react-native-svg';
 import {
   UserData,
@@ -76,14 +75,12 @@ interface OperatorMarkerProps {
   nightOpsMode: boolean;
 }
 
-const OperatorMarker = ({ user, isMe, color }: OperatorMarkerProps) => {
-  // CORRECTIF: Ne pas forcer le rouge en NightOps pour garder la distinction Ami/Ennemi
-  // On laisse les couleurs définies, elles seront juste assombries par le filtre global
-  const statusColor = STATUS_COLORS[user.status] || '#71717a';
+const OperatorMarker = ({ user, isMe, color, nightOpsMode }: OperatorMarkerProps) => {
+  const statusColor = nightOpsMode ? '#ef4444' : STATUS_COLORS[user.status] || '#71717a';
   let displayColor = isMe ? color : statusColor;
 
-  if (user.status === 'CLEAR') displayColor = STATUS_COLORS.CLEAR;
-  if (user.status === 'CONTACT') displayColor = STATUS_COLORS.CONTACT;
+  if (user.status === 'CLEAR' && !nightOpsMode) displayColor = STATUS_COLORS.CLEAR;
+  if (user.status === 'CONTACT' && !nightOpsMode) displayColor = STATUS_COLORS.CONTACT;
 
   const rotation = user.head || 0;
   const trigram = (user.callsign || 'UNK').substring(0, 3).toUpperCase();
@@ -148,12 +145,13 @@ interface TacticalCompassProps {
 
 const TacticalCompass = ({ heading, isLandscape, onPress, mode }: TacticalCompassProps) => {
   // Correction: En mode Paysage, l'orientation est inversée de 180° selon le retour utilisateur
-  // AJOUT: Affichage stable
-  const displayHeading = isLandscape ? (heading + 180) % 360 : heading;
+  // SI le heading est correct dans App.tsx, ici on l'affiche tel quel. 
+  // Si le mode est 'Heading', la map tourne, donc la boussole doit compenser OU afficher le Nord.
+  const displayHeading = heading; // On tente sans correction forcée ici si App.tsx est corrigé.
 
   // Correction positionnement paysage (Absolu explicite)
   const containerStyle = isLandscape
-    ? { position: 'absolute' as 'absolute', bottom: 120, left: 20 }
+    ? { position: 'absolute' as 'absolute', bottom: 100, left: 20 }
     : { position: 'absolute' as 'absolute', top: 20, left: 20 };
 
   return (
@@ -185,7 +183,6 @@ const TacticalCompass = ({ heading, isLandscape, onPress, mode }: TacticalCompas
   );
 };
 
-
 // 3. Marker Ping
 interface PingMarkerProps {
   ping: PingData;
@@ -195,9 +192,14 @@ interface PingMarkerProps {
 }
 
 const PingMarker = ({ ping, nightOpsMode, onPress, onLongPress }: PingMarkerProps) => {
-  // CORRECTIF: Suppression du double-tap, simple tap pour éditer
+  const lastTap = useRef<number>(0);
+
   const handlePress = () => {
-    onPress();
+    const now = Date.now();
+    if (now - lastTap.current < 300) {
+      onPress(); // Double tap reconnu = Edition
+    }
+    lastTap.current = now;
   };
 
   const getPingColors = () => {
@@ -263,46 +265,18 @@ const TacticalMap = ({
   const [isMapReady, setIsMapReady] = useState(false);
   const [followUser, setFollowUser] = useState(true);
   const [trails, setTrails] = useState<Record<string, { coords: [number, number][], color: string }[]>>({});
-
-  // CORRECTIF: Mode Boussole par défaut sur 'heading' (Cap) au lancement
-  const [compassMode, setCompassMode] = useState<'north' | 'heading'>('heading');
-
-  // NOUVEAU: Magnétomètre local avec filtrage
-  const [magHeading, setMagHeading] = useState(0);
-
-  useEffect(() => {
-    Magnetometer.setUpdateInterval(100); // 10Hz
-    const subscription = Magnetometer.addListener((data: { x: number; y: number; z: number }) => {
-      let angle = Math.atan2(data.y, data.x) * (180 / Math.PI);
-      angle = angle - 90; // Ajustement pour le 'Nord' du device
-      if (angle < 0) angle += 360;
-
-      // Low Pass Filter (Alpha = 0.1 pour lissage fort, 0.5 pour réactif)
-      // On évite le problème du passage 359->1 en utilisant des vecteurs ou delta
-      setMagHeading((prev: number) => {
-        let diff = angle - prev;
-        if (diff < -180) diff += 360;
-        else if (diff > 180) diff -= 360;
-
-        // Alpha filter 0.15 = Compromis fluidité/stabilité
-        return (prev + diff * 0.15 + 360) % 360;
-      });
-    });
-
-    return () => subscription.remove();
-  }, []);
+  // Mode Boussole : Par défaut au NORD
+  const [compassMode, setCompassMode] = useState<'north' | 'heading'>('north');
 
   // Effet pour la boussole magnétique
-  const currentHeading = compassMode === 'heading' ? magHeading : 0;
-
   useEffect(() => {
-    if (compassMode === 'heading' && followUser) {
+    if (compassMode === 'heading' && me.head !== undefined) {
       cameraRef.current?.setCamera({
-        heading: magHeading,
+        heading: me.head,
         animationDuration: 200
       });
     }
-  }, [compassMode, magHeading, followUser]);
+  }, [compassMode, me.head]);
 
   // URL des tuiles
   const tileUrl = useMemo(() => {
@@ -383,22 +357,16 @@ const TacticalMap = ({
   }, [isMapReady, navTargetId, peers, followUser, me.lat, me.lng]);
 
   // Initial Center & Systematic User Center on Load
-  const initialCenterDone = useRef(false);
-
   useEffect(() => {
-    if (isMapReady && me.lat && me.lng && !initialCenterDone.current) {
-      // CORRECTIF: Utiliser le cap magnétique si disponible, sinon user.head, sinon 0
-      const startHeading = compassMode === 'heading' ? magHeading : 0;
-
+    if (isMapReady && me.lat && me.lng) {
+      // Force centering on user at startup
       cameraRef.current?.setCamera({
         centerCoordinate: [me.lng, me.lat],
         zoomLevel: initialCenter?.zoom || 15,
-        heading: startHeading,
         animationDuration: 1000
       });
-      initialCenterDone.current = true;
     }
-  }, [isMapReady, me.lat, me.lng, initialCenter, compassMode, magHeading]);
+  }, [isMapReady, /* Run once when map becomes ready or me.lat appears */]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // GeoJSON Trails
   const trailsGeoJSON = useMemo(() => {
@@ -533,7 +501,7 @@ const TacticalMap = ({
         {/* --- PINGS (Draggable) --- */}
         {showPings && pings.map((ping) => (
           <PointAnnotation
-            key={`${ping.id}-${mapMode}-${nightOpsMode}`} // Force re-render on NightOps toggle
+            key={`${ping.id}-${mapMode}`}
             id={ping.id}
             coordinate={[ping.lng, ping.lat]}
             draggable
@@ -550,14 +518,12 @@ const TacticalMap = ({
       </MapView>
 
       <TacticalCompass
-        heading={magHeading}
+        heading={me.head || 0}
         isLandscape={isLandscape}
         mode={compassMode}
         onPress={() => {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
           setCompassMode(prev => prev === 'north' ? 'heading' : 'north');
-          // If we are switching TO heading (current is north), we don't need to reset camera here
-          // If we are switching TO north (current is heading), reset camera
           if (compassMode === 'heading') {
             cameraRef.current?.setCamera({
               heading: 0,
@@ -610,7 +576,7 @@ const styles = StyleSheet.create({
   // Night Ops Overlay
   nightOpsOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(50, 0, 0, 0.15)', // CORRECTIF: Réduit de 0.3 à 0.15 pour visibilité
+    backgroundColor: 'rgba(50, 0, 0, 0.3)', // Red/Sepia tint
     zIndex: 999, // On top of everything
     pointerEvents: 'none', // Allow touches to pass through
   },
