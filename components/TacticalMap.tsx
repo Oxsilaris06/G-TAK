@@ -357,16 +357,19 @@ const TacticalMap = ({
   }, [isMapReady, navTargetId, peers, followUser, me.lat, me.lng]);
 
   // Initial Center & Systematic User Center on Load
+  const initialCenterDone = useRef(false);
+
   useEffect(() => {
-    if (isMapReady && me.lat && me.lng) {
+    if (isMapReady && me.lat && me.lng && !initialCenterDone.current) {
       // Force centering on user at startup
       cameraRef.current?.setCamera({
         centerCoordinate: [me.lng, me.lat],
         zoomLevel: initialCenter?.zoom || 15,
         animationDuration: 1000
       });
+      initialCenterDone.current = true;
     }
-  }, [isMapReady, /* Run once when map becomes ready or me.lat appears */]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isMapReady, me.lat, me.lng, initialCenter]);
 
   // GeoJSON Trails
   const trailsGeoJSON = useMemo(() => {
@@ -501,7 +504,7 @@ const TacticalMap = ({
         {/* --- PINGS (Draggable) --- */}
         {showPings && pings.map((ping) => (
           <PointAnnotation
-            key={`${ping.id}-${mapMode}`}
+            key={`${ping.id}-${mapMode}-${nightOpsMode}`} // Force re-render on NightOps toggle
             id={ping.id}
             coordinate={[ping.lng, ping.lat]}
             draggable
@@ -524,6 +527,8 @@ const TacticalMap = ({
         onPress={() => {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
           setCompassMode(prev => prev === 'north' ? 'heading' : 'north');
+          // If we are switching TO heading (current is north), we don't need to reset camera here
+          // If we are switching TO north (current is heading), reset camera
           if (compassMode === 'heading') {
             cameraRef.current?.setCamera({
               heading: 0,
