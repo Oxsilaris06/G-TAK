@@ -11,20 +11,21 @@ import {
   Text,
   useWindowDimensions,
   Platform,
+  Animated,
 } from 'react-native';
 import MapLibreGL, {
   MapView,
   Camera,
   UserLocation,
   MarkerView,
+  PointAnnotation,
   ShapeSource,
   LineLayer,
   CircleLayer,
-  SymbolLayer,
 } from '@maplibre/maplibre-react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import Svg, { Path, G } from 'react-native-svg';
+import Svg, { Path } from 'react-native-svg';
 import {
   UserData,
   PingData,
@@ -32,7 +33,7 @@ import {
 import { STATUS_COLORS } from '../constants';
 
 // Styles de tuiles
-const TILE_URLS = {
+const TILE_URLS: Record<string, string> = {
   dark: 'https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
   light: 'https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
   satellite: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
@@ -66,34 +67,43 @@ interface TacticalMapProps {
 
 // --- SOUS-COMPOSANTS ---
 
-// 1. Marqueur Opérateur Style Original (Cône + Cercle + Trigramme)
-const OperatorMarker: React.FC<{
+// 1. Marqueur Opérateur
+interface OperatorMarkerProps {
   user: UserData;
   isMe?: boolean;
   color: string;
   nightOpsMode: boolean;
-}> = ({ user, isMe, color, nightOpsMode }) => {
-  const statusColor = nightOpsMode ? '#ef4444' : STATUS_COLORS[user.status] || '#71717a';
+}
 
-  // Si c'est moi, j'utilise ma couleur sauf si je suis CLEAR (vert) ou CONTACT (rouge) pour être raccord avec la demande
-  // "Lorsque le statut clear est selectionné la couleur de l'icone du membre sur la carte est verte"
+const OperatorMarker = ({ user, isMe, color, nightOpsMode }: OperatorMarkerProps) => {
+  const statusColor = nightOpsMode ? '#ef4444' : STATUS_COLORS[user.status] || '#71717a';
   let displayColor = isMe ? color : statusColor;
 
-  if (user.status === 'CLEAR' && !nightOpsMode) displayColor = STATUS_COLORS.CLEAR; // Force Green
-  if (user.status === 'CONTACT' && !nightOpsMode) displayColor = STATUS_COLORS.CONTACT; // Force Red
+  if (user.status === 'CLEAR' && !nightOpsMode) displayColor = STATUS_COLORS.CLEAR;
+  if (user.status === 'CONTACT' && !nightOpsMode) displayColor = STATUS_COLORS.CONTACT;
 
-  // Le cône tourne selon le heading
   const rotation = user.head || 0;
-
-  // Trigramme (3 premières lettres)
   const trigram = (user.callsign || 'UNK').substring(0, 3).toUpperCase();
+
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    if (user.status === 'CONTACT') {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, { toValue: 1.2, duration: 500, useNativeDriver: true }),
+          Animated.timing(pulseAnim, { toValue: 1, duration: 500, useNativeDriver: true }),
+        ])
+      ).start();
+    } else {
+      pulseAnim.setValue(1);
+    }
+  }, [user.status]);
 
   return (
     <View style={[styles.markerRoot, isMe && { zIndex: 100 }]}>
-      {/* Cône de vision rotatif */}
       <View style={[styles.coneContainer, { transform: [{ rotate: `${rotation}deg` }] }]}>
         <Svg height="80" width="80" viewBox="0 0 100 100">
-          {/* Forme du cône originale: M50 50 L10 0 A60 60 0 0 1 90 0 Z */}
           <Path
             d="M50 50 L10 0 A60 60 0 0 1 90 0 Z"
             fill={displayColor}
@@ -105,19 +115,17 @@ const OperatorMarker: React.FC<{
         </Svg>
       </View>
 
-      {/* Cercle ID fixe (ne tourne pas) */}
-      <View style={[
+      <Animated.View style={[
         styles.circleId,
         {
           borderColor: displayColor,
-          backgroundColor: isMe ? 'rgba(0,0,0,0.3)' : 'rgba(0,0,0,0.6)'
-        },
-        user.status === 'CONTACT' && styles.heartbeat
+          backgroundColor: isMe ? 'rgba(0,0,0,0.3)' : 'rgba(0,0,0,0.6)',
+          transform: [{ scale: pulseAnim }]
+        }
       ]}>
         <Text style={styles.circleText}>{trigram}</Text>
-      </View>
+      </Animated.View>
 
-      {/* Indicateur batterie faible */}
       {user.bat < 20 && (
         <View style={styles.batteryWarning}>
           <MaterialIcons name="battery-alert" size={10} color="#ef4444" />
@@ -127,38 +135,22 @@ const OperatorMarker: React.FC<{
   );
 };
 
-// 2. Boussole Tactique Overlay (Interactive)
-const TacticalCompass: React.FC<{
+// 2. Boussole Tactique Overlay
+interface TacticalCompassProps {
   heading: number;
   isLandscape: boolean;
   onPress: () => void;
   mode: 'north' | 'heading';
-}> = ({ heading, isLandscape, onPress, mode }) => {
+}
+
+const TacticalCompass = ({ heading, isLandscape, onPress, mode }: TacticalCompassProps) => {
   return (
     <TouchableOpacity
       onPress={onPress}
       activeOpacity={0.7}
       style={[styles.compassContainer, isLandscape ? styles.compassLandscape : null]}
     >
-      {/* Indicateur fixe (triangle rouge) */}
       <View style={styles.compassIndicator} />
-
-      {/* Rose des vents rotative */}
-      {/* Si mode 'north', la rose tourne pour indiquer le Nord (heading négatif) */}
-      {/* Si mode 'heading', la rose est fixe (Nord en haut) et la carte tourne ? Non, l'inverse. */}
-      {/* Standard: */}
-      {/* Mode North-Up (défaut): La carte est au N. La boussole indique le N (fixe en haut). Le cone user tourne. */}
-      {/* Mode Heading-Up: La carte tourne. Le cone user est fixe vers le haut. La boussole tourne pour indiquer le N. */}
-
-      {/* Ici on a implémenté: */}
-      {/* Mode North: Carte fixe au N. User tourne. Boussole ? Si la carte est fixe, la boussole ne doit pas bouger ? */}
-      {/* Ah, TacticalCompass reçoit "heading" qui est "me.head". */}
-
-      {/* Si mode 'north' (carte fixe au N): Boussole fixe N en haut ? Ou boussole indique le cap ? */}
-      {/* Généralement: */}
-      {/* North UP: Carte N en haut. Boussole N en haut. Marker tourne. */}
-      {/* Heading UP: Carte tourne. Marker haut. Boussole tourne (N pointe vers le «vrai» nord). */}
-
       <View style={[
         styles.compassRose,
         {
@@ -172,7 +164,6 @@ const TacticalCompass: React.FC<{
         <Text style={[styles.compassLabel, styles.compassS]}>S</Text>
         <Text style={[styles.compassLabel, styles.compassW]}>O</Text>
       </View>
-
       {mode === 'heading' && (
         <View style={{ position: 'absolute', bottom: -15, backgroundColor: 'rgba(0,0,0,0.5)', paddingHorizontal: 4, borderRadius: 4 }}>
           <Text style={{ color: '#ef4444', fontSize: 8, fontWeight: 'bold' }}>CAP</Text>
@@ -182,13 +173,15 @@ const TacticalCompass: React.FC<{
   );
 };
 
-// 3. Marker Ping (Inchangé mais propre)
-const PingMarker: React.FC<{
+// 3. Marker Ping
+interface PingMarkerProps {
   ping: PingData;
   nightOpsMode: boolean;
   onPress: () => void;
   onLongPress: () => void;
-}> = ({ ping, nightOpsMode, onPress, onLongPress }) => {
+}
+
+const PingMarker = ({ ping, nightOpsMode, onPress, onLongPress }: PingMarkerProps) => {
   const getPingColors = () => {
     if (nightOpsMode) return { bg: '#000', border: '#ef4444', text: '#ef4444' };
     switch (ping.type) {
@@ -223,7 +216,7 @@ const PingMarker: React.FC<{
 
 // --- COMPOSANT PRINCIPAL ---
 
-const TacticalMap: React.FC<TacticalMapProps> = ({
+const TacticalMap = ({
   me,
   peers,
   pings,
@@ -245,15 +238,13 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
   onPingLongPress,
   onNavStop,
   onMapMoveEnd,
-}) => {
+}: TacticalMapProps) => {
   const mapRef = useRef<MapView>(null);
   const cameraRef = useRef<Camera>(null);
 
   const [isMapReady, setIsMapReady] = useState(false);
   const [followUser, setFollowUser] = useState(true);
-  const [trails, setTrails] = useState<Record<string, [number, number][]>>({});
-
-  // Mode Boussole
+  const [trails, setTrails] = useState<Record<string, { coords: [number, number][], color: string }[]>>({});
   const [compassMode, setCompassMode] = useState<'north' | 'heading'>('north');
 
   // Effet pour la boussole magnétique
@@ -261,7 +252,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
     if (compassMode === 'heading' && me.head !== undefined) {
       cameraRef.current?.setCamera({
         heading: me.head,
-        animationDuration: 200 // Mise à jour fluide
+        animationDuration: 200
       });
     }
   }, [compassMode, me.head]);
@@ -272,42 +263,29 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
     return TILE_URLS[mapMode] || TILE_URLS.satellite;
   }, [mapMode, customMapUrl]);
 
-  // Gestion des trails avec segments de couleur
+  // Gestion des trails
   useEffect(() => {
     if (!showTrails) return;
 
     const updateTrails = (id: string, lat: number, lng: number, status: string) => {
       setTrails((prev) => {
         const newTrails = { ...prev };
-        // Structure: Record<userId, { coords: [lng, lat][], color: string }[]>
-        // On simplifie ici pour le POC: Record<userId, { coords: [lng, lat][], color: string }[]> n'est pas compatible avec l'état précédent
-        // Il faut changer le type de 'trails'
-        // Mais pour faire simple et compatible: on garde juste le dernier segment courant?
-        // Non, l'user veut l'historique des couleurs.
-
-        // On doit changer la structure de trails. 
-        // Type: Record<string, { coords: [number, number][], color: string }[]>
         if (!newTrails[id]) newTrails[id] = [];
 
         const currentStatusColor = id === me.id ? userArrowColor : STATUS_COLORS[status] || '#71717a';
-
         let lastSegment = newTrails[id][newTrails[id].length - 1];
 
-        // Nouveau segment si changement de couleur ou pas de segment
         if (!lastSegment || lastSegment.color !== currentStatusColor) {
           lastSegment = { coords: [], color: currentStatusColor };
           newTrails[id].push(lastSegment);
         }
 
-        // Ajout du point
         const lastPoint = lastSegment.coords[lastSegment.coords.length - 1];
         if (!lastPoint || Math.abs(lastPoint[0] - lng) > 0.00005 || Math.abs(lastPoint[1] - lat) > 0.00005) {
           lastSegment.coords.push([lng, lat]);
         }
 
-        // Limite de taille (calcul global un peu complexe, on simplifie par shift de segments si trop vieux)
         if (newTrails[id].length > 50) newTrails[id].shift();
-
         return newTrails;
       });
     };
@@ -329,11 +307,19 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
     }
   }, [pingMode, onPing]);
 
+  // Handle Ping Drag
+  const handlePingDragEnd = (payload: any, ping: PingData) => {
+    const { geometry } = payload;
+    if (geometry && geometry.coordinates) {
+      const [lng, lat] = geometry.coordinates;
+      onPingMove({ ...ping, lat, lng });
+    }
+  };
+
   // Suivi Caméra
   useEffect(() => {
     if (!isMapReady) return;
 
-    // Mode Navigation
     if (navTargetId && peers[navTargetId]) {
       const target = peers[navTargetId];
       cameraRef.current?.flyTo([target.lng, target.lat], 1000);
@@ -341,10 +327,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
       return;
     }
 
-    // Mode Suivi Utilisateur
     if (followUser && me.lat && me.lng) {
-      // On utilise flyTo ou setCamera pour centrer sans changer le zoom violemment
-      // Note: On ne force pas le heading ici pour laisser l'utilisateur tourner la carte s'il veut
       cameraRef.current?.setCamera({
         centerCoordinate: [me.lng, me.lat],
         animationDuration: 1000,
@@ -352,43 +335,45 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
     }
   }, [isMapReady, navTargetId, peers, followUser, me.lat, me.lng]);
 
+  // Initial Center
+  useEffect(() => {
+    if (isMapReady && initialCenter) {
+      cameraRef.current?.setCamera({
+        centerCoordinate: [initialCenter.lng, initialCenter.lat],
+        zoomLevel: initialCenter.zoom,
+        animationDuration: 0
+      });
+    }
+  }, [isMapReady, initialCenter]);
+
   // GeoJSON Trails
   const trailsGeoJSON = useMemo(() => {
     const features: any[] = [];
-
-    Object.entries(trails).forEach(([userId, userSegments]) => {
-      // userSegments est maintenant un tableau de segments { coords, color }
-      // On doit caster car TypeScript pense encore que c'est l'ancien type
-      const segments = userSegments as any as { coords: [number, number][], color: string }[];
-
+    Object.entries(trails).forEach(([userId, segments]) => {
       segments.forEach(segment => {
         if (segment.coords.length > 1) {
           features.push({
             type: 'Feature',
-            properties: {
-              userId,
-              color: segment.color,
-            },
+            properties: { userId, color: segment.color },
             geometry: { type: 'LineString', coordinates: segment.coords },
           });
         }
       });
     });
-
     return { type: 'FeatureCollection', features };
   }, [trails]);
 
-  // GeoJSON Pings
+  // GeoJSON Pings (for circles)
   const pingsGeoJSON = useMemo(() => {
     const features = pings.map((ping) => ({
-      type: 'Feature' as const,
+      type: 'Feature',
       properties: {
         id: ping.id,
         type: ping.type,
       },
-      geometry: { type: 'Point' as const, coordinates: [ping.lng, ping.lat] },
+      geometry: { type: 'Point', coordinates: [ping.lng, ping.lat] },
     }));
-    return { type: 'FeatureCollection' as const, features };
+    return { type: 'FeatureCollection', features };
   }, [pings]);
 
   return (
@@ -421,7 +406,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         onMapLoadingFinished={() => setIsMapReady(true)}
         logoEnabled={false}
         attributionEnabled={false}
-        compassEnabled={false} // On utilise notre boussole custom
+        compassEnabled={false}
       >
         <Camera
           ref={cameraRef}
@@ -432,7 +417,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
           animationDuration={1000}
         />
 
-        {/* --- TRAILS (POINTILLÉS) --- */}
+        {/* --- TRAILS --- */}
         {showTrails && (
           <ShapeSource id="trailsSource" shape={trailsGeoJSON}>
             <LineLayer
@@ -441,14 +426,14 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
                 lineWidth: 2,
                 lineColor: ['get', 'color'],
                 lineOpacity: 0.7,
-                lineDasharray: [2, 2], // Restauration des pointillés
+                lineDasharray: [2, 2],
                 lineCap: 'round',
               }}
             />
           </ShapeSource>
         )}
 
-        {/* --- PINGS (CERCLES SOUS-JACENTS) --- */}
+        {/* --- PINGS (Background Circles) --- */}
         {showPings && (
           <ShapeSource id="pingsSource" shape={pingsGeoJSON}>
             <CircleLayer
@@ -476,8 +461,7 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
           </ShapeSource>
         )}
 
-        {/* --- MARKERS OPÉRATEURS (Native Views) --- */}
-        {/* Note: On utilise MarkerView pour avoir des vues React complètes */}
+        {/* --- MARKERS OPÉRATEURS --- */}
         {!!me.lat && !!me.lng && (
           <MarkerView coordinate={[me.lng, me.lat]} anchor={{ x: 0.5, y: 0.5 }}>
             <OperatorMarker user={me} isMe color={userArrowColor} nightOpsMode={nightOpsMode} />
@@ -492,25 +476,25 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
           )
         )}
 
-        {/* --- MARKERS PINGS (Interactifs) --- */}
+        {/* --- PINGS (Draggable) --- */}
         {showPings && pings.map((ping) => (
-          <MarkerView key={ping.id} coordinate={[ping.lng, ping.lat]} anchor={{ x: 0.5, y: 1 }}>
+          <PointAnnotation
+            key={ping.id}
+            id={ping.id}
+            coordinate={[ping.lng, ping.lat]}
+            draggable
+            onDragEnd={(e) => handlePingDragEnd(e, ping)}
+          >
             <PingMarker
               ping={ping}
               nightOpsMode={nightOpsMode}
               onPress={() => onPingClick(ping.id)}
               onLongPress={() => onPingLongPress(ping.id)}
             />
-          </MarkerView>
+          </PointAnnotation>
         ))}
       </MapView>
 
-      {/* --- OVERLAYS UI --- */}
-
-      {/* Boussole Custom */}
-      {/* On passe le heading utilisateur pour l'orientation temps réel */}
-      {/* Boussole Custom */}
-      {/* On passe le heading utilisateur pour l'orientation temps réel */}
       <TacticalCompass
         heading={me.head || 0}
         isLandscape={isLandscape}
@@ -519,7 +503,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
           setCompassMode(prev => prev === 'north' ? 'heading' : 'north');
           if (compassMode === 'heading') {
-            // Retour au nord (car on va passer à north)
             cameraRef.current?.setCamera({
               heading: 0,
               animationDuration: 500
@@ -528,7 +511,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         }}
       />
 
-      {/* Mode Ping */}
       {pingMode && (
         <View style={styles.pingModeIndicator}>
           <MaterialIcons name="touch-app" size={24} color="#ef4444" />
@@ -536,7 +518,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         </View>
       )}
 
-      {/* Bouton Recenter */}
       {!followUser && !navTargetId && (
         <TouchableOpacity
           style={[styles.recenterButton, isLandscape && styles.recenterButtonLand]}
@@ -546,7 +527,6 @@ const TacticalMap: React.FC<TacticalMapProps> = ({
         </TouchableOpacity>
       )}
 
-      {/* Nav Indicator */}
       {navTargetId && peers[navTargetId] && (
         <View style={styles.navIndicator}>
           <MaterialIcons name="navigation" size={20} color="#06b6d4" />
@@ -652,7 +632,7 @@ const styles = StyleSheet.create({
   },
   compassLandscape: {
     top: 'auto',
-    bottom: 20,
+    bottom: 80,
     left: 20,
   },
   compassRose: {

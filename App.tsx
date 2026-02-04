@@ -126,7 +126,7 @@ const App: React.FC = () => {
 
     const showToast = useCallback((msg: string, type: 'info' | 'error' | 'success' | 'warning' = 'info') => {
         setActiveNotif({ id: Date.now().toString(), msg, type });
-        if (type === 'alert' || type === 'error' || type === 'warning') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        if (type === 'error' || type === 'warning') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         else if (type === 'success') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     }, []);
 
@@ -1037,7 +1037,7 @@ const App: React.FC = () => {
 
                             {currentPingType === 'HOSTILE' && (
                                 <View style={{ width: '100%' }}>
-                                    <Text style={[styles.label, { color: '#ef4444', marginTop: 10, marginBottom: 10 }]}>Canevas Tactique (SALUTA)</Text>
+                                    <Text style={[styles.label, { color: '#ef4444', marginTop: 10, marginBottom: 10 }]}>PNAVSA</Text>
                                     <View style={styles.canevaContainer}>
                                         <View style={styles.canevaRow}>
                                             <TextInput style={styles.detailInputHalf} placeholder="Position" placeholderTextColor="#52525b" value={hostileDetails.position} onChangeText={t => setHostileDetails({ ...hostileDetails, position: t })} />

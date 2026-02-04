@@ -42,6 +42,7 @@ class ConnectivityService {
   private state: ConnectionState = {
     peer: null,
     connections: new Map(),
+    peerData: new Map(),
     userData: null,
     role: OperatorRole.OPR,
     hostId: '',
@@ -248,12 +249,21 @@ class ConnectivityService {
   private handleHostData(data: any, from: string): void {
     switch (data.type) {
       case 'HELLO':
-        // Nouveau client connecté, broadcaster la liste
+        // Nouveau client connecté, on stocke ses données
+        if (data.user) {
+          this.state.peerData.set(from, data.user);
+          console.log('[Connectivity] Received HELLO from', from, data.user.status);
+        }
+        // Broadcaster la liste mise à jour à tout le monde (y compris le nouveau)
         this.broadcastPeerList();
         break;
 
       case 'UPDATE_USER':
       case 'UPDATE':
+        // Mettre à jour les données locales (Host)
+        if (data.user) {
+          this.state.peerData.set(from, data.user);
+        }
         // Propager la mise à jour à tous les autres
         this.broadcastExcept(from, data);
         break;
@@ -278,6 +288,7 @@ class ConnectivityService {
       case 'CLIENT_LEAVING':
         // Client qui quitte proprement
         this.state.connections.delete(from);
+        this.state.peerData.delete(from);
         this.broadcastPeerList();
         break;
     }
@@ -294,9 +305,9 @@ class ConnectivityService {
       peers[this.state.userData.id] = this.state.userData;
     }
 
-    // Collecter les données des peers connectés
-    this.state.connections.forEach((_, peerId) => {
-      // Les données sont stockées lors des HELLO/UPDATE
+    // Ajouter les peers connus
+    this.state.peerData.forEach((data, peerId) => {
+      peers[peerId] = data;
     });
 
     this.broadcast({

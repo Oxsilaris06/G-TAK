@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import React, { useRef, useEffect } from 'react';
+import { View, Text, StyleSheet, Animated } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { UserData } from '../types';
 import { STATUS_COLORS } from '../constants';
@@ -13,6 +13,21 @@ interface Props {
 }
 
 const OperatorCard: React.FC<Props> = ({ user, isMe, me, style, isNightOps }) => {
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    if (user.status === 'CONTACT') {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(scaleAnim, { toValue: 1.05, duration: 500, useNativeDriver: true }),
+          Animated.timing(scaleAnim, { toValue: 1, duration: 500, useNativeDriver: true }),
+        ])
+      ).start();
+    } else {
+      scaleAnim.setValue(1);
+    }
+  }, [user.status]);
+
   const getDistance = () => {
     if (!me || !user.lat || !me.lat) return '';
     const R = 6371e3;
@@ -35,7 +50,11 @@ const OperatorCard: React.FC<Props> = ({ user, isMe, me, style, isNightOps }) =>
   const metaColor = isNightOps ? '#7f1d1d' : '#71717a';
 
   return (
-    <View style={[styles.card, { borderColor, backgroundColor: bgColor }, style]}>
+    <Animated.View style={[
+      styles.card,
+      { borderColor, backgroundColor: bgColor, transform: [{ scale: scaleAnim }] },
+      style
+    ]}>
       <View style={styles.header}>
         <View style={[styles.roleTag, { backgroundColor: isNightOps ? '#7f1d1d' : '#27272a' }]}>
           <Text style={[styles.roleText, { color: isNightOps ? '#000' : '#71717a' }]}>
@@ -84,7 +103,7 @@ const OperatorCard: React.FC<Props> = ({ user, isMe, me, style, isNightOps }) =>
           </Text>
         </View>
       ) : null}
-    </View>
+    </Animated.View>
   );
 };
 
