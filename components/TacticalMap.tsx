@@ -145,13 +145,11 @@ interface TacticalCompassProps {
 
 const TacticalCompass = ({ heading, isLandscape, onPress, mode }: TacticalCompassProps) => {
   // Correction: En mode Paysage, l'orientation est inversée de 180° selon le retour utilisateur
-  // SI le heading est correct dans App.tsx, ici on l'affiche tel quel. 
-  // Si le mode est 'Heading', la map tourne, donc la boussole doit compenser OU afficher le Nord.
-  const displayHeading = heading; // On tente sans correction forcée ici si App.tsx est corrigé.
+  const displayHeading = isLandscape ? (heading + 180) % 360 : heading;
 
   // Correction positionnement paysage (Absolu explicite)
   const containerStyle = isLandscape
-    ? { position: 'absolute' as 'absolute', bottom: 100, left: 20 }
+    ? { position: 'absolute' as 'absolute', bottom: 120, left: 20 }
     : { position: 'absolute' as 'absolute', top: 20, left: 20 };
 
   return (
@@ -182,6 +180,7 @@ const TacticalCompass = ({ heading, isLandscape, onPress, mode }: TacticalCompas
     </TouchableOpacity>
   );
 };
+
 
 // 3. Marker Ping
 interface PingMarkerProps {
@@ -361,10 +360,11 @@ const TacticalMap = ({
 
   useEffect(() => {
     if (isMapReady && me.lat && me.lng && !initialCenterDone.current) {
-      // Force centering on user at startup
+      // Force centering on user at startup AND Force North orientation
       cameraRef.current?.setCamera({
         centerCoordinate: [me.lng, me.lat],
         zoomLevel: initialCenter?.zoom || 15,
+        heading: 0,
         animationDuration: 1000
       });
       initialCenterDone.current = true;
