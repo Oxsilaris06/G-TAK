@@ -183,7 +183,6 @@ interface PingMarkerProps {
 
 const PingMarker = ({ ping, nightOpsMode, onPress, onLongPress }: PingMarkerProps) => {
   const getPingColors = () => {
-    if (nightOpsMode) return { bg: '#000', border: '#ef4444', text: '#ef4444' };
     switch (ping.type) {
       case 'HOSTILE': return { bg: '#450a0a', border: '#ef4444', text: '#ef4444' };
       case 'FRIEND': return { bg: '#052e16', border: '#22c55e', text: '#22c55e' };
@@ -434,8 +433,8 @@ const TacticalMap = ({
           </ShapeSource>
         )}
 
-        {/* --- PINGS (Background Circles) --- */}
-        {showPings && (
+        {/* --- PINGS (Background Circles - Only when masked) --- */}
+        {!showPings && (
           <ShapeSource id="pingsSource" key={`pings-${mapMode}`} shape={pingsGeoJSON}>
             <CircleLayer
               id="pingsCircle"

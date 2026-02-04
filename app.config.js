@@ -10,14 +10,14 @@ export default {
     orientation: "default",
     icon: "./assets/icon.png",
     userInterfaceStyle: "dark",
-    
+
     runtimeVersion: VERSION,
-    
+
     // Inclusion des assets
     assetBundlePatterns: [
       "**/*"
     ],
-    
+
     updates: {
       url: `https://u.expo.dev/${PROJECT_ID}`,
       requestHeaders: {
@@ -53,7 +53,7 @@ export default {
       resizeMode: "contain",
       backgroundColor: "#000000"
     },
-    
+
     android: {
       package: "com.praxis.app",
       adaptiveIcon: {
@@ -83,7 +83,7 @@ export default {
         "POST_NOTIFICATIONS"
       ]
     },
-    
+
     plugins: [
       [
         "expo-build-properties",
@@ -100,7 +100,8 @@ export default {
           },
           ios: {
             newArchEnabled: false,
-            useFrameworks: 'static'
+            useFrameworks: 'static',
+            deploymentTarget: '15.0'
           }
         }
       ],
@@ -115,7 +116,7 @@ export default {
       [
         "@config-plugins/react-native-webrtc",
         {
-          cameraPermission: false, 
+          cameraPermission: false,
           microphonePermission: false
         }
       ],
@@ -133,7 +134,7 @@ export default {
         {
           "icon": "./assets/adaptive-icon.png",
           "color": "#000000",
-          
+
         }
       ],
       "expo-task-manager"

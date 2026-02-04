@@ -151,6 +151,22 @@ class LocationService {
           // 3. Rejet 0,0
           if (location.coords.latitude === 0 && location.coords.longitude === 0) return;
 
+          // 4. Filtrage du bruit (Mouvements infimes)
+          // On ignore les déplacements < 2m si l'intervalle de temps est court (< 10s)
+          // Cela permet de stabiliser l'icône à l'arrêt sans ajouter de latence en mouvement rapide.
+          if (this.lastLocation) {
+            const dist = this.calculateDistance(
+              this.lastLocation.latitude, this.lastLocation.longitude,
+              location.coords.latitude, location.coords.longitude
+            );
+            const timeDelta = (location.timestamp - this.lastLocation.timestamp) / 1000;
+
+            if (dist < 2 && timeDelta < 10) {
+              // Mouvement trop petit pour être significatif (bruit GPS)
+              return;
+            }
+          }
+
           const locData: LocationData = {
             latitude: location.coords.latitude,
             longitude: location.coords.longitude,

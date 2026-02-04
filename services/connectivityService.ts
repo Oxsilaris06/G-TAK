@@ -22,6 +22,7 @@ export type ConnectivityEvent =
 interface ConnectionState {
   peer: Peer | null;
   connections: Map<string, any>;
+  peerData: Map<string, UserData>;
   userData: UserData | null;
   role: OperatorRole;
   hostId: string;
@@ -78,35 +79,54 @@ class ConnectivityService {
     role: OperatorRole,
     hostId?: string
   ): Promise<void> {
-    // Cleanup existant
+    // 1. Récupération de l'ID persistant
+    let storedId = mmkvStorage.getString(CONFIG.SESSION_STORAGE_KEY);
+    if (!storedId) {
+      storedId = this.generateShortId();
+    }
+    console.log('[Connectivity] Target Persistent ID:', storedId);
+
+    // 2. Vérifier si on peut réutiliser la connexion existante
+    if (this.state.peer && !this.state.peer.disconnected && !this.state.peer.destroyed) {
+      if (this.state.userData?.id === storedId) {
+        console.log('[Connectivity] Reusing existing Peer connection:', storedId);
+        this.state.userData = { ...userData, id: storedId };
+        this.state.role = role;
+        this.state.hostId = hostId || '';
+
+        // Si on passe en mode OPR et qu'on a un host, on se connecte
+        if (role === OperatorRole.OPR && hostId && !this.state.connections.has(hostId)) {
+          this.connectToHost(hostId);
+        }
+        // Si on a déjà une connexion Host mais qu'on change d'Host (rare), on gère
+        if (role === OperatorRole.OPR && hostId && this.state.connections.has(hostId)) {
+          // Déjà connecté, on update juste le profil
+          this.updateUser(userData);
+        }
+
+        return Promise.resolve();
+      }
+    }
+
+    // 3. Sinon, nettoyage complet et nouvelle connexion
     this.cleanup();
 
     this.state.userData = userData;
     this.state.role = role;
     this.state.hostId = hostId || '';
 
-    // Récupération de l'ID persistant ou génération d'un nouveau
-    let storedId = mmkvStorage.getString(CONFIG.SESSION_STORAGE_KEY);
-
-    // Si pas d'ID stocké, on en génère un court tout de suite
-    if (!storedId) {
-      storedId = this.generateShortId();
-    }
-
-    console.log('[Connectivity] Using ID:', storedId);
-
     return new Promise((resolve, reject) => {
       try {
-        // Créer le peer avec l'ID court
+        // Créer le peer avec l'ID persistant
         this.state.peer = new Peer(storedId, CONFIG.PEER_CONFIG);
 
         this.state.peer.on('open', (id) => {
           console.log('[Connectivity] Peer opened:', id);
           this.state.userData!.id = id;
 
-          // Sauvegarde de l'ID pour la prochaine fois
+          // Si l'ID a changé (conflit résolu par le serveur?), on sauvegarde le nouveau
           if (id !== storedId) {
-            console.log('[Connectivity] Saving new persistent ID');
+            console.log('[Connectivity] Saving new persistent ID:', id);
             mmkvStorage.set(CONFIG.SESSION_STORAGE_KEY, id);
           }
 
@@ -116,7 +136,6 @@ class ConnectivityService {
 
           this.emit({ type: 'PEER_OPEN', id });
 
-          // Connexion à l'hôte si client
           if (role === OperatorRole.OPR && hostId) {
             this.connectToHost(hostId);
           }
@@ -132,23 +151,17 @@ class ConnectivityService {
         this.state.peer.on('error', (err: any) => {
           console.error('[Connectivity] Peer error:', err);
 
-          // Gestion du cas où l'ID est déjà pris (unavailable-id)
           if (err.type === 'unavailable-id') {
-            console.log('[Connectivity] ID unavailable, generating new one...');
-            // L'ID est pris, on doit en générer un nouveau
+            console.log('[Connectivity] ID unavailable. Retrying with new ID...');
             mmkvStorage.delete(CONFIG.SESSION_STORAGE_KEY);
-
-            // Nettoyage propre sans déclencher de reconnexion
             this.cleanup();
-
-            // Récursion avec un nouvel ID généré
+            // Retry avec un nouvel ID généré au prochain tour
             this.init(userData, role, hostId).then(resolve).catch(reject);
             return;
           }
 
           this.handleError(err);
-          // Ne pas reject ici si on a géré l'erreur unavailable-id par une reconnexion
-          if (err.type !== 'unavailable-id') reject(err);
+          // On ne reject pas forcément pour les autres erreurs non fatales
         });
 
         this.state.peer.on('disconnected', () => {
