@@ -328,39 +328,38 @@ class ConnectivityService {
     }
 
     if (data.type === 'IMAGE_START') {
-      this.state.tempChunks.set(data.imageId, { total: data.total, chk: [] });
+      let pending = this.state.tempChunks.get(data.imageId);
+      if (!pending) {
+        pending = { total: data.total, chk: [] };
+        this.state.tempChunks.set(data.imageId, pending);
+      } else {
+        pending.total = data.total; // Update total if we only had chunks before
+      }
+
       console.log(`[Connectivity] Receiving image ${data.imageId} (${data.total} chunks)`);
-      Alert.alert("DEBUG P2P", `Client: Début Réception Image\nChunks: ${data.total}`);
+      Alert.alert("DEBUG P2P", `Client: Début Réception (Header)\nTotal: ${data.total}`);
+
+      // Check completeness immediately in case chunks arrived first
+      this.checkImageCompletion(data.imageId);
       return;
     }
 
     if (data.type === 'IMAGE_CHUNK') {
-      const pending = this.state.tempChunks.get(data.imageId);
-      if (pending) {
-        pending.chk[data.index] = data.data; // Store at index handles out-of-order
+      let pending = this.state.tempChunks.get(data.imageId);
+      if (!pending) {
+        // Orphan chunk (arrived before header), buffer it
+        pending = { total: 0, chk: [] };
+        this.state.tempChunks.set(data.imageId, pending);
+        console.log(`[Connectivity] Buffering early chunk ${data.index} for ${data.imageId}`);
+      }
 
-        // Check completion
-        let receivedCount = 0;
-        for (let i = 0; i < pending.total; i++) {
-          if (pending.chk[i]) receivedCount++;
-        }
+      pending.chk[data.index] = data.data;
 
-        // Alert every chunk to debug flow (Temporary spam but necessary)
-        // Alert.alert("DEBUG P2P", `Client: Chunk ${data.index + 1}/${pending.total}`);
-        console.log(`[Connectivity] Chunk ${data.index + 1}/${pending.total}`);
+      // Alert every chunk to debug flow
+      Alert.alert("DEBUG P2P", `Client: Chunk ${data.index + 1}`);
 
-        if (receivedCount === pending.total) { // All chunks received
-          const fullBase64 = pending.chk.join('');
-          this.state.tempChunks.delete(data.imageId);
-          Alert.alert("DEBUG P2P", "Client: Tous chunks reçus. Ecriture fichier...");
-          imageService.writeBase64(data.imageId, fullBase64).then((uri) => {
-            console.log('[Connectivity] Image Received & Saved:', uri);
-            this.emit({ type: 'IMAGE_READY', imageId: data.imageId, uri });
-          });
-        }
-      } else {
-        console.warn("Orphan chunk received", data.imageId, data.index);
-        // Alert.alert("DEBUG P2P", "Orphan Chunk: " + data.index); // Optional, might spam
+      if (pending.total > 0) {
+        this.checkImageCompletion(data.imageId);
       }
       return;
     }
