@@ -998,6 +998,10 @@ const App: React.FC = () => {
                                 setEditingPing(p);
                                 setPingMsgInput(p.msg);
                                 if (p.details) setHostileDetails(p.details);
+                                // Force load immediately to avoid useEffect delay
+                                const imgToSet = p.imageUri || p.image || null;
+                                console.log('[App] Immediate load tempImage:', imgToSet);
+                                setTempImage(imgToSet);
                             }}
                             onPingLongPress={(id) => {
                                 // Handled by WebView
@@ -1235,7 +1239,15 @@ const App: React.FC = () => {
                                 {tempImage ? (
                                     <View style={{ position: 'relative', width: '100%', height: 150 }}>
                                         <TouchableOpacity onPress={() => setFullScreenImage(tempImage)} style={{ flex: 1 }}>
-                                            <Image source={{ uri: tempImage }} style={{ width: '100%', height: '100%', borderRadius: 8 }} resizeMode="cover" />
+                                            <Image
+                                                source={{ uri: tempImage }}
+                                                style={{ width: '100%', height: '100%', borderRadius: 8 }}
+                                                resizeMode="cover"
+                                                onError={(e) => {
+                                                    console.log('[App] Image Load Error:', e.nativeEvent.error);
+                                                    Alert.alert("Image Error", "Failed to load image:\n" + e.nativeEvent.error);
+                                                }}
+                                            />
                                         </TouchableOpacity>
                                         <TouchableOpacity onPress={() => setTempImage(null)} style={styles.removePhotoBtn}>
                                             <MaterialIcons name="close" size={20} color="white" />
