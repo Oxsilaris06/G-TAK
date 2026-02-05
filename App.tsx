@@ -525,9 +525,35 @@ const App: React.FC = () => {
         }
         else if (data.type === 'SYNC_PINGS') setPings(data.pings);
         else if (data.type === 'SYNC_LOGS') setLogs(data.logs);
-        else if (data.type === 'PING_MOVE') setPings(prev => prev.map(p => p.id === data.id ? { ...p, lat: data.lat, lng: data.lng } : p));
+        else if (data.type === 'PING_MOVE') {
+            setPings(prev => prev.map(p => p.id === data.id ? {
+                ...p,
+                lat: data.lat,
+                lng: data.lng,
+                // Update image info if provided (integrity check)
+                hasImage: data.hasImage !== undefined ? data.hasImage : p.hasImage,
+                imageId: data.imageId !== undefined ? data.imageId : p.imageId
+            } : p));
+        }
         else if (data.type === 'PING_DELETE') setPings(prev => prev.filter(p => p.id !== data.id));
-        else if (data.type === 'PING_UPDATE') setPings(prev => prev.map(p => p.id === data.id ? { ...p, msg: data.msg, details: data.details, image: data.image } : p));
+        else if (data.type === 'PING_UPDATE') {
+            setPings(prev => prev.map(p => p.id === data.id ? {
+                ...p,
+                msg: data.msg,
+                details: data.details,
+                // Fix: Ensure image data is updated
+                hasImage: data.hasImage,
+                imageId: data.imageId,
+                image: null // Legacy clear
+            } : p));
+
+            // If update has new image we don't have, request it
+            if (data.hasImage && data.imageId) {
+                imageService.exists(data.imageId).then(exists => {
+                    if (!exists) connectivityService.requestImage(data.imageId, [fromId]);
+                });
+            }
+        }
     };
 
     const finishLogout = useCallback(() => {
@@ -650,11 +676,26 @@ const App: React.FC = () => {
         // Envoyer le ping SANS l'URI locale (inutile pour les autres)
         const pingToSend = { ...newPing, imageUri: undefined };
         await safeBroadcast({ type: 'PING', ping: pingToSend }, currentPingType === 'HOSTILE');
+
+        // NEW: Proactively push image to Host (if we are not Host) to ensure availability for others
+        if (imageId && user.role !== OperatorRole.HOST && hostId) {
+            console.log("[App] Pushing new image to Host:", imageId);
+            connectivityService.sendImage(hostId, imageId);
+        }
     };
 
     const handlePingMove = (updatedPing: PingData) => {
+        console.log('[App] handlePingMove:', updatedPing.id, updatedPing.lat, updatedPing.lng);
         setPings(prev => prev.map(p => p.id === updatedPing.id ? updatedPing : p));
-        safeBroadcast({ type: 'PING_MOVE', id: updatedPing.id, lat: updatedPing.lat, lng: updatedPing.lng });
+        // Transmit associated info (image) to ensure consistency even on move
+        safeBroadcast({
+            type: 'PING_MOVE',
+            id: updatedPing.id,
+            lat: updatedPing.lat,
+            lng: updatedPing.lng,
+            hasImage: updatedPing.hasImage,
+            imageId: updatedPing.imageId
+        });
     };
 
     const savePingEdit = async () => {
@@ -710,6 +751,18 @@ const App: React.FC = () => {
         };
 
         safeBroadcast(updatePayload);
+
+        // NEW: Proactively push image to Host (if we are not Host) to ensure availability for others
+        // Only if we actually added/changed an image (hasImage is true)
+        if (updatedPing.hasImage && updatedPing.imageId && user.role !== OperatorRole.HOST && hostId) {
+            // Basic check: did we just add it? (tempImage was present)
+            // Even if redundant, sending it ensures Host has it.
+            if (tempImage) {
+                console.log("[App] Pushing edited image to Host:", updatedPing.imageId);
+                connectivityService.sendImage(hostId, updatedPing.imageId);
+            }
+        }
+
         setEditingPing(null);
         setTempImage(null);
     };

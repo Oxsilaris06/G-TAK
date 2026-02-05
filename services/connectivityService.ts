@@ -268,7 +268,7 @@ class ConnectivityService {
   /**
    * Send an image to a peer (Found in local storage)
    */
-  private async sendImage(targetId: string, imageId: string): Promise<void> {
+  async sendImage(targetId: string, imageId: string): Promise<void> {
     try {
       if (!await imageService.exists(imageId)) {
         console.warn('[Connectivity] Requested image not found locally:', imageId);
@@ -432,10 +432,15 @@ class ConnectivityService {
 
       case 'PING':
       case 'LOG_UPDATE':
+        this.broadcast(data);
+        break;
+
       case 'PING_MOVE':
       case 'PING_DELETE':
       case 'PING_UPDATE':
-        this.broadcast(data);
+        // Avoid echo back to sender for edits/moves (optimization)
+        console.log(`[Connectivity] Relaying ${data.type} from ${from}`);
+        this.broadcastExcept(from, data);
         break;
 
       case 'REQUEST_IMAGE':
