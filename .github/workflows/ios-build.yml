@@ -54,24 +54,113 @@ jobs:
 
       # --- PATCH EXPO-DEVICE (FIX CRITIQUE) ---
       # Fix pour l'erreur "cannot find 'TARGET_OS_SIMULATOR' in scope" avec Xcode 15+
+      # NOTE: Ce patch est maintenant aussi appliqué via le plugin dans app.config.js
+      # mais on le garde ici pour double sécurité
       - name: 🚑 Patch expo-device (TARGET_OS_SIMULATOR)
         run: |
           echo "Patching expo-device for Xcode 15 compatibility..."
           # On remplace la vérification dynamique par 'false' car on compile pour un DEVICE physique (Release)
           # Cela corrige l'erreur de compilation immédiate.
           # Le fichier est généralement dans node_modules/expo-device/ios/UIDevice.swift
-          find node_modules/expo-device/ios -name "UIDevice.swift" -exec sed -i '' 's/return TARGET_OS_SIMULATOR != 0/return false/g' {} +
-          echo "✅ Patch appliqué sur UIDevice.swift"
+          DEVICE_SWIFT=$(find node_modules/expo-device/ios -name "UIDevice.swift" | head -n 1)
+          
+          if [ -f "$DEVICE_SWIFT" ]; then
+            echo "📁 Fichier trouvé : $DEVICE_SWIFT"
+            
+            # Vérification avant patch
+            if grep -q "TARGET_OS_SIMULATOR" "$DEVICE_SWIFT"; then
+              echo "🔧 Application du patch..."
+              # CORRECTION: Supprimer '' après -i pour macOS
+              sed -i.bak 's/return TARGET_OS_SIMULATOR != 0/return false/g' "$DEVICE_SWIFT"
+              
+              # Vérification après patch
+              if grep -q "return false" "$DEVICE_SWIFT" && ! grep -q "TARGET_OS_SIMULATOR" "$DEVICE_SWIFT"; then
+                echo "✅ Patch appliqué avec succès sur UIDevice.swift"
+              else
+                echo "⚠️ Le patch n'a pas été appliqué correctement"
+                cat "$DEVICE_SWIFT"
+              fi
+            else
+              echo "ℹ️ Le fichier ne contient pas TARGET_OS_SIMULATOR (déjà patché?)"
+            fi
+          else
+            echo "⚠️ UIDevice.swift non trouvé, le plugin app.config.js le patchera lors du prebuild"
+          fi
+
 
       # Prebuild génère les dossiers natifs (/ios)
       - name: ⚙️ Expo Prebuild
-        run: npx expo prebuild --platform ios --clean --no-install
+        run: |
+          echo "🔧 Lancement du prebuild iOS..."
+          npx expo prebuild --platform ios --clean --no-install
+          echo "✅ Prebuild terminé"
 
 
-      - name: 🔧 Install Pods
+
+      - name: 🔧 Verify Podfile and Install Pods
         run: |
           cd ios
+          
+          echo "📋 Vérification du Podfile généré..."
+          cat Podfile
+          
+          echo ""
+          echo "🔧 Modification du Podfile pour forcer MapLibre en modular headers..."
+          
+          # Trouver la ligne 'target' et injecter le pod MapLibre juste après
+          # Cela force l'installation de MapLibre avec modular_headers AVANT les autres pods
+          if ! grep -q "pod 'MapLibre'" Podfile; then
+            # Créer un Podfile modifié
+            awk '
+              /^[[:space:]]*target / {
+                print $0
+                getline
+                print $0
+                print "  pod '\''MapLibre'\'', '\''~> 6.0'\'', :modular_headers => true"
+                next
+              }
+              { print }
+            ' Podfile > Podfile.tmp && mv Podfile.tmp Podfile
+            
+            echo "✅ MapLibre ajouté au Podfile avec modular_headers"
+          else
+            echo "ℹ️ MapLibre déjà présent dans le Podfile"
+          fi
+          
+          echo ""
+          echo "📋 Podfile après modification:"
+          head -n 20 Podfile
+          
+          echo ""
+          echo "📦 Installation des pods..."
           pod install --repo-update
+          echo "✅ Pods installés avec succès"
+
+      # PATCH CRITIQUE : Forcer les modular headers sur MapLibre via Xcode project
+      - name: 🔧 Patch Xcode Project for MapLibre Module
+        run: |
+          cd ios
+          
+          echo "🔧 Configuration des build settings pour MapLibre..."
+          
+          # Utiliser PlistBuddy pour modifier les build settings du projet Pods
+          # Cela force DEFINES_MODULE=YES pour la target MapLibre
+          PODS_PROJECT="Pods/Pods.xcodeproj/project.pbxproj"
+          
+          if [ -f "$PODS_PROJECT" ]; then
+            echo "📁 Projet Pods trouvé: $PODS_PROJECT"
+            
+            # Backup du fichier
+            cp "$PODS_PROJECT" "$PODS_PROJECT.backup"
+            
+            # Ajouter DEFINES_MODULE = YES dans les build settings de MapLibre
+            # Cette approche est plus directe que post_install
+            sed -i.bak '/MapLibre.*buildSettings/,/};/ s/IPHONEOS_DEPLOYMENT_TARGET = [^;]*;/&\n\t\t\t\tDEFINES_MODULE = YES;\n\t\t\t\tCLANG_ENABLE_MODULES = YES;/' "$PODS_PROJECT"
+            
+            echo "✅ Build settings modifiés pour MapLibre"
+          else
+            echo "⚠️ Projet Pods non trouvé"
+          fi
 
       - name: 🔨 Build Unsigned .app with Xcode
         run: |
