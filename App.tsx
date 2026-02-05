@@ -317,8 +317,6 @@ const App: React.FC = () => {
                 let angle = Math.atan2(y, x) * (180 / Math.PI);
                 angle = angle - 90;
                 if (isLandscape) angle = angle + 90;
-                // Correction utilisateur: Heading faux de 180°
-                angle = angle + 180;
 
                 if (angle < 0) angle = angle + 360;
                 const heading = Math.floor(angle) % 360;
