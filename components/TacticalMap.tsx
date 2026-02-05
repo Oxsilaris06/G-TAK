@@ -21,6 +21,7 @@ import MapLibreGL, {
   ShapeSource,
   LineLayer,
   CircleLayer,
+  FillLayer,
 } from '@maplibre/maplibre-react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -80,7 +81,7 @@ interface OperatorMarkerProps {
 const toRad = (d: number) => (d * Math.PI) / 180;
 const toDeg = (r: number) => (r * 180) / Math.PI;
 
-const calculateDestinationPoint = (lat: number, lng: number, distanceM.meters: number, bearing: number): [number, number] => {
+const calculateDestinationPoint = (lat: number, lng: number, distanceM: number, bearing: number): [number, number] => {
   const R = 6371e3; // Rayon Terre en mètres
   const angDist = distanceM / R;
   const radBearing = toRad(bearing);
@@ -421,6 +422,45 @@ const TacticalMap = ({
     return { type: 'FeatureCollection', features };
   }, [pings]);
 
+  // GeoJSON Cones (Vision)
+  const conesGeoJSON = useMemo(() => {
+    const features: any[] = [];
+
+    // Helper pour générer un triangle de vision
+    const addCone = (u: UserData) => {
+      if (!u.lat || !u.lng) return;
+      // Rayon de 50m, Angle 60° (head - 30 à head + 30)
+      const center = [u.lng, u.lat];
+      const head = u.head || 0;
+
+      const p1 = calculateDestinationPoint(u.lat, u.lng, 60, head - 30);
+      const p2 = calculateDestinationPoint(u.lat, u.lng, 60, head + 30);
+
+      // Fermer le polygone : Centre -> P1 -> P2 -> Centre
+      const coords = [[center, p1, p2, center]];
+
+      // Couleur selon status
+      let color = nightOpsMode ? '#ef4444' : STATUS_COLORS[u.status] || '#71717a';
+      if (u.status === 'CLEAR' && !nightOpsMode) color = STATUS_COLORS.CLEAR;
+      if (u.status === 'CONTACT' && !nightOpsMode) color = STATUS_COLORS.CONTACT;
+
+      features.push({
+        type: 'Feature',
+        properties: {
+          id: u.id,
+          color: color,
+          opacity: 0.4
+        },
+        geometry: { type: 'Polygon', coordinates: coords }
+      });
+    };
+
+    if (me.lat && me.lng) addCone(me);
+    Object.values(peers).forEach(p => addCone(p));
+
+    return { type: 'FeatureCollection', features };
+  }, [me, peers, nightOpsMode]);
+
   const mapHeading = compassMode === 'heading' ? (me.head || 0) : currentMapHeading;
 
   return (
@@ -511,6 +551,26 @@ const TacticalMap = ({
             />
           </ShapeSource>
         )}
+
+        {/* --- CONES DE VISION (GeoJSON Native) --- */}
+        <ShapeSource id="conesSource" shape={conesGeoJSON}>
+          <FillLayer
+            id="conesFill"
+            style={{
+              fillColor: ['get', 'color'],
+              fillOpacity: 0.4,
+              fillOutlineColor: ['get', 'color']
+            }}
+          />
+          <LineLayer
+            id="conesOutline"
+            style={{
+              lineColor: ['get', 'color'],
+              lineWidth: 1,
+              lineOpacity: 0.8
+            }}
+          />
+        </ShapeSource>
 
         {/* --- MARKERS OPÉRATEURS --- */}
         {!!me.lat && !!me.lng && (
