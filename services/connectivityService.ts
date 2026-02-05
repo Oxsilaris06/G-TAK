@@ -278,7 +278,7 @@ class ConnectivityService {
       }
 
       const base64 = await imageService.readAsBase64(imageId);
-      const CHUNK_SIZE = 16 * 1024; // 16KB
+      const CHUNK_SIZE = 4 * 1024; // 4KB (Smaller chunks for better reliability)
       const totalChunks = Math.ceil(base64.length / CHUNK_SIZE);
 
       console.log(`[Connectivity] Sending image ${imageId} to ${targetId} (${totalChunks} chunks)`);
@@ -344,6 +344,10 @@ class ConnectivityService {
         for (let i = 0; i < pending.total; i++) {
           if (pending.chk[i]) receivedCount++;
         }
+
+        // Alert every chunk to debug flow (Temporary spam but necessary)
+        // Alert.alert("DEBUG P2P", `Client: Chunk ${data.index + 1}/${pending.total}`);
+        console.log(`[Connectivity] Chunk ${data.index + 1}/${pending.total}`);
 
         if (receivedCount === pending.total) { // All chunks received
           const fullBase64 = pending.chk.join('');
