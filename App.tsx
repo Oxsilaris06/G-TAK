@@ -110,25 +110,8 @@ const App: React.FC = () => {
         if (tempImage) console.log('[App] tempImage is currently:', tempImage);
     }, [tempImage]);
 
-    // Sync tempImage when editingPing opens (Fix for missing image in modal)
-    useEffect(() => {
-        if (editingPing) {
-            const uri = editingPing.imageUri || editingPing.image || null;
-            if (uri) {
-                console.log('[App] Auto-loading image for edit:', uri);
-                imageService.exists(editingPing.imageId || '').then(exists => {
-                    // Prefer local file if validated, otherwise fallback to stored URI
-                    if (exists && editingPing.imageId) {
-                        setTempImage(imageService.getImageUri(editingPing.imageId));
-                    } else {
-                        setTempImage(uri);
-                    }
-                });
-            } else {
-                setTempImage(null);
-            }
-        }
-    }, [editingPing]);
+    // Sync tempImage triggered manually in onPingClick now to avoid race conditions.
+    // useEffect removed.
 
     // Reference pour accès dans les callbacks sans dépendance
     const [freeMsgInput, setFreeMsgInput] = useState('');
@@ -1235,6 +1218,7 @@ const App: React.FC = () => {
 
                             {/* SECTION PHOTO ÉDITION */}
                             <Text style={styles.label}>Photo</Text>
+                            <Text style={{ color: 'red', fontSize: 10 }}>DEBUG STATE: {tempImage || 'NULL'}</Text>
                             <View style={styles.photoContainer}>
                                 {tempImage ? (
                                     <View style={{ position: 'relative', width: '100%', height: 150 }}>
