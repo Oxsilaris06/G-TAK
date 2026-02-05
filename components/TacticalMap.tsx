@@ -200,17 +200,9 @@ const TacticalCompass = ({ heading, isLandscape, onPress, mode, nightOpsMode }: 
 interface PingMarkerProps {
   ping: PingData;
   nightOpsMode: boolean;
-  onPress: () => void;
-  onLongPress: () => void;
 }
 
-const PingMarker = ({ ping, nightOpsMode, onPress, onLongPress }: PingMarkerProps) => {
-
-
-  const handlePress = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    onPress();
-  };
+const PingMarker = ({ ping, nightOpsMode }: PingMarkerProps) => {
 
   const getPingColors = () => {
     switch (ping.type) {
@@ -225,12 +217,7 @@ const PingMarker = ({ ping, nightOpsMode, onPress, onLongPress }: PingMarkerProp
   const iconName = ping.type === 'HOSTILE' ? 'warning' : ping.type === 'FRIEND' ? 'shield' : 'visibility';
 
   return (
-    <TouchableOpacity
-      onPress={handlePress}
-      onLongPress={onLongPress}
-      activeOpacity={0.6}
-      style={styles.pingMarkerContainer}
-    >
+    <View style={styles.pingMarkerContainer}>
       {/* Taille réduite pour précision (28x28) */}
       <View style={[styles.pingMarker, { backgroundColor: colors.bg, borderColor: colors.border }]}>
         <MaterialIcons name={iconName} size={16} color={colors.text} />
@@ -240,7 +227,7 @@ const PingMarker = ({ ping, nightOpsMode, onPress, onLongPress }: PingMarkerProp
           {ping.msg}
         </Text>
       </View>
-    </TouchableOpacity>
+    </View>
   );
 };
 
@@ -602,12 +589,11 @@ const TacticalMap = ({
             coordinate={[ping.lng, ping.lat]}
             draggable
             onDragEnd={(e) => handlePingDragEnd(e, ping)}
+            onSelected={() => onPingClick(ping.id)}
           >
             <PingMarker
               ping={ping}
               nightOpsMode={nightOpsMode}
-              onPress={() => onPingClick(ping.id)}
-              onLongPress={() => { }} // Handled by draggable
             />
           </PointAnnotation>
         ))}
