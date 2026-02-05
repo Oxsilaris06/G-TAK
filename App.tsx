@@ -317,6 +317,8 @@ const App: React.FC = () => {
                 let angle = Math.atan2(y, x) * (180 / Math.PI);
                 angle = angle - 90;
                 if (isLandscape) angle = angle + 90;
+                // Correction utilisateur: Heading faux de 180°
+                angle = angle + 180;
 
                 if (angle < 0) angle = angle + 360;
                 const heading = Math.floor(angle) % 360;
@@ -879,7 +881,7 @@ const App: React.FC = () => {
                                 <MaterialIcons name={showPings ? 'location-on' : 'location-off'} size={24} color={nightOpsMode ? "#ef4444" : "#d4d4d8"} />
                             </TouchableOpacity>
                             <TouchableOpacity onPress={() => setIsPingMode(!isPingMode)} {...getLandscapeProps()} style={[getLandscapeStyle(styles.mapBtn), isPingMode ? { backgroundColor: '#dc2626', borderColor: '#f87171' } : null, nightOpsMode && { borderColor: '#7f1d1d', backgroundColor: isPingMode ? '#7f1d1d' : '#000' }]}>
-                                <MaterialIcons name="ads-click" size={24} color={nightOpsMode ? "#ef4444" : "white"} />
+                                <MaterialIcons name="ads-click" size={24} color="white" />
                             </TouchableOpacity>
                         </View>
                     </View>
