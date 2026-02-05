@@ -227,8 +227,8 @@ const PingMarker = ({ ping, nightOpsMode, onPress, onLongPress }: PingMarkerProp
       style={{
         alignItems: 'center',
         justifyContent: 'center',
-        minWidth: 40,
-        minHeight: 40
+        minWidth: 48,
+        minHeight: 48
       }}
     >
       {/* Taille réduite pour précision (28x28) */}
@@ -460,6 +460,16 @@ const TacticalMap = ({
 
   const mapHeading = compassMode === 'heading' ? (me.head || 0) : currentMapHeading;
 
+  // Click throttling to prevent double events from hybrid approach
+  const lastClickTime = useRef<number>(0);
+  const handlePingClickWithThrottle = (id: string) => {
+    const now = Date.now();
+    if (now - lastClickTime.current < 500) return;
+    lastClickTime.current = now;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    onPingClick(id);
+  };
+
   return (
     <View style={styles.container}>
       <MapView
@@ -602,11 +612,12 @@ const TacticalMap = ({
             coordinate={[ping.lng, ping.lat]}
             draggable
             onDragEnd={(e) => handlePingDragEnd(e, ping)}
+            onSelected={() => handlePingClickWithThrottle(ping.id)}
           >
             <PingMarker
               ping={ping}
               nightOpsMode={nightOpsMode}
-              onPress={() => onPingClick(ping.id)}
+              onPress={() => handlePingClickWithThrottle(ping.id)}
             />
           </PointAnnotation>
         ))}
