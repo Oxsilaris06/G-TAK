@@ -1,5 +1,6 @@
 import './polyfills';
 import React, { useState, useCallback, useRef, useEffect } from 'react';
+import { useFonts, SairaStencilOne_400Regular } from '@expo-google-fonts/saira-stencil-one';
 import {
     StyleSheet, View, Text, TextInput, TouchableOpacity,
     SafeAreaView, Platform, Modal, StatusBar as RNStatusBar, Alert, ScrollView, ActivityIndicator,
@@ -55,6 +56,7 @@ const App: React.FC = () => {
     const isLandscape = width > height;
 
     const [isAppReady, setIsAppReady] = useState(false);
+    const [fontsLoaded] = useFonts({ 'Saira Stencil One': SairaStencilOne_400Regular });
     const [activeNotif, setActiveNotif] = useState<{ id: string, msg: string, type: 'alert' | 'info' | 'success' | 'warning' } | null>(null);
     const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
 
@@ -169,7 +171,7 @@ const App: React.FC = () => {
     };
 
     // --- GESTION PHOTO ---
-    const handleTakePhoto = async () => {
+    const handleTakePhoto = async (useEditing: boolean = false) => {
         const permission = await ImagePicker.requestCameraPermissionsAsync();
         if (!permission.granted) {
             showToast("Permission caméra refusée", "error");
@@ -178,15 +180,28 @@ const App: React.FC = () => {
 
         const result = await ImagePicker.launchCameraAsync({
             mediaTypes: ImagePicker.MediaTypeOptions.Images,
-            allowsEditing: true, // Recadrage simple
+            allowsEditing: useEditing, // Recadrage optionnel
             aspect: [4, 3],
-            quality: 1, // Qualité initiale max, on compresse après
+            quality: 1,
             base64: false,
         });
 
         if (!result.canceled && result.assets && result.assets.length > 0) {
             processAndSetImage(result.assets[0].uri);
         }
+    };
+
+    const promptCameraMode = () => {
+        Alert.alert(
+            "Mode Photo",
+            "Voulez-vous recadrer la photo ?",
+            [
+                { text: "Non (Rapide)", onPress: () => handleTakePhoto(false) },
+                { text: "Oui (Recadrer)", onPress: () => handleTakePhoto(true) },
+                { text: "Annuler", style: "cancel" }
+            ],
+            { cancelable: true }
+        );
     };
 
     const handlePickImage = async () => {
@@ -211,11 +226,11 @@ const App: React.FC = () => {
 
     const processAndSetImage = async (uri: string) => {
         try {
-            // Compression à 0.43 et redimensionnement max 800px pour fluidité
+            // Compression améliorée (0.65) et définition supérieure (1024px)
             const manipResult = await ImageManipulator.manipulateAsync(
                 uri,
-                [{ resize: { width: 800 } }],
-                { compress: 0.43, format: ImageManipulator.SaveFormat.JPEG, base64: false }
+                [{ resize: { width: 1024 } }],
+                { compress: 0.65, format: ImageManipulator.SaveFormat.JPEG, base64: false }
             );
             setTempImage(manipResult.uri);
         } catch (error) {
@@ -412,7 +427,7 @@ const App: React.FC = () => {
                 break;
             case 'IMAGE_READY':
                 console.log("[App] Image Ready:", event.imageId);
-                Alert.alert("DEBUG P2P", "Image Reçue & Prête !\nID: " + event.imageId);
+                showToast("📸 Image tactique reçue", "success");
                 setPings(prev => prev.map(p => {
                     if (p.imageId === event.imageId) {
                         return { ...p, imageUri: event.uri };
@@ -454,7 +469,6 @@ const App: React.FC = () => {
 
             // Gestion Image Architecture
             if (data.ping.hasImage && data.ping.imageId) {
-                Alert.alert("DEBUG P2P", "Ping Reçu avec Image\nID: " + data.ping.imageId);
                 imageService.exists(data.ping.imageId).then(exists => {
                     if (exists) {
                         // On l'a déjà, on met à jour le lien
@@ -462,7 +476,6 @@ const App: React.FC = () => {
                     } else {
                         // On ne l'a pas, on demande (si connecté à celui qui l'a envoyé ou à l'hôte)
                         // On demande à l'expéditeur (fromId)
-                        Alert.alert("DEBUG P2P", "Image manquante, demande envoyée à " + fromId);
                         connectivityService.requestImage(data.ping.imageId!, [fromId]);
                     }
                 });
@@ -1036,7 +1049,7 @@ const App: React.FC = () => {
         )
     };
 
-    if (!isAppReady) return <View style={{ flex: 1, backgroundColor: '#000' }}><ActivityIndicator size="large" color="#2563eb" style={{ marginTop: 50 }} /></View>;
+    if (!isAppReady || !fontsLoaded) return <View style={{ flex: 1, backgroundColor: '#000' }}><ActivityIndicator size="large" color="#2563eb" style={{ marginTop: 50 }} /></View>;
 
     return (
         <View style={styles.container}>
@@ -1161,7 +1174,7 @@ const App: React.FC = () => {
                                     </View>
                                 ) : (
                                     <View style={{ flexDirection: 'row', gap: 10, width: '100%' }}>
-                                        <TouchableOpacity onPress={handleTakePhoto} style={[styles.addPhotoBtn, { flex: 1 }]}>
+                                        <TouchableOpacity onPress={promptCameraMode} style={[styles.addPhotoBtn, { flex: 1 }]}>
                                             <MaterialIcons name="camera-alt" size={30} color="#52525b" />
                                             <Text style={{ color: '#52525b', fontSize: 12 }}>Caméra</Text>
                                         </TouchableOpacity>
@@ -1221,7 +1234,6 @@ const App: React.FC = () => {
 
                             {/* SECTION PHOTO ÉDITION */}
                             <Text style={styles.label}>Photo</Text>
-                            <Text style={{ color: 'red', fontSize: 10 }}>DEBUG STATE: {tempImage || 'NULL'}</Text>
                             <View style={styles.photoContainer}>
                                 {tempImage ? (
                                     <View style={{ position: 'relative', width: '100%', height: 150 }}>
@@ -1242,7 +1254,7 @@ const App: React.FC = () => {
                                     </View>
                                 ) : (
                                     <View style={{ flexDirection: 'row', gap: 10, width: '100%' }}>
-                                        <TouchableOpacity onPress={handleTakePhoto} style={[styles.addPhotoBtn, { flex: 1 }]}>
+                                        <TouchableOpacity onPress={promptCameraMode} style={[styles.addPhotoBtn, { flex: 1 }]}>
                                             <MaterialIcons name="camera-alt" size={30} color="#52525b" />
                                             <Text style={{ color: '#52525b', fontSize: 12 }}>Caméra</Text>
                                         </TouchableOpacity>

@@ -4,7 +4,6 @@
  */
 
 import Peer from 'peerjs';
-import { Alert } from 'react-native';
 import { EventEmitter } from 'events';
 import { UserData, OperatorRole } from '../types';
 import { mmkvStorage } from './mmkvStorage';
@@ -282,11 +281,10 @@ class ConnectivityService {
       const totalChunks = Math.ceil(base64.length / CHUNK_SIZE);
 
       console.log(`[Connectivity] Sending image ${imageId} to ${targetId} (${totalChunks} chunks)`);
-      Alert.alert("DEBUG P2P", `Host: Envoi image vers ${targetId}\nChunks: ${totalChunks}`);
 
       const sentStart = this.sendTo(targetId, { type: 'IMAGE_START', imageId, total: totalChunks });
       if (!sentStart) {
-        Alert.alert("DEBUG P2P", "Host: ECHEC envoi IMAGE_START. Connexion perdue ?");
+        console.warn(`[Connectivity] Failed to send IMAGE_START to ${targetId}`);
         return;
       }
 
@@ -320,7 +318,6 @@ class ConnectivityService {
 
     // --- IMAGE PROTOCOL HANDLERS ---
     if (data.type === 'REQUEST_IMAGE') {
-      Alert.alert("DEBUG P2P", "Host: Reçu demande image de " + from + "\nID: " + data.imageId);
       if (data.imageId) {
         this.sendImage(from, data.imageId);
       }
@@ -337,7 +334,6 @@ class ConnectivityService {
       }
 
       console.log(`[Connectivity] Receiving image ${data.imageId} (${data.total} chunks)`);
-      Alert.alert("DEBUG P2P", `Client: Début Réception (Header)\nTotal: ${data.total}`);
 
       // Check completeness immediately in case chunks arrived first
       this.checkImageCompletion(data.imageId);
@@ -355,9 +351,6 @@ class ConnectivityService {
 
       pending.chk[data.index] = data.data;
 
-      // Alert every chunk to debug flow
-      Alert.alert("DEBUG P2P", `Client: Chunk ${data.index + 1}`);
-
       if (pending.total > 0) {
         this.checkImageCompletion(data.imageId);
       }
@@ -371,6 +364,25 @@ class ConnectivityService {
     // Gestion spéciale pour l'hôte
     if (this.state.role === OperatorRole.HOST) {
       this.handleHostData(data, from);
+    }
+  }
+
+  private checkImageCompletion(imageId: string) {
+    const pending = this.state.tempChunks.get(imageId);
+    if (!pending || pending.total === 0) return;
+
+    let receivedCount = 0;
+    for (let i = 0; i < pending.total; i++) {
+      if (pending.chk[i]) receivedCount++;
+    }
+
+    if (receivedCount === pending.total) { // All chunks received
+      const fullBase64 = pending.chk.join('');
+      this.state.tempChunks.delete(imageId);
+      imageService.writeBase64(imageId, fullBase64).then((uri) => {
+        console.log('[Connectivity] Image Received & Saved:', uri);
+        this.emit({ type: 'IMAGE_READY', imageId, uri });
+      });
     }
   }
 
