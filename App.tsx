@@ -137,7 +137,10 @@ const App: React.FC = () => {
     const [gpsStatus, setGpsStatus] = useState<'WAITING' | 'OK' | 'ERROR'>('WAITING');
 
     const showToast = useCallback((msg: string, type: 'info' | 'error' | 'success' | 'warning' = 'info') => {
-        setActiveNotif({ id: Date.now().toString(), msg, type });
+        // MAPPING: NotificationToast uses 'alert' for red, but app uses 'error'.
+        const notifType = type === 'error' ? 'alert' : type;
+
+        setActiveNotif({ id: Date.now().toString(), msg, type: notifType });
         if (type === 'error' || type === 'warning') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         else if (type === 'success') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     }, []);
@@ -540,7 +543,8 @@ const App: React.FC = () => {
             }));
 
             if (u.status === 'CONTACT' && prevStatus !== 'CONTACT') {
-                showToast(`${u.callsign} : CONTACT !`, 'error');
+                const coordStr = u.lat && u.lng ? `(${u.lat.toFixed(5)}, ${u.lng.toFixed(5)})` : '';
+                showToast(`${u.callsign} : CONTACT ! ${coordStr}`, 'error');
                 triggerTacticalNotification(`${u.callsign} - CONTACT`, `Position GPS: ${u.lat?.toFixed(5) || 'N/A'}`);
             }
 
