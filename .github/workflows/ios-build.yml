@@ -101,66 +101,56 @@ jobs:
         run: |
           cd ios
           
-          echo "📋 Vérification du Podfile généré..."
-          cat Podfile
+          echo "📋 Podfile généré par Expo:"
+          head -n 30 Podfile
           
           echo ""
-          echo "🔧 Modification du Podfile pour forcer MapLibre en modular headers..."
+          echo "🔧 Ajout explicite de MapLibre SDK au Podfile..."
           
-          # Trouver la ligne 'target' et injecter le pod MapLibre juste après
-          # Cela force l'installation de MapLibre avec modular_headers AVANT les autres pods
+          # Le problème: @maplibre/maplibre-react-native nécessite MapLibre SDK
+          # mais celui-ci n'est pas toujours installé correctement
+          # Solution: Ajouter explicitement MapLibre SDK comme pod
+          
           if ! grep -q "pod 'MapLibre'" Podfile; then
-            # Créer un Podfile modifié
-            awk '
-              /^[[:space:]]*target / {
-                print $0
-                getline
-                print $0
-                print "  pod '\''MapLibre'\'', '\''~> 6.0'\'', :modular_headers => true"
-                next
-              }
-              { print }
-            ' Podfile > Podfile.tmp && mv Podfile.tmp Podfile
+            # Insérer MapLibre juste après la ligne 'use_expo_modules!'
+            sed -i.bak "/use_expo_modules!/a\\
+  \\
+  # MapLibre SDK requis pour @maplibre/maplibre-react-native\\
+  pod 'MapLibre', '~> 6.0', :modular_headers => true
+" Podfile
             
-            echo "✅ MapLibre ajouté au Podfile avec modular_headers"
+            echo "✅ MapLibre SDK ajouté au Podfile"
           else
-            echo "ℹ️ MapLibre déjà présent dans le Podfile"
+            echo "ℹ️ MapLibre déjà présent"
           fi
           
           echo ""
-          echo "📋 Podfile après modification:"
-          head -n 20 Podfile
+          echo "📋 Podfile modifié:"
+          head -n 35 Podfile
           
           echo ""
           echo "📦 Installation des pods..."
           pod install --repo-update
-          echo "✅ Pods installés avec succès"
+          echo "✅ Pods installés"
 
-      # PATCH CRITIQUE : Forcer les modular headers sur MapLibre via Xcode project
-      - name: 🔧 Patch Xcode Project for MapLibre Module
+      # Vérification que MapLibre a bien été installé
+      - name: � Verify MapLibre Installation
         run: |
           cd ios
           
-          echo "🔧 Configuration des build settings pour MapLibre..."
+          echo "� Vérification de l'installation de MapLibre..."
           
-          # Utiliser PlistBuddy pour modifier les build settings du projet Pods
-          # Cela force DEFINES_MODULE=YES pour la target MapLibre
-          PODS_PROJECT="Pods/Pods.xcodeproj/project.pbxproj"
-          
-          if [ -f "$PODS_PROJECT" ]; then
-            echo "📁 Projet Pods trouvé: $PODS_PROJECT"
-            
-            # Backup du fichier
-            cp "$PODS_PROJECT" "$PODS_PROJECT.backup"
-            
-            # Ajouter DEFINES_MODULE = YES dans les build settings de MapLibre
-            # Cette approche est plus directe que post_install
-            sed -i.bak '/MapLibre.*buildSettings/,/};/ s/IPHONEOS_DEPLOYMENT_TARGET = [^;]*;/&\n\t\t\t\tDEFINES_MODULE = YES;\n\t\t\t\tCLANG_ENABLE_MODULES = YES;/' "$PODS_PROJECT"
-            
-            echo "✅ Build settings modifiés pour MapLibre"
+          if [ -d "Pods/MapLibre" ]; then
+            echo "✅ MapLibre pod installé"
+            ls -la Pods/MapLibre/
           else
-            echo "⚠️ Projet Pods non trouvé"
+            echo "❌ MapLibre pod NON installé - le build va échouer"
+            exit 1
           fi
+          
+          echo ""
+          echo "🔍 Vérification du framework MapLibre..."
+          find Pods -name "MapLibre.framework" -o -name "Mapbox.framework" 2>/dev/null || echo "Aucun framework trouvé"
 
       - name: 🔨 Build Unsigned .app with Xcode
         run: |
