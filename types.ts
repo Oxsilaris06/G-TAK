@@ -38,6 +38,7 @@ export interface UserData {
   head: number;
   lastMsg: string;
   paxColor?: string;
+  _networkId?: string;
 }
 
 export interface PingData {
