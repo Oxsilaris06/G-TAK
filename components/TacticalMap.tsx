@@ -199,7 +199,10 @@ const TacticalCompass = ({ heading, isLandscape, onPress, mode, nightOpsMode }: 
     <TouchableOpacity
       onPress={onPress}
       activeOpacity={0.7}
-      style={[styles.compassContainer, isLandscape ? styles.compassLandscape : null]}
+      style={[
+        styles.compassContainer,
+        isLandscape ? styles.compassLandscape : { top: 20 }
+      ]}
     >
       <View style={styles.compassIndicator} />
       <View style={[
@@ -852,7 +855,7 @@ const styles = StyleSheet.create({
   // Boussole
   compassContainer: {
     position: 'absolute',
-    top: 20,
+    // top: 20, // Managed dynamically
     left: 20,
     width: 60,
     height: 60,
@@ -861,7 +864,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   compassLandscape: {
-    top: 'auto',
     bottom: 140, // Positionné au-dessus de la barre de progression/statut
     left: 20,
   },
