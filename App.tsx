@@ -287,8 +287,21 @@ const App: React.FC = () => {
 
         const locSub = locationService.subscribe((loc) => {
             setGpsStatus('OK');
-            setUser(prev => ({ ...prev, lat: loc.latitude, lng: loc.longitude }));
-            connectivityService.updateUserPosition(loc.latitude, loc.longitude, userRef.current.head);
+
+            // FUSION SENSORS :
+            // Si on bouge (> 1 m/s), on priorise le Cap GPS (Course) car plus précis pour le mouvement.
+            // Si on est à l'arrêt, on garde le Cap Magnétique (géré par le Magnetometer listener) pour savoir où on regarde.
+            const isMoving = (loc.speed || 0) > 1.0;
+            const gpsHeadingAvailable = loc.heading !== null && loc.heading !== undefined;
+
+            let newHead = userRef.current.head;
+
+            if (isMoving && gpsHeadingAvailable) {
+                newHead = loc.heading!; // Safe assertion due to logic above
+            }
+
+            setUser(prev => ({ ...prev, lat: loc.latitude, lng: loc.longitude, head: newHead }));
+            connectivityService.updateUserPosition(loc.latitude, loc.longitude, newHead);
         });
 
         return () => {
