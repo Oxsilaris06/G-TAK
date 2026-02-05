@@ -73,16 +73,19 @@ interface OperatorMarkerProps {
   isMe?: boolean;
   color: string;
   nightOpsMode: boolean;
+  mapHeading?: number;
 }
 
-const OperatorMarker = ({ user, isMe, color, nightOpsMode }: OperatorMarkerProps) => {
+const OperatorMarker = ({ user, isMe, color, nightOpsMode, mapHeading = 0 }: OperatorMarkerProps) => {
   const statusColor = nightOpsMode ? '#ef4444' : STATUS_COLORS[user.status] || '#71717a';
   let displayColor = isMe ? color : statusColor;
 
   if (user.status === 'CLEAR' && !nightOpsMode) displayColor = STATUS_COLORS.CLEAR;
   if (user.status === 'CONTACT' && !nightOpsMode) displayColor = STATUS_COLORS.CONTACT;
 
-  const rotation = user.head || 0;
+  if (user.status === 'CONTACT' && !nightOpsMode) displayColor = STATUS_COLORS.CONTACT;
+
+  const rotation = (user.head || 0) - mapHeading;
   const trigram = (user.callsign || 'UNK').substring(0, 3).toUpperCase();
 
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -390,6 +393,8 @@ const TacticalMap = ({
     return { type: 'FeatureCollection', features };
   }, [pings]);
 
+  const mapHeading = compassMode === 'heading' ? (me.head || 0) : 0;
+
   return (
     <View style={styles.container}>
       <MapView
@@ -478,14 +483,14 @@ const TacticalMap = ({
         {/* --- MARKERS OPÉRATEURS --- */}
         {!!me.lat && !!me.lng && (
           <MarkerView coordinate={[me.lng, me.lat]} anchor={{ x: 0.5, y: 0.5 }}>
-            <OperatorMarker user={me} isMe color={userArrowColor} nightOpsMode={nightOpsMode} />
+            <OperatorMarker user={me} isMe color={userArrowColor} nightOpsMode={nightOpsMode} mapHeading={mapHeading} />
           </MarkerView>
         )}
 
         {Object.values(peers).map((peer) =>
           !!peer.lat && !!peer.lng && (
             <MarkerView key={peer.id} coordinate={[peer.lng, peer.lat]} anchor={{ x: 0.5, y: 0.5 }}>
-              <OperatorMarker user={peer} color={userArrowColor} nightOpsMode={nightOpsMode} />
+              <OperatorMarker user={peer} color={userArrowColor} nightOpsMode={nightOpsMode} mapHeading={mapHeading} />
             </MarkerView>
           )
         )}
