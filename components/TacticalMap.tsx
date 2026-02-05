@@ -76,6 +76,32 @@ interface OperatorMarkerProps {
   mapHeading?: number;
 }
 
+// --- HELPER GEOMETRY ---
+const toRad = (d: number) => (d * Math.PI) / 180;
+const toDeg = (r: number) => (r * 180) / Math.PI;
+
+const calculateDestinationPoint = (lat: number, lng: number, distanceM.meters: number, bearing: number): [number, number] => {
+  const R = 6371e3; // Rayon Terre en mètres
+  const angDist = distanceM / R;
+  const radBearing = toRad(bearing);
+  const phi1 = toRad(lat);
+  const lam1 = toRad(lng);
+
+  const phi2 = Math.asin(Math.sin(phi1) * Math.cos(angDist) + Math.cos(phi1) * Math.sin(angDist) * Math.cos(radBearing));
+  const lam2 = lam1 + Math.atan2(Math.sin(radBearing) * Math.sin(angDist) * Math.cos(phi1), Math.cos(angDist) - Math.sin(phi1) * Math.sin(phi2));
+
+  return [toDeg(lam2), toDeg(phi2)]; // [lng, lat]
+};
+
+// 1. Marqueur Opérateur
+interface OperatorMarkerProps {
+  user: UserData;
+  isMe?: boolean;
+  color: string;
+  nightOpsMode: boolean;
+  mapHeading?: number;
+}
+
 const OperatorMarker = ({ user, isMe, color, nightOpsMode, mapHeading = 0 }: OperatorMarkerProps) => {
   const statusColor = nightOpsMode ? '#ef4444' : STATUS_COLORS[user.status] || '#71717a';
   let displayColor = isMe ? color : statusColor;
@@ -83,11 +109,7 @@ const OperatorMarker = ({ user, isMe, color, nightOpsMode, mapHeading = 0 }: Ope
   if (user.status === 'CLEAR' && !nightOpsMode) displayColor = STATUS_COLORS.CLEAR;
   if (user.status === 'CONTACT' && !nightOpsMode) displayColor = STATUS_COLORS.CONTACT;
 
-  if (user.status === 'CONTACT' && !nightOpsMode) displayColor = STATUS_COLORS.CONTACT;
-
-  const rotation = (user.head || 0) - mapHeading;
   const trigram = (user.callsign || 'UNK').substring(0, 3).toUpperCase();
-
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
@@ -105,18 +127,7 @@ const OperatorMarker = ({ user, isMe, color, nightOpsMode, mapHeading = 0 }: Ope
 
   return (
     <View style={[styles.markerRoot, isMe && { zIndex: 100 }]}>
-      <View style={[styles.coneContainer, { transform: [{ rotate: `${rotation}deg` }] }]}>
-        <Svg height="80" width="80" viewBox="0 0 100 100">
-          <Path
-            d="M50 50 L10 0 A60 60 0 0 1 90 0 Z"
-            fill={displayColor}
-            fillOpacity="0.5"
-            stroke={displayColor}
-            strokeWidth="2"
-            strokeOpacity="0.8"
-          />
-        </Svg>
-      </View>
+      {/* Cône retiré d'ici - Remplacé par GeoJSON FillLayer */}
 
       <Animated.View style={[
         styles.circleId,
@@ -137,6 +148,7 @@ const OperatorMarker = ({ user, isMe, color, nightOpsMode, mapHeading = 0 }: Ope
     </View>
   );
 };
+
 
 // 2. Boussole Tactique Overlay
 interface TacticalCompassProps {
