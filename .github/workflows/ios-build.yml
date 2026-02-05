@@ -112,12 +112,15 @@ jobs:
           # Solution: Ajouter explicitement MapLibre SDK comme pod
           
           if ! grep -q "pod 'MapLibre'" Podfile; then
-            # Insérer MapLibre juste après la ligne 'use_expo_modules!'
-            sed -i.bak "/use_expo_modules!/a\\
-  \\
-  # MapLibre SDK requis pour @maplibre/maplibre-react-native\\
-  pod 'MapLibre', '~> 6.0', :modular_headers => true
-" Podfile
+            # Utiliser awk pour insérer MapLibre après use_expo_modules!
+            awk '/use_expo_modules!/ {
+              print $0
+              print ""
+              print "  # MapLibre SDK requis pour @maplibre/maplibre-react-native"
+              print "  pod '\''MapLibre'\'', '\''~> 6.0'\'', :modular_headers => true"
+              next
+            }
+            { print }' Podfile > Podfile.tmp && mv Podfile.tmp Podfile
             
             echo "✅ MapLibre SDK ajouté au Podfile"
           else
