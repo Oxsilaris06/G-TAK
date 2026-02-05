@@ -795,7 +795,7 @@ const styles = StyleSheet.create({
   },
   compassLandscape: {
     top: 'auto',
-    bottom: 100, // Juste au dessus de la barre de statut (PROGRESSION etc)
+    bottom: 140, // Positionné au-dessus de la barre de progression/statut
     left: 20,
   },
   compassRose: {
