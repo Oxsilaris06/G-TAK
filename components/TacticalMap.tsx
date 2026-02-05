@@ -205,14 +205,11 @@ interface PingMarkerProps {
 }
 
 const PingMarker = ({ ping, nightOpsMode, onPress, onLongPress }: PingMarkerProps) => {
-  const lastTap = useRef<number>(0);
+
 
   const handlePress = () => {
-    const now = Date.now();
-    if (now - lastTap.current < 300) {
-      onPress(); // Double tap reconnu = Edition
-    }
-    lastTap.current = now;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    onPress();
   };
 
   const getPingColors = () => {
