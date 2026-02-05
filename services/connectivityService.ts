@@ -290,6 +290,10 @@ class ConnectivityService {
 
           this.state.peerData.set(storageId, userWithNetId);
           console.log('[Connectivity] Received HELLO from', from, storageId);
+
+          // Note: HELLO ne se contente pas de broadcaster la liste, 
+          // mais le broadcastPeerList() qui suit va envoyer la liste COMPLÈTE avec les bons IDs.
+          // Donc pour HELLO c'est géré par le case suivant.
         }
         // Broadcaster la liste mise à jour à tout le monde (y compris le nouveau)
         this.broadcastPeerList();
@@ -311,9 +315,14 @@ class ConnectivityService {
           const userWithNetId = { ...data.user, id: storageId, _networkId: existing?._networkId || from };
 
           this.state.peerData.set(storageId, userWithNetId);
+
+          // CRITIQUE : On doit propager l'ID modifié (suffixed) aux autres !
+          const patchedData = { ...data, user: userWithNetId };
+          this.broadcastExcept(from, patchedData);
+        } else {
+          // Si pas de user payload (rare pour update?), on relaye tel quel
+          this.broadcastExcept(from, data);
         }
-        // Propager la mise à jour à tous les autres
-        this.broadcastExcept(from, data);
         break;
 
       case 'PING':
