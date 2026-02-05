@@ -189,8 +189,8 @@ interface TacticalCompassProps {
 }
 
 const TacticalCompass = ({ heading, isLandscape, onPress, mode, nightOpsMode }: TacticalCompassProps & { nightOpsMode: boolean }) => {
-  // Correction: En mode Paysage, l'orientation est inversée de 180° selon le retour utilisateur
-  const displayHeading = isLandscape ? heading + 180 : heading;
+  // Correction: En mode Paysage, l'orientation est inversée de 180° selon le retour utilisateur - ANNULÉ: Le user signale que le Nord est le Sud. On retire l'inversion.
+  const displayHeading = heading;
 
   const borderColor = nightOpsMode ? '#7f1d1d' : 'rgba(255,255,255,0.2)';
   const labelColor = nightOpsMode ? '#ef4444' : 'rgba(255,255,255,0.8)';
@@ -604,7 +604,9 @@ const TacticalMap = ({
         )}
 
         {/* --- NIGHT OPS OVERLAY (Red Filter for Dark/Light modes) --- */}
-        {nightOpsMode && (mapMode === 'dark' || mapMode === 'light') && (
+        {/* FIX: Keep ShapeSource always mounted when NightOps is active but vary opacity.
+            Prevents crash when unmounting layer during map style transition. */}
+        {nightOpsMode && (
           <ShapeSource
             id="nightOpsSource"
             shape={{
@@ -625,19 +627,13 @@ const TacticalMap = ({
               id="nightOpsFill"
               style={{
                 fillColor: '#ef4444',
-                fillOpacity: 0.2,
+                // Only show tint in Dark/Light modes, otherwise transparent (opacity 0)
+                // This keeps the layer mounted during style switches, preventing native crash.
+                fillOpacity: (mapMode === 'dark' || mapMode === 'light') ? 0.2 : 0,
               }}
             />
           </ShapeSource>
         )}
-
-        {/* --- NIGHT OPS OVERLAY (Red Filter for Dark/Light modes) --- */}
-        {nightOpsMode && (mapMode === 'dark' || mapMode === 'light') && (
-          <FillLayer
-            id="nightOpsOverlay"
-            style={{
-              fillColor: '#ef4444',
-              fillOpacity: 0.15, // Subtle red tint
             }}
           />
         )}
