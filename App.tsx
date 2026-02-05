@@ -412,6 +412,7 @@ const App: React.FC = () => {
                 break;
             case 'IMAGE_READY':
                 console.log("[App] Image Ready:", event.imageId);
+                Alert.alert("DEBUG P2P", "Image Reçue & Prête !\nID: " + event.imageId);
                 setPings(prev => prev.map(p => {
                     if (p.imageId === event.imageId) {
                         return { ...p, imageUri: event.uri };
@@ -453,6 +454,7 @@ const App: React.FC = () => {
 
             // Gestion Image Architecture
             if (data.ping.hasImage && data.ping.imageId) {
+                Alert.alert("DEBUG P2P", "Ping Reçu avec Image\nID: " + data.ping.imageId);
                 imageService.exists(data.ping.imageId).then(exists => {
                     if (exists) {
                         // On l'a déjà, on met à jour le lien
@@ -460,6 +462,7 @@ const App: React.FC = () => {
                     } else {
                         // On ne l'a pas, on demande (si connecté à celui qui l'a envoyé ou à l'hôte)
                         // On demande à l'expéditeur (fromId)
+                        Alert.alert("DEBUG P2P", "Image manquante, demande envoyée à " + fromId);
                         connectivityService.requestImage(data.ping.imageId!, [fromId]);
                     }
                 });
@@ -1221,12 +1224,16 @@ const App: React.FC = () => {
                             <Text style={{ color: 'red', fontSize: 10 }}>DEBUG STATE: {tempImage || 'NULL'}</Text>
                             <View style={styles.photoContainer}>
                                 {tempImage ? (
-                                    <View style={{ position: 'relative', width: '100%', height: 150, backgroundColor: '#333' }}>
+                                    <View style={{ position: 'relative', width: '100%', height: 150 }}>
                                         <TouchableOpacity onPress={() => setFullScreenImage(tempImage)} style={{ flex: 1 }}>
                                             <Image
                                                 source={{ uri: tempImage }}
-                                                style={{ width: '100%', height: '100%', borderRadius: 8, backgroundColor: 'blue' }}
-                                                resizeMode="contain"
+                                                style={{ width: '100%', height: '100%', borderRadius: 8 }}
+                                                resizeMode="cover"
+                                                onError={(e) => {
+                                                    console.log('[App] Image Load Error:', e.nativeEvent.error);
+                                                    Alert.alert("Image Error", "Failed to load image:\n" + e.nativeEvent.error);
+                                                }}
                                             />
                                         </TouchableOpacity>
                                         <TouchableOpacity onPress={() => setTempImage(null)} style={styles.removePhotoBtn}>
