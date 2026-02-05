@@ -432,15 +432,10 @@ class ConnectivityService {
 
       case 'PING':
       case 'LOG_UPDATE':
-        this.broadcast(data);
-        break;
-
       case 'PING_MOVE':
       case 'PING_DELETE':
       case 'PING_UPDATE':
-        // Avoid echo back to sender for edits/moves (optimization)
-        console.log(`[Connectivity] Relaying ${data.type} from ${from}`);
-        this.broadcastExcept(from, data);
+        this.broadcast(data);
         break;
 
       case 'REQUEST_IMAGE':

@@ -653,7 +653,6 @@ const App: React.FC = () => {
     };
 
     const handlePingMove = (updatedPing: PingData) => {
-        console.log('[App] handlePingMove:', updatedPing.id, updatedPing.lat, updatedPing.lng);
         setPings(prev => prev.map(p => p.id === updatedPing.id ? updatedPing : p));
         safeBroadcast({ type: 'PING_MOVE', id: updatedPing.id, lat: updatedPing.lat, lng: updatedPing.lng });
     };
