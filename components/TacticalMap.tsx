@@ -594,7 +594,7 @@ const TacticalMap = ({
         {/* --- MARKERS OPÉRATEURS --- */}
         {!!me.lat && !!me.lng && (
           <PointAnnotation
-            key={`me-${me.id}-${me.status}-${Math.round((me.head || 0) / 5)}-${Math.round(mapHeading / 5)}`}
+            key={`me-${me.id}-${me.status}-${Math.round((me.head || 0) / 5)}-${Math.round(mapHeading / 5)}-${nightOpsMode}`}
             id={`me-${me.id}`}
             coordinate={[me.lng, me.lat]}
             anchor={{ x: 0.5, y: 0.5 }}
@@ -606,7 +606,7 @@ const TacticalMap = ({
         {Object.values(peers).map((peer) =>
           !!peer.lat && !!peer.lng && (
             <PointAnnotation
-              key={`peer-${peer.id}-${peer.status}-${Math.round((peer.head || 0) / 5)}-${Math.round(mapHeading / 5)}`}
+              key={`peer-${peer.id}-${peer.status}-${Math.round((peer.head || 0) / 5)}-${Math.round(mapHeading / 5)}-${nightOpsMode}`}
               id={`peer-${peer.id}`}
               coordinate={[peer.lng, peer.lat]}
               anchor={{ x: 0.5, y: 0.5 }}
@@ -619,7 +619,7 @@ const TacticalMap = ({
         {/* --- PINGS (Draggable) --- */}
         {showPings && pings.map((ping) => (
           <PointAnnotation
-            key={`${ping.id}-${mapMode}`}
+            key={`${ping.id}-${mapMode}-${nightOpsMode}`}
             id={ping.id}
             coordinate={[ping.lng, ping.lat]}
             draggable
