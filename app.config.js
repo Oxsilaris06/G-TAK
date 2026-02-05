@@ -1,40 +1,99 @@
-const { withPodfile } = require('@expo/config-plugins');
+const { withPodfile, withDangerousMod } = require('@expo/config-plugins');
+const fs = require('fs');
+const path = require('path');
 
 /**
- * Plugin inline pour forcer les Modular Headers sur MapLibre.
- * Requis pour 'useFrameworks: static' sur iOS.
+ * Plugin pour ajouter un post_install hook au Podfile
+ * Cela force les modular headers sur MapLibre et configure correctement les pods
  */
 const withMapLibreFix = (config) => {
   return withPodfile(config, (config) => {
     const podfile = config.modResults.contents;
-    const fix = "pod 'MapLibre', :modular_headers => true";
 
-    // Évite la duplication
-    if (!podfile.includes(fix)) {
-      // On injecte juste avant use_expo_modules! (ou use_react_native!)
-      // C'est un endroit sûr à l'intérieur de la target.
-      if (podfile.includes('use_expo_modules!')) {
-        config.modResults.contents = podfile.replace(
-          'use_expo_modules!',
-          `${fix}\n  use_expo_modules!`
-        );
-      } else {
-        // Fallback si use_expo_modules n'est pas trouvé (peu probable)
-        config.modResults.contents = podfile.replace(
-          'use_react_native!',
-          `${fix}\n  use_react_native!`
-        );
+    // Hook post_install pour configurer MapLibre
+    const postInstallHook = `
+  post_install do |installer|
+    installer.pods_project.targets.each do |target|
+      target.build_configurations.each do |config|
+        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.4'
+        
+        # Force modular headers pour MapLibre
+        if target.name == 'MapLibre'
+          config.build_settings['DEFINES_MODULE'] = 'YES'
+          config.build_settings['CLANG_ENABLE_MODULES'] = 'YES'
+        end
+      end
+    end
+    
+    # Configuration spécifique pour MapLibre avec use_frameworks! static
+    installer.pod_targets.each do |pod|
+      if pod.name == 'MapLibre'
+        def pod.build_type
+          Pod::BuildType.static_framework
+        end
+      end
+    end
+  end`;
+
+    // Vérifier si un post_install existe déjà
+    if (!podfile.includes('post_install do |installer|')) {
+      // Ajouter le hook avant le 'end' final du Podfile
+      const lines = podfile.split('\n');
+      const lastEndIndex = lines.lastIndexOf('end');
+      if (lastEndIndex !== -1) {
+        lines.splice(lastEndIndex, 0, postInstallHook);
+        config.modResults.contents = lines.join('\n');
       }
+    } else {
+      // Si post_install existe, on l'améliore
+      console.log('⚠️ post_install hook already exists, manual merge may be needed');
     }
+
     return config;
   });
+};
+
+/**
+ * Plugin pour patcher expo-device automatiquement lors du prebuild
+ * Fix pour l'erreur "cannot find 'TARGET_OS_SIMULATOR' in scope" avec Xcode 15+
+ */
+const withExpoDevicePatch = (config) => {
+  return withDangerousMod(config, [
+    'ios',
+    async (config) => {
+      const projectRoot = config.modRequest.projectRoot;
+      const deviceSwiftPath = path.join(
+        projectRoot,
+        'node_modules',
+        'expo-device',
+        'ios',
+        'UIDevice.swift'
+      );
+
+      if (fs.existsSync(deviceSwiftPath)) {
+        let content = fs.readFileSync(deviceSwiftPath, 'utf8');
+
+        // Patch pour Xcode 15+ : remplacer TARGET_OS_SIMULATOR par false
+        if (content.includes('TARGET_OS_SIMULATOR')) {
+          content = content.replace(
+            /return TARGET_OS_SIMULATOR != 0/g,
+            'return false'
+          );
+          fs.writeFileSync(deviceSwiftPath, content, 'utf8');
+          console.log('✅ expo-device patched for Xcode 15+ compatibility');
+        }
+      }
+
+      return config;
+    },
+  ]);
 };
 
 // ID PROJET VALIDE
 const PROJECT_ID = "f55fd8e2-57c6-4432-a64c-fae41bb16a3e";
 const VERSION = "4.1.0";
 
-export default withMapLibreFix({
+export default withExpoDevicePatch(withMapLibreFix({
   expo: {
     name: "Praxis",
     slug: "praxis",
@@ -172,4 +231,4 @@ export default withMapLibreFix({
       "expo-task-manager"
     ]
   }
-});
+}));
