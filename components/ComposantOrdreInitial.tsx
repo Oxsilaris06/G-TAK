@@ -1487,7 +1487,7 @@ export default function OIView({ onClose }: OIViewProps) {
         <Text style={styles.headerTitle}>Strategica - OI</Text>
         {/* BOUTON SETTINGS PATRACDVR */}
         <TouchableOpacity onPress={() => setIsPatracVisible(true)} style={styles.settingsButton}>
-            <MaterialIcons name="settings" size={24} color={THEME.textPrimary} />
+            <MaterialIcons name="settings" size={24} color={THEME.accentBlue} />
         </TouchableOpacity>
       </View>
 

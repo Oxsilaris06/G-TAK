@@ -4,12 +4,12 @@ import { View, StyleSheet, Animated, Dimensions, Easing } from 'react-native';
 const { width, height } = Dimensions.get('window');
 const GRID_SIZE = 40;
 const AGENT_COUNT = 5;
-const MOVE_DURATION = 400; 
+const MOVE_DURATION = 400;
 const TRAIL_DURATION = 3000;
 
 const THEME = {
-  friendly: '#3b82f6', 
-  hostile: '#ef4444'   
+  friendly: '#3b82f6',
+  hostile: '#ef4444'
 };
 
 const TacticalBackground = () => {
@@ -61,27 +61,27 @@ const TacticalBackground = () => {
       <Animated.View style={[styles.scanner, { opacity: pulseAnim, transform: [{ scale: 1.5 }] }]} />
 
       {Array.from({ length: AGENT_COUNT }).map((_, index) => (
-        <TacticalAgent 
-          key={index} 
-          cols={cols} 
-          rows={rows} 
+        <TacticalAgent
+          key={index}
+          cols={cols}
+          rows={rows}
           startDelay={index * 800}
           isCellFree={isCellFree}
           occupyCell={occupyCell}
           type={index === 0 ? 'hostile' : 'friendly'}
         />
       ))}
-      
+
       <View style={styles.vignette} />
     </View>
   );
 };
 
 const TacticalAgent = ({ cols, rows, startDelay, isCellFree, occupyCell, type = 'friendly' }) => {
-  const [pos, setPos] = useState(null); 
-  const [prevPos, setPrevPos] = useState(null); 
-  const [staticTrail, setStaticTrail] = useState([]); 
-  
+  const [pos, setPos] = useState(null);
+  const [prevPos, setPrevPos] = useState(null);
+  const [staticTrail, setStaticTrail] = useState([]);
+
   const isHostile = type === 'hostile';
   const color = THEME[type];
 
@@ -98,7 +98,7 @@ const TacticalAgent = ({ cols, rows, startDelay, isCellFree, occupyCell, type = 
           Animated.timing(heartbeatAnim, { toValue: 1.4, duration: 120, useNativeDriver: true }),
           Animated.timing(heartbeatAnim, { toValue: 1, duration: 120, useNativeDriver: true }),
           Animated.timing(heartbeatAnim, { toValue: 1.4, duration: 120, useNativeDriver: true }),
-          Animated.timing(heartbeatAnim, { toValue: 1, duration: 640, useNativeDriver: true }), 
+          Animated.timing(heartbeatAnim, { toValue: 1, duration: 640, useNativeDriver: true }),
         ])
       ).start();
     }
@@ -121,7 +121,7 @@ const TacticalAgent = ({ cols, rows, startDelay, isCellFree, occupyCell, type = 
       setTimeout(spawn, 500);
       return;
     }
-    
+
     occupyCell(start.x, start.y);
 
     let end;
@@ -143,67 +143,67 @@ const TacticalAgent = ({ cols, rows, startDelay, isCellFree, occupyCell, type = 
 
     const dx = dest.x - current.x;
     const dy = dest.y - current.y;
-    
+
     const moves = [];
     if (Math.abs(dx) >= Math.abs(dy)) {
-       if (dx !== 0) moves.push({ x: current.x + (dx > 0 ? 1 : -1), y: current.y });
-       if (dy !== 0) moves.push({ x: current.x, y: current.y + (dy > 0 ? 1 : -1) });
+      if (dx !== 0) moves.push({ x: current.x + (dx > 0 ? 1 : -1), y: current.y });
+      if (dy !== 0) moves.push({ x: current.x, y: current.y + (dy > 0 ? 1 : -1) });
     } else {
-       if (dy !== 0) moves.push({ x: current.x, y: current.y + (dy > 0 ? 1 : -1) });
-       if (dx !== 0) moves.push({ x: current.x + (dx > 0 ? 1 : -1), y: current.y });
+      if (dy !== 0) moves.push({ x: current.x, y: current.y + (dy > 0 ? 1 : -1) });
+      if (dx !== 0) moves.push({ x: current.x + (dx > 0 ? 1 : -1), y: current.y });
     }
-    
+
     const neighbors = [
-        { x: current.x + 1, y: current.y }, { x: current.x - 1, y: current.y },
-        { x: current.x, y: current.y + 1 }, { x: current.x, y: current.y - 1 }
+      { x: current.x + 1, y: current.y }, { x: current.x - 1, y: current.y },
+      { x: current.x, y: current.y + 1 }, { x: current.x, y: current.y - 1 }
     ].sort(() => Math.random() - 0.5);
 
     neighbors.forEach(n => {
-       if (!moves.some(m => m.x === n.x && m.y === n.y)) moves.push(n);
+      if (!moves.some(m => m.x === n.x && m.y === n.y)) moves.push(n);
     });
 
     let next = null;
     for (let m of moves) {
-        if (m.x >= 0 && m.x < cols && m.y >= 0 && m.y < rows && isCellFree(m.x, m.y)) {
-            next = m;
-            break;
-        }
+      if (m.x >= 0 && m.x < cols && m.y >= 0 && m.y < rows && isCellFree(m.x, m.y)) {
+        next = m;
+        break;
+      }
     }
 
     if (next) {
-        occupyCell(next.x, next.y);
-        progressAnim.setValue(0);
-        setPrevPos(current); // prevPos devient le "cul" de la ligne
+      occupyCell(next.x, next.y);
+      progressAnim.setValue(0);
+      setPrevPos(current); // prevPos devient le "cul" de la ligne
 
-        Animated.parallel([
-          Animated.timing(moveAnim, {
-            toValue: { x: next.x * GRID_SIZE, y: next.y * GRID_SIZE },
-            duration: MOVE_DURATION,
-            easing: Easing.linear,
-            useNativeDriver: true
-          }),
-          Animated.timing(progressAnim, {
-            toValue: 1,
-            duration: MOVE_DURATION,
-            easing: Easing.linear,
-            useNativeDriver: true
-          })
-        ]).start(({ finished }) => {
-          if (finished) {
-            const isVertical = next.x === current.x;
-            const newSegment = {
-              id: Date.now(),
-              x: isVertical ? current.x : Math.min(current.x, next.x),
-              y: isVertical ? Math.min(current.y, next.y) : current.y,
-              isVertical: isVertical
-            };
-            setStaticTrail(prev => [newSegment, ...prev].slice(0, 8));
-            setPos(next);
-            moveStep(next, dest);
-          }
-        });
+      Animated.parallel([
+        Animated.timing(moveAnim, {
+          toValue: { x: next.x * GRID_SIZE, y: next.y * GRID_SIZE },
+          duration: MOVE_DURATION,
+          easing: Easing.linear,
+          useNativeDriver: true
+        }),
+        Animated.timing(progressAnim, {
+          toValue: 1,
+          duration: MOVE_DURATION,
+          easing: Easing.linear,
+          useNativeDriver: true
+        })
+      ]).start(({ finished }) => {
+        if (finished) {
+          const isVertical = next.x === current.x;
+          const newSegment = {
+            id: Date.now(),
+            x: isVertical ? current.x : Math.min(current.x, next.x),
+            y: isVertical ? Math.min(current.y, next.y) : current.y,
+            isVertical: isVertical
+          };
+          setStaticTrail(prev => [newSegment, ...prev].slice(0, 8));
+          setPos(next);
+          moveStep(next, dest);
+        }
+      });
     } else {
-        triggerArrivalPulse();
+      triggerArrivalPulse();
     }
   };
 
@@ -222,7 +222,7 @@ const TacticalAgent = ({ cols, rows, startDelay, isCellFree, occupyCell, type = 
         <FadeOutTrailLine key={seg.id} x={seg.x} y={seg.y} isVertical={seg.isVertical} color={color} />
       ))}
       {prevPos && (
-         <ActiveTrailLine start={prevPos} headAnim={moveAnim} color={color} />
+        <ActiveTrailLine start={prevPos} headAnim={moveAnim} color={color} />
       )}
       <Animated.View
         style={[
@@ -231,20 +231,20 @@ const TacticalAgent = ({ cols, rows, startDelay, isCellFree, occupyCell, type = 
         ]}
       >
         <View style={styles.agentCore} />
-        <Animated.View 
+        <Animated.View
           style={[
-            styles.agentGlow, 
-            { 
+            styles.agentGlow,
+            {
               backgroundColor: color,
-              transform: [{ scale: isHostile ? heartbeatAnim : 1 }] 
+              transform: [{ scale: isHostile ? heartbeatAnim : 1 }]
             }
-          ]} 
+          ]}
         />
-        <Animated.View 
+        <Animated.View
           style={[
-            styles.pulseRing, 
+            styles.pulseRing,
             { borderColor: color, transform: [{ scale: pulseScale }] }
-          ]} 
+          ]}
         />
       </Animated.View>
     </View>
@@ -257,28 +257,28 @@ const ActiveTrailLine = ({ start, headAnim, color }) => {
   const startY = start.y * GRID_SIZE;
 
   // Calcul du Scale : 0 -> 1 (ou 0 -> -1). Clampé pour ne pas dépasser 1.
-  const scaleX = headAnim.x.interpolate({ 
-    inputRange: [startX - GRID_SIZE, startX, startX + GRID_SIZE], 
+  const scaleX = headAnim.x.interpolate({
+    inputRange: [startX - GRID_SIZE, startX, startX + GRID_SIZE],
     outputRange: [-1, 0, 1],
     extrapolate: 'clamp'
   });
 
-  const scaleY = headAnim.y.interpolate({ 
-    inputRange: [startY - GRID_SIZE, startY, startY + GRID_SIZE], 
+  const scaleY = headAnim.y.interpolate({
+    inputRange: [startY - GRID_SIZE, startY, startY + GRID_SIZE],
     outputRange: [-1, 0, 1],
     extrapolate: 'clamp'
   });
 
   // Calcul de translation corrigé : (scale - 1) * width / 2
-  const translateX = scaleX.interpolate({ 
-    inputRange: [-1, 0, 1], 
-    outputRange: [-GRID_SIZE, -GRID_SIZE/2, 0],
+  const translateX = scaleX.interpolate({
+    inputRange: [-1, 0, 1],
+    outputRange: [-GRID_SIZE, -GRID_SIZE / 2, 0],
     extrapolate: 'clamp'
   });
 
-  const translateY = scaleY.interpolate({ 
-    inputRange: [-1, 0, 1], 
-    outputRange: [-GRID_SIZE, -GRID_SIZE/2, 0],
+  const translateY = scaleY.interpolate({
+    inputRange: [-1, 0, 1],
+    outputRange: [-GRID_SIZE, -GRID_SIZE / 2, 0],
     extrapolate: 'clamp'
   });
 
@@ -286,24 +286,24 @@ const ActiveTrailLine = ({ start, headAnim, color }) => {
     <>
       {/* Ligne Horizontale */}
       <Animated.View style={[
-        styles.trailLine, 
-        { 
-          backgroundColor: color, shadowColor: color, 
-          left: startX, top: startY, 
-          width: GRID_SIZE, height: 2, 
-          marginTop: -1, 
-          transform: [{ translateX }, { scaleX }] 
+        styles.trailLine,
+        {
+          backgroundColor: color, shadowColor: color,
+          left: startX, top: startY,
+          width: GRID_SIZE, height: 2,
+          marginTop: -1,
+          transform: [{ translateX }, { scaleX }]
         }
       ]} />
       {/* Ligne Verticale */}
       <Animated.View style={[
-        styles.trailLine, 
-        { 
-          backgroundColor: color, shadowColor: color, 
-          left: startX, top: startY, 
-          width: 2, height: GRID_SIZE, 
-          marginLeft: -1, 
-          transform: [{ translateY }, { scaleY }] 
+        styles.trailLine,
+        {
+          backgroundColor: color, shadowColor: color,
+          left: startX, top: startY,
+          width: 2, height: GRID_SIZE,
+          marginLeft: -1,
+          transform: [{ translateY }, { scaleY }]
         }
       ]} />
     </>
@@ -334,10 +334,10 @@ const FadeOutTrailLine = ({ x, y, isVertical, color }) => {
 };
 
 const styles = StyleSheet.create({
-  container: { 
-    ...StyleSheet.absoluteFillObject, 
-    backgroundColor: '#050505', 
-    zIndex: -1, 
+  container: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#050505',
+    zIndex: -1,
     opacity: 0.3 // Opacité globale ajoutée
   },
   gridContainer: { ...StyleSheet.absoluteFillObject, opacity: 0.1 },
@@ -345,8 +345,8 @@ const styles = StyleSheet.create({
   vertical: { width: 1, height: '100%' },
   horizontal: { height: 1, width: '100%' },
   scanner: {
-    position: 'absolute', top: -height/2, left: -width/2,
-    width: width*2, height: width*2, borderRadius: width,
+    position: 'absolute', top: -height / 2, left: -width / 2,
+    width: width * 2, height: width * 2, borderRadius: width,
     borderWidth: 100, borderColor: 'rgba(59, 130, 246, 0.05)',
   },
   agent: { position: 'absolute', width: 0, height: 0, alignItems: 'center', justifyContent: 'center', zIndex: 20 },
@@ -354,7 +354,7 @@ const styles = StyleSheet.create({
   agentGlow: { width: 20, height: 20, borderRadius: 10, opacity: 0.5, position: 'absolute', zIndex: 1, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 1, shadowRadius: 8, elevation: 5 },
   pulseRing: { width: 10, height: 10, borderRadius: 5, borderWidth: 2, position: 'absolute', zIndex: 0 },
   trailLine: {
-    position: 'absolute', 
+    position: 'absolute',
     shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.8, shadowRadius: 4, elevation: 3, zIndex: 5,
   },
   vignette: { ...StyleSheet.absoluteFillObject, backgroundColor: 'transparent' }

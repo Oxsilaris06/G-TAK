@@ -126,8 +126,8 @@ class LocationService {
         },
         (location) => {
           // FILTRAGE GPS
-          // 1. Précision : On rejette si > 50m (configurable ?)
-          if (location.coords.accuracy && location.coords.accuracy > 50) {
+          // 1. Précision : On rejette si > 500m (configurable ?)
+          if (location.coords.accuracy && location.coords.accuracy > 500) {
             console.log('[LocationService] Rejected low accuracy:', location.coords.accuracy);
             return;
           }
