@@ -110,6 +110,26 @@ const App: React.FC = () => {
         if (tempImage) console.log('[App] tempImage is currently:', tempImage);
     }, [tempImage]);
 
+    // Sync tempImage when editingPing opens (Fix for missing image in modal)
+    useEffect(() => {
+        if (editingPing) {
+            const uri = editingPing.imageUri || editingPing.image || null;
+            if (uri) {
+                console.log('[App] Auto-loading image for edit:', uri);
+                imageService.exists(editingPing.imageId || '').then(exists => {
+                    // Prefer local file if validated, otherwise fallback to stored URI
+                    if (exists && editingPing.imageId) {
+                        setTempImage(imageService.getImageUri(editingPing.imageId));
+                    } else {
+                        setTempImage(uri);
+                    }
+                });
+            } else {
+                setTempImage(null);
+            }
+        }
+    }, [editingPing]);
+
     // Reference pour accès dans les callbacks sans dépendance
     const [freeMsgInput, setFreeMsgInput] = useState('');
     const [quickMessagesList, setQuickMessagesList] = useState<string[]>([]);
@@ -975,23 +995,9 @@ const App: React.FC = () => {
                             onPingClick={(id) => {
                                 const p = pings.find(ping => ping.id === id);
                                 if (!p) return;
-
-                                let imgToSet = p.imageUri || p.image || null;
-
-                                // FALLBACK DEBUG: Si on a un ID mais pas d'URI dans le state
-                                if (!imgToSet && p.imageId) {
-                                    const possibleUri = imageService.getImageUri(p.imageId);
-                                    // On suppose qu'elle existe pour l'instant (Async check trop lent pour le click UI immédiat)
-                                    // On le set, si ça fail l'image sera blanche/vide.
-                                    imgToSet = possibleUri;
-                                }
-
-                                Alert.alert("DEBUG IMAGE", `ID: ${p.id}\nHasImage: ${p.hasImage}\nImgID: ${p.imageId}\nURI: ${p.imageUri}\nFINAL: ${imgToSet}`);
-
                                 setEditingPing(p);
                                 setPingMsgInput(p.msg);
                                 if (p.details) setHostileDetails(p.details);
-                                setTempImage(imgToSet); // Load existing image (Local or Legacy)
                             }}
                             onPingLongPress={(id) => {
                                 // Handled by WebView
