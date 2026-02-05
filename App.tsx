@@ -1221,16 +1221,12 @@ const App: React.FC = () => {
                             <Text style={{ color: 'red', fontSize: 10 }}>DEBUG STATE: {tempImage || 'NULL'}</Text>
                             <View style={styles.photoContainer}>
                                 {tempImage ? (
-                                    <View style={{ position: 'relative', width: '100%', height: 150 }}>
+                                    <View style={{ position: 'relative', width: '100%', height: 150, backgroundColor: '#333' }}>
                                         <TouchableOpacity onPress={() => setFullScreenImage(tempImage)} style={{ flex: 1 }}>
                                             <Image
                                                 source={{ uri: tempImage }}
-                                                style={{ width: '100%', height: '100%', borderRadius: 8 }}
-                                                resizeMode="cover"
-                                                onError={(e) => {
-                                                    console.log('[App] Image Load Error:', e.nativeEvent.error);
-                                                    Alert.alert("Image Error", "Failed to load image:\n" + e.nativeEvent.error);
-                                                }}
+                                                style={{ width: '100%', height: '100%', borderRadius: 8, backgroundColor: 'blue' }}
+                                                resizeMode="contain"
                                             />
                                         </TouchableOpacity>
                                         <TouchableOpacity onPress={() => setTempImage(null)} style={styles.removePhotoBtn}>
