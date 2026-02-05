@@ -269,6 +269,7 @@ const TacticalMap = ({
   const [trails, setTrails] = useState<Record<string, { coords: [number, number][], color: string }[]>>({});
   // Mode Boussole
   const [compassMode, setCompassMode] = useState<'north' | 'heading'>('heading');
+  const [currentMapHeading, setCurrentMapHeading] = useState(0);
 
   // Effet pour la boussole magnétique
   useEffect(() => {
@@ -409,7 +410,7 @@ const TacticalMap = ({
     return { type: 'FeatureCollection', features };
   }, [pings]);
 
-  const mapHeading = compassMode === 'heading' ? (me.head || 0) : 0;
+  const mapHeading = compassMode === 'heading' ? (me.head || 0) : currentMapHeading;
 
   return (
     <View style={styles.container}>
@@ -435,6 +436,9 @@ const TacticalMap = ({
         onPress={handleMapPress}
         onRegionWillChange={onRegionWillChange}
         onRegionDidChange={(e) => {
+          if (e.properties?.heading !== undefined) {
+            setCurrentMapHeading(e.properties.heading);
+          }
           if (e.geometry?.coordinates) {
             onMapMoveEnd({ lat: e.geometry.coordinates[1], lng: e.geometry.coordinates[0] }, e.properties?.zoom || 15);
           }
@@ -555,14 +559,7 @@ const TacticalMap = ({
         </View>
       )}
 
-      {!followUser && !navTargetId && (
-        <TouchableOpacity
-          style={[styles.recenterButton, isLandscape && styles.recenterButtonLand, nightOpsMode && { borderColor: '#7f1d1d', backgroundColor: '#000' }]}
-          onPress={() => { setFollowUser(true); setCompassMode('north'); }}
-        >
-          <MaterialIcons name="my-location" size={24} color={nightOpsMode ? "#ef4444" : "#3b82f6"} />
-        </TouchableOpacity>
-      )}
+
 
       {navTargetId && peers[navTargetId] && (
         <View style={[styles.navIndicator, nightOpsMode && { backgroundColor: '#7f1d1d' }]}>
