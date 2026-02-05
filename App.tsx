@@ -591,7 +591,7 @@ const App: React.FC = () => {
     const savePingEdit = () => {
         if (!editingPing) return;
         // Mise à jour avec la nouvelle image si présente, sinon garde l'ancienne via le merge
-        const updatedPing = { ...editingPing, msg: pingMsgInput, details: editingPing.type === 'HOSTILE' ? hostileDetails : undefined, image: tempImage };
+        const updatedPing = { ...editingPing, msg: pingMsgInput, details: editingPing.type === 'HOSTILE' ? hostileDetails : undefined, image: tempImage, timestamp: Date.now() };
         setPings(prev => prev.map(p => p.id === editingPing.id ? updatedPing : p));
         safeBroadcast({ type: 'PING_UPDATE', id: editingPing.id, msg: pingMsgInput, details: updatedPing.details, image: updatedPing.image });
         setEditingPing(null);
