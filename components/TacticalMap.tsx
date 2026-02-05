@@ -497,9 +497,9 @@ const TacticalMap = ({
             type: 'raster',
             source: 'raster-tiles',
             paint: {
-              'raster-opacity': nightOpsMode ? 0.6 : 1,
-              'raster-brightness-min': nightOpsMode ? -0.2 : 0,
-              'raster-saturation': nightOpsMode ? -0.4 : 0,
+              'raster-opacity': nightOpsMode && mapMode !== 'dark' ? 0.6 : 1,
+              'raster-brightness-min': nightOpsMode && mapMode !== 'dark' ? -0.2 : 0,
+              'raster-saturation': nightOpsMode && mapMode !== 'dark' ? -0.4 : 0,
             },
           }],
         }}
@@ -594,7 +594,7 @@ const TacticalMap = ({
         {/* --- MARKERS OPÉRATEURS --- */}
         {!!me.lat && !!me.lng && (
           <PointAnnotation
-            key={`me-${me.id}-${me.status}-${Math.round((me.head || 0) / 5)}-${Math.round(mapHeading / 5)}-${nightOpsMode}`}
+            key={`me-${me.id}-${me.status}-${Math.round((me.head || 0) / 5)}-${Math.round(mapHeading / 5)}-${nightOpsMode}-${mapMode}`}
             id={`me-${me.id}`}
             coordinate={[me.lng, me.lat]}
             anchor={{ x: 0.5, y: 0.5 }}
@@ -606,7 +606,7 @@ const TacticalMap = ({
         {Object.values(peers).map((peer) =>
           !!peer.lat && !!peer.lng && (
             <PointAnnotation
-              key={`peer-${peer.id}-${peer.status}-${Math.round((peer.head || 0) / 5)}-${Math.round(mapHeading / 5)}-${nightOpsMode}`}
+              key={`peer-${peer.id}-${peer.status}-${Math.round((peer.head || 0) / 5)}-${Math.round(mapHeading / 5)}-${nightOpsMode}-${mapMode}`}
               id={`peer-${peer.id}`}
               coordinate={[peer.lng, peer.lat]}
               anchor={{ x: 0.5, y: 0.5 }}
