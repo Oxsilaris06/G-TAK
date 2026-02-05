@@ -235,7 +235,8 @@ class ConnectivityService {
 
     conn.on('open', () => {
       this.state.connections.set(conn.peer, conn);
-      this.broadcastPeerList();
+      // NOTE: Ne pas broadcaster ici - on attend le HELLO pour déduplication
+      // Le broadcast se fera après traitement du HELLO (ligne 430)
     });
 
     conn.on('data', (data: any) => {
@@ -245,6 +246,20 @@ class ConnectivityService {
     conn.on('close', () => {
       console.log('[Connectivity] Connection closed:', conn.peer);
       this.state.connections.delete(conn.peer);
+
+      // Nettoyer les données utilisateur associées à cette connexion
+      let userIdToRemove: string | null = null;
+      this.state.peerData.forEach((userData: any, userId) => {
+        if (userData._networkId === conn.peer) {
+          userIdToRemove = userId;
+        }
+      });
+
+      if (userIdToRemove) {
+        console.log('[Connectivity] Removing user data for closed connection:', userIdToRemove);
+        this.state.peerData.delete(userIdToRemove);
+      }
+
       this.broadcastPeerList();
     });
 
