@@ -110,10 +110,10 @@ const OperatorMarker = ({ user, isMe, color, nightOpsMode, mapHeading = 0 }: Ope
           <Path
             d="M50 50 L10 0 A60 60 0 0 1 90 0 Z"
             fill={displayColor}
-            fillOpacity="0.3"
+            fillOpacity="0.5"
             stroke={displayColor}
-            strokeWidth="1"
-            strokeOpacity="0.5"
+            strokeWidth="2"
+            strokeOpacity="0.8"
           />
         </Svg>
       </View>
@@ -503,7 +503,7 @@ const TacticalMap = ({
         {/* --- MARKERS OPÉRATEURS --- */}
         {!!me.lat && !!me.lng && (
           <PointAnnotation
-            key={`me-${me.id}-${me.status}-${Math.round((me.head || 0) / 2)}`}
+            key={`me-${me.id}-${me.status}-${Math.round((me.head || 0) / 5)}-${Math.round(mapHeading / 5)}`}
             id={`me-${me.id}`}
             coordinate={[me.lng, me.lat]}
             anchor={{ x: 0.5, y: 0.5 }}
@@ -515,7 +515,7 @@ const TacticalMap = ({
         {Object.values(peers).map((peer) =>
           !!peer.lat && !!peer.lng && (
             <PointAnnotation
-              key={`peer-${peer.id}-${peer.status}-${Math.round((peer.head || 0) / 2)}`}
+              key={`peer-${peer.id}-${peer.status}-${Math.round((peer.head || 0) / 5)}-${Math.round(mapHeading / 5)}`}
               id={`peer-${peer.id}`}
               coordinate={[peer.lng, peer.lat]}
               anchor={{ x: 0.5, y: 0.5 }}
