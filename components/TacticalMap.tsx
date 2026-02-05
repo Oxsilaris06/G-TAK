@@ -63,6 +63,7 @@ interface TacticalMapProps {
   onPingLongPress: (id: string) => void;
   onNavStop: () => void;
   onMapMoveEnd: (center: { lat: number; lng: number }, zoom: number) => void;
+  isVisible: boolean;
 }
 
 // --- SOUS-COMPOSANTS ---
@@ -258,6 +259,7 @@ const TacticalMap = ({
   onPingLongPress,
   onNavStop,
   onMapMoveEnd,
+  isVisible,
 }: TacticalMapProps) => {
   const mapRef = useRef<MapView>(null);
   const cameraRef = useRef<Camera>(null);
@@ -337,24 +339,34 @@ const TacticalMap = ({
     }
   };
 
-  // Suivi Caméra
+  // Suivi Caméra & Auto-Center
   useEffect(() => {
-    if (!isMapReady) return;
+    // Si la map devient visible ou si followUser est réactivé
+    if (isVisible && isMapReady && me.lat && me.lng) {
+      if (followUser) {
+        cameraRef.current?.setCamera({
+          centerCoordinate: [me.lng, me.lat],
+          animationDuration: 1000,
+        });
+      }
+    }
+  }, [isVisible, isMapReady, followUser, me.lat, me.lng]);
 
-    if (navTargetId && peers[navTargetId]) {
-      const target = peers[navTargetId];
-      cameraRef.current?.flyTo([target.lng, target.lat], 1000);
+  // Réinitialiser le suivi quand on revient sur la vue
+  useEffect(() => {
+    if (isVisible && isMapReady) {
+      setFollowUser(true);
+      setCompassMode('heading'); // Optionnel : remettre le mode heading aussi ? ou garder dernier état ? Le user a dit "se centre", 'followUser' suffit.
+    }
+  }, [isVisible, isMapReady]);
+
+  // Handle manual interaction to stop following
+  const onRegionWillChange = (feature: any) => {
+    // Si l'utilisateur touche la carte (gesture), on arrête le suivi automatique
+    if (feature.properties?.isUserInteraction) {
       setFollowUser(false);
-      return;
     }
-
-    if (followUser && me.lat && me.lng) {
-      cameraRef.current?.setCamera({
-        centerCoordinate: [me.lng, me.lat],
-        animationDuration: 1000,
-      });
-    }
-  }, [isMapReady, navTargetId, peers, followUser, me.lat, me.lng]);
+  };
 
   // Initial Center
   useEffect(() => {
@@ -421,6 +433,7 @@ const TacticalMap = ({
           }],
         }}
         onPress={handleMapPress}
+        onRegionWillChange={onRegionWillChange}
         onRegionDidChange={(e) => {
           if (e.geometry?.coordinates) {
             onMapMoveEnd({ lat: e.geometry.coordinates[1], lng: e.geometry.coordinates[0] }, e.properties?.zoom || 15);
