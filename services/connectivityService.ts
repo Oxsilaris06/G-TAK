@@ -409,419 +409,410 @@ class ConnectivityService {
     }
     // -------------------------------
 
-    /**
-     * Obtient l'intervalle de heartbeat depuis les settings
-     */
-    private getHeartbeatInterval(): number {
-    const baseInterval = configService.get().heartbeatInterval || 10000;
-    // En arrière-plan, doubler l'intervalle pour économiser la batterie
-    return this.isInBackground ? baseInterval * 2 : baseInterval;
-  }
-
     // Propager l'événement
     this.emit({ type: 'DATA_RECEIVED', data, from });
 
-// Gestion spéciale pour l'hôte
-if (this.state.role === OperatorRole.HOST) {
-  this.handleHostData(data, from);
-}
+    // Gestion spéciale pour l'hôte
+    if (this.state.role === OperatorRole.HOST) {
+      this.handleHostData(data, from);
+    }
   }
 
   private checkImageCompletion(imageId: string) {
-  const pending = this.state.tempChunks.get(imageId);
-  if (!pending || pending.total === 0) return;
+    const pending = this.state.tempChunks.get(imageId);
+    if (!pending || pending.total === 0) return;
 
-  let receivedCount = 0;
-  for (let i = 0; i < pending.total; i++) {
-    if (pending.chk[i]) receivedCount++;
-  }
+    let receivedCount = 0;
+    for (let i = 0; i < pending.total; i++) {
+      if (pending.chk[i]) receivedCount++;
+    }
 
-  if (receivedCount === pending.total) { // All chunks received
-    const fullBase64 = pending.chk.join('');
-    this.state.tempChunks.delete(imageId);
-    imageService.writeBase64(imageId, fullBase64).then((uri) => {
-      console.log('[Connectivity] Image Received & Saved:', uri);
-      this.emit({ type: 'IMAGE_READY', imageId, uri });
-    });
+    if (receivedCount === pending.total) { // All chunks received
+      const fullBase64 = pending.chk.join('');
+      this.state.tempChunks.delete(imageId);
+      imageService.writeBase64(imageId, fullBase64).then((uri) => {
+        console.log('[Connectivity] Image Received & Saved:', uri);
+        this.emit({ type: 'IMAGE_READY', imageId, uri });
+      });
+    }
   }
-}
 
   /**
    * Gestion des données côté hôte (relaying)
    */
   private handleHostData(data: any, from: string): void {
-  switch(data.type) {
+    switch (data.type) {
       case 'HELLO':
-  if (data.user && data.user.id) {
-    let storageId = data.user.id;
+        if (data.user && data.user.id) {
+          let storageId = data.user.id;
 
-    // PROTECTION: Si collision avec l'ID de l'Host, on suffixe
-    if (this.state.userData && data.user.id === this.state.userData.id) {
-      console.warn('[Connectivity] ID Collision with Host. Suffixing client:', from);
-      storageId = data.user.id + '_DUP';
-    }
+          // PROTECTION: Si collision avec l'ID de l'Host, on suffixe
+          if (this.state.userData && data.user.id === this.state.userData.id) {
+            console.warn('[Connectivity] ID Collision with Host. Suffixing client:', from);
+            storageId = data.user.id + '_DUP';
+          }
 
-    // DEBUG: Afficher l'état actuel de peerData
-    console.log('[Connectivity] === HELLO RECEIVED ===');
-    console.log('[Connectivity] From network ID:', from);
-    console.log('[Connectivity] User ID:', storageId);
-    console.log('[Connectivity] Callsign:', data.user.callsign);
-    console.log('[Connectivity] Current peerData entries:', Array.from(this.state.peerData.keys()));
+          // DEBUG: Afficher l'état actuel de peerData
+          console.log('[Connectivity] === HELLO RECEIVED ===');
+          console.log('[Connectivity] From network ID:', from);
+          console.log('[Connectivity] User ID:', storageId);
+          console.log('[Connectivity] Callsign:', data.user.callsign);
+          console.log('[Connectivity] Current peerData entries:', Array.from(this.state.peerData.keys()));
 
-    // DEDUPLICATION PAR ID (peer.reconnect() maintient l'ID stable)
-    const existingUser = this.state.peerData.get(storageId);
+          // DEDUPLICATION PAR ID (peer.reconnect() maintient l'ID stable)
+          const existingUser = this.state.peerData.get(storageId);
 
-    if (existingUser) {
-      console.log('[Connectivity] User FOUND in peerData');
-      console.log('[Connectivity] Existing network ID:', existingUser._networkId);
+          if (existingUser) {
+            console.log('[Connectivity] User FOUND in peerData');
+            console.log('[Connectivity] Existing network ID:', existingUser._networkId);
 
-      // Utilisateur existe - vérifier si c'est une RECONNEXION (nouveau network ID)
-      if (existingUser._networkId !== from) {
-        // RECONNEXION: Même ID utilisateur, mais NOUVEAU network ID
-        console.log('[Connectivity] *** RECONNECTION DETECTED ***');
-        console.log('[Connectivity]   User ID:', storageId);
-        console.log('[Connectivity]   Old network ID:', existingUser._networkId);
-        console.log('[Connectivity]   New network ID:', from);
+            // Utilisateur existe - vérifier si c'est une RECONNEXION (nouveau network ID)
+            if (existingUser._networkId !== from) {
+              // RECONNEXION: Même ID utilisateur, mais NOUVEAU network ID
+              console.log('[Connectivity] *** RECONNECTION DETECTED ***');
+              console.log('[Connectivity]   User ID:', storageId);
+              console.log('[Connectivity]   Old network ID:', existingUser._networkId);
+              console.log('[Connectivity]   New network ID:', from);
 
-        // Nettoyer l'ancienne connexion réseau
-        const oldNetworkId = existingUser._networkId;
-        if (oldNetworkId && this.state.connections.has(oldNetworkId)) {
-          console.log('[Connectivity] Closing stale connection:', oldNetworkId);
-          const oldConn = this.state.connections.get(oldNetworkId);
-          if (oldConn) oldConn.close();
-          this.state.connections.delete(oldNetworkId);
-        } else {
-          console.log('[Connectivity] Old connection already closed:', oldNetworkId);
+              // Nettoyer l'ancienne connexion réseau
+              const oldNetworkId = existingUser._networkId;
+              if (oldNetworkId && this.state.connections.has(oldNetworkId)) {
+                console.log('[Connectivity] Closing stale connection:', oldNetworkId);
+                const oldConn = this.state.connections.get(oldNetworkId);
+                if (oldConn) oldConn.close();
+                this.state.connections.delete(oldNetworkId);
+              } else {
+                console.log('[Connectivity] Old connection already closed:', oldNetworkId);
+              }
+
+              // Mettre à jour avec le nouveau network ID
+              const updatedUser = {
+                ...existingUser,  // Garder les données existantes (position, etc.)
+                ...data.user,     // Appliquer les nouvelles données
+                id: storageId,    // Garder le même ID
+                _networkId: from  // NOUVEAU network ID
+              };
+              this.state.peerData.set(storageId, updatedUser);
+              console.log('[Connectivity] Updated existing entry with new network ID');
+            } else {
+              // Même network ID - simple mise à jour (rare)
+              console.log('[Connectivity] Updating existing user (same network ID):', storageId);
+              const updatedUser = { ...existingUser, ...data.user, id: storageId, _networkId: from };
+              this.state.peerData.set(storageId, updatedUser);
+            }
+          } else {
+            console.log('[Connectivity] User NOT FOUND in peerData - creating new entry');
+
+            // NOUVEAU CLIENT: Pas d'entrée avec cet ID
+            const userWithNetId = { ...data.user, id: storageId, _networkId: from };
+            this.state.peerData.set(storageId, userWithNetId);
+            console.log('[Connectivity] *** NEW CLIENT CONNECTED ***');
+            console.log('[Connectivity]   User ID:', storageId);
+            console.log('[Connectivity]   Network ID:', from);
+            console.log('[Connectivity]   Callsign:', data.user.callsign);
+          }
+
+          console.log('[Connectivity] peerData after HELLO:', Array.from(this.state.peerData.keys()));
+          console.log('[Connectivity] === END HELLO ===');
         }
-
-        // Mettre à jour avec le nouveau network ID
-        const updatedUser = {
-          ...existingUser,  // Garder les données existantes (position, etc.)
-          ...data.user,     // Appliquer les nouvelles données
-          id: storageId,    // Garder le même ID
-          _networkId: from  // NOUVEAU network ID
-        };
-        this.state.peerData.set(storageId, updatedUser);
-        console.log('[Connectivity] Updated existing entry with new network ID');
-      } else {
-        // Même network ID - simple mise à jour (rare)
-        console.log('[Connectivity] Updating existing user (same network ID):', storageId);
-        const updatedUser = { ...existingUser, ...data.user, id: storageId, _networkId: from };
-        this.state.peerData.set(storageId, updatedUser);
-      }
-    } else {
-      console.log('[Connectivity] User NOT FOUND in peerData - creating new entry');
-
-      // NOUVEAU CLIENT: Pas d'entrée avec cet ID
-      const userWithNetId = { ...data.user, id: storageId, _networkId: from };
-      this.state.peerData.set(storageId, userWithNetId);
-      console.log('[Connectivity] *** NEW CLIENT CONNECTED ***');
-      console.log('[Connectivity]   User ID:', storageId);
-      console.log('[Connectivity]   Network ID:', from);
-      console.log('[Connectivity]   Callsign:', data.user.callsign);
-    }
-
-    console.log('[Connectivity] peerData after HELLO:', Array.from(this.state.peerData.keys()));
-    console.log('[Connectivity] === END HELLO ===');
-  }
-  this.broadcastPeerList();
-  break;
+        this.broadcastPeerList();
+        break;
 
       case 'UPDATE_USER':
       case 'UPDATE':
-  if (data.user && data.user.id) {
-    let storageId = data.user.id;
-    if (this.state.userData && data.user.id === this.state.userData.id) {
-      storageId = data.user.id + '_DUP';
-    }
+        if (data.user && data.user.id) {
+          let storageId = data.user.id;
+          if (this.state.userData && data.user.id === this.state.userData.id) {
+            storageId = data.user.id + '_DUP';
+          }
 
-    // DEDUPLICATION AVANCÉE: Chercher par ID ou callsign
-    let existing = this.state.peerData.get(storageId);
-    let existingUserId = storageId;
+          // DEDUPLICATION AVANCÉE: Chercher par ID ou callsign
+          let existing = this.state.peerData.get(storageId);
+          let existingUserId = storageId;
 
-    // Si pas trouvé par ID, chercher par callsign
-    if (!existing && data.user.callsign) {
-      this.state.peerData.forEach((userData: any, userId) => {
-        if (userData.callsign === data.user.callsign && userId !== this.state.userData?.id) {
-          existing = userData;
-          existingUserId = userId;
+          // Si pas trouvé par ID, chercher par callsign
+          if (!existing && data.user.callsign) {
+            this.state.peerData.forEach((userData: any, userId) => {
+              if (userData.callsign === data.user.callsign && userId !== this.state.userData?.id) {
+                existing = userData;
+                existingUserId = userId;
+              }
+            });
+          }
+
+          // Si l'ID a changé, supprimer l'ancienne entrée
+          if (existing && existingUserId !== storageId) {
+            console.log('[Connectivity] UPDATE: User ID changed from', existingUserId, 'to', storageId);
+            this.state.peerData.delete(existingUserId);
+          }
+
+          const userWithNetId = {
+            ...(existing || {}),  // Données existantes si trouvées
+            ...data.user,         // Nouvelles données
+            id: storageId,
+            _networkId: existing?._networkId || from
+          };
+
+          this.state.peerData.set(storageId, userWithNetId);
+
+          const patchedData = { ...data, user: userWithNetId };
+          this.broadcastExcept(from, patchedData);
+        } else {
+          this.broadcastExcept(from, data);
         }
-      });
-    }
-
-    // Si l'ID a changé, supprimer l'ancienne entrée
-    if (existing && existingUserId !== storageId) {
-      console.log('[Connectivity] UPDATE: User ID changed from', existingUserId, 'to', storageId);
-      this.state.peerData.delete(existingUserId);
-    }
-
-    const userWithNetId = {
-      ...(existing || {}),  // Données existantes si trouvées
-      ...data.user,         // Nouvelles données
-      id: storageId,
-      _networkId: existing?._networkId || from
-    };
-
-    this.state.peerData.set(storageId, userWithNetId);
-
-    const patchedData = { ...data, user: userWithNetId };
-    this.broadcastExcept(from, patchedData);
-  } else {
-    this.broadcastExcept(from, data);
-  }
-  break;
+        break;
 
       case 'PING':
       case 'LOG_UPDATE':
-  this.broadcast(data);
-  break;
+        this.broadcast(data);
+        break;
 
       case 'PING_MOVE':
       case 'PING_DELETE':
       case 'PING_UPDATE':
-  // Avoid echo back to sender for edits/moves (optimization)
-  console.log(`[Connectivity] Relaying ${data.type} from ${from}`);
-  this.broadcastExcept(from, data);
-  break;
+        // Avoid echo back to sender for edits/moves (optimization)
+        console.log(`[Connectivity] Relaying ${data.type} from ${from}`);
+        this.broadcastExcept(from, data);
+        break;
 
       case 'REQUEST_IMAGE':
-  // Relay request to everyone (Broadcasting search)
-  this.broadcastExcept(from, data);
-  break;
+        // Relay request to everyone (Broadcasting search)
+        this.broadcastExcept(from, data);
+        break;
 
       case 'REQUEST_RESYNC':
-  // Le nouvel hôte demande une resynchronisation complète
-  console.log('[Connectivity] Relaying resync request from new host');
-  this.broadcastExcept(from, data);
-  break;
+        // Le nouvel hôte demande une resynchronisation complète
+        console.log('[Connectivity] Relaying resync request from new host');
+        this.broadcastExcept(from, data);
+        break;
 
       case 'CLIENT_LEAVING':
-  this.state.connections.delete(from);
+        this.state.connections.delete(from);
 
-  let userIdToRemove: string | null = null;
-  this.state.peerData.forEach((u: any, uid) => {
-    if (u._networkId === from) {
-      userIdToRemove = uid;
+        let userIdToRemove: string | null = null;
+        this.state.peerData.forEach((u: any, uid) => {
+          if (u._networkId === from) {
+            userIdToRemove = uid;
+          }
+        });
+
+        if (userIdToRemove) {
+          console.log('[Connectivity] Removing user mapped to network ID:', userIdToRemove, from);
+          this.state.peerData.delete(userIdToRemove);
+        } else {
+          if (this.state.peerData.has(from)) {
+            this.state.peerData.delete(from);
+          }
+        }
+
+        this.broadcastPeerList();
+        break;
     }
-  });
-
-  if (userIdToRemove) {
-    console.log('[Connectivity] Removing user mapped to network ID:', userIdToRemove, from);
-    this.state.peerData.delete(userIdToRemove);
-  } else {
-    if (this.state.peerData.has(from)) {
-      this.state.peerData.delete(from);
-    }
-  }
-
-  this.broadcastPeerList();
-  break;
-}
   }
 
   /**
    * Diffuse la liste des peers à tous
    */
   private broadcastPeerList(): void {
-  const peers: Record<string, UserData> = { };
+    const peers: Record<string, UserData> = {};
 
-if (this.state.userData) {
-  peers[this.state.userData.id] = this.state.userData;
-}
+    if (this.state.userData) {
+      peers[this.state.userData.id] = this.state.userData;
+    }
 
-this.state.peerData.forEach((data, userId) => {
-  if (this.state.userData && userId === this.state.userData.id) return;
-  peers[userId] = data;
-});
+    this.state.peerData.forEach((data, userId) => {
+      if (this.state.userData && userId === this.state.userData.id) return;
+      peers[userId] = data;
+    });
 
-this.broadcast({
-  type: 'PEERS_UPDATED',
-  peers,
-});
+    this.broadcast({
+      type: 'PEERS_UPDATED',
+      peers,
+    });
   }
 
-/**
- * Envoie des données à un peer spécifique
- */
-sendTo(peerId: string, data: any): boolean {
-  const conn = this.state.connections.get(peerId);
-  if (conn && conn.open) {
-    try {
-      conn.send(data);
-      return true;
-    } catch (e) {
-      console.error('[Connectivity] Send error:', e);
-      return false;
+  /**
+   * Envoie des données à un peer spécifique
+   */
+  sendTo(peerId: string, data: any): boolean {
+    const conn = this.state.connections.get(peerId);
+    if (conn && conn.open) {
+      try {
+        conn.send(data);
+        return true;
+      } catch (e) {
+        console.error('[Connectivity] Send error:', e);
+        return false;
+      }
     }
+    return false;
   }
-  return false;
-}
 
-/**
- * Diffuse des données à tous les peers
- */
-broadcast(data: any): void {
-  this.state.connections.forEach((conn) => {
-    if (conn.open) {
-      try {
-        conn.send(data);
-      } catch (e) {
-        console.error('[Connectivity] Broadcast error:', e);
+  /**
+   * Diffuse des données à tous les peers
+   */
+  broadcast(data: any): void {
+    this.state.connections.forEach((conn) => {
+      if (conn.open) {
+        try {
+          conn.send(data);
+        } catch (e) {
+          console.error('[Connectivity] Broadcast error:', e);
+        }
       }
-    }
-  });
-}
+    });
+  }
 
-/**
- * Diffuse à tous sauf un peer
- */
-broadcastExcept(exceptPeerId: string, data: any): void {
-  this.state.connections.forEach((conn, peerId) => {
-    if (peerId !== exceptPeerId && conn.open) {
-      try {
-        conn.send(data);
-      } catch (e) {
-        console.error('[Connectivity] Broadcast error:', e);
+  /**
+   * Diffuse à tous sauf un peer
+   */
+  broadcastExcept(exceptPeerId: string, data: any): void {
+    this.state.connections.forEach((conn, peerId) => {
+      if (peerId !== exceptPeerId && conn.open) {
+        try {
+          conn.send(data);
+        } catch (e) {
+          console.error('[Connectivity] Broadcast error:', e);
+        }
       }
-    }
-  });
-}
+    });
+  }
 
   /**
    * Diffuse avec accusé de réception
    */
-  async broadcastWithAck(data: any, timeout = 5000): Promise < void> {
-  const promises: Promise<void> [] =[];
+  async broadcastWithAck(data: any, timeout = 5000): Promise<void> {
+    const promises: Promise<void>[] = [];
 
-  this.state.connections.forEach((conn, peerId) => {
-    if (conn.open) {
-      promises.push(
-        new Promise((resolve, reject) => {
-          const ackTimeout = setTimeout(() => {
-            reject(new Error(`ACK timeout from ${peerId}`));
-          }, timeout);
+    this.state.connections.forEach((conn, peerId) => {
+      if (conn.open) {
+        promises.push(
+          new Promise((resolve, reject) => {
+            const ackTimeout = setTimeout(() => {
+              reject(new Error(`ACK timeout from ${peerId}`));
+            }, timeout);
 
-          const ackHandler = (response: any) => {
-            if (response.type === 'ACK' && response.ackId === data.id) {
-              clearTimeout(ackTimeout);
-              conn.off('data', ackHandler);
-              resolve();
-            }
-          };
+            const ackHandler = (response: any) => {
+              if (response.type === 'ACK' && response.ackId === data.id) {
+                clearTimeout(ackTimeout);
+                conn.off('data', ackHandler);
+                resolve();
+              }
+            };
 
-          conn.on('data', ackHandler);
-          conn.send(data);
-        })
-      );
+            conn.on('data', ackHandler);
+            conn.send(data);
+          })
+        );
+      }
+    });
+
+    await Promise.allSettled(promises);
+  }
+
+  /**
+   * Met à jour les données utilisateur et broadcast
+   */
+  updateUser(updates: Partial<UserData>): void {
+    if (this.state.userData) {
+      this.state.userData = { ...this.state.userData, ...updates };
+      this.broadcast({
+        type: 'UPDATE_USER',
+        user: this.state.userData,
+      });
     }
-  });
-
-  await Promise.allSettled(promises);
-}
-
-/**
- * Met à jour les données utilisateur et broadcast
- */
-updateUser(updates: Partial<UserData>): void {
-  if(this.state.userData) {
-  this.state.userData = { ...this.state.userData, ...updates };
-  this.broadcast({
-    type: 'UPDATE_USER',
-    user: this.state.userData,
-  });
-}
   }
 
-/**
- * Met à jour la position et broadcast
- */
-updateUserPosition(lat: number, lng: number, head ?: number): void {
-  if(this.state.userData) {
-  this.state.userData.lat = lat;
-  this.state.userData.lng = lng;
-  if (head !== undefined) {
-    this.state.userData.head = head;
-  }
-  this.broadcast({
-    type: 'UPDATE',
-    user: this.state.userData,
-  });
-}
+  /**
+   * Met à jour la position et broadcast
+   */
+  updateUserPosition(lat: number, lng: number, head?: number): void {
+    if (this.state.userData) {
+      this.state.userData.lat = lat;
+      this.state.userData.lng = lng;
+      if (head !== undefined) {
+        this.state.userData.head = head;
+      }
+      this.broadcast({
+        type: 'UPDATE',
+        user: this.state.userData,
+      });
+    }
   }
 
-/**
- * Exclut un utilisateur (host uniquement)
- */
-kickUser(peerId: string): void {
-  this.sendTo(peerId, { type: 'KICKED' });
-  const conn = this.state.connections.get(peerId);
-  if(conn) {
-    conn.close();
-    this.state.connections.delete(peerId);
-    this.broadcastPeerList();
+  /**
+   * Exclut un utilisateur (host uniquement)
+   */
+  kickUser(peerId: string): void {
+    this.sendTo(peerId, { type: 'KICKED' });
+    const conn = this.state.connections.get(peerId);
+    if (conn) {
+      conn.close();
+      this.state.connections.delete(peerId);
+      this.broadcastPeerList();
+    }
   }
-}
 
   /**
    * Gère les erreurs de connexion
    */
   private handleError(error: any): void {
-  this.emit({
-    type: 'TOAST',
-    msg: `Erreur réseau: ${error.message || 'Inconnue'}`,
-    level: 'error',
-  });
+    this.emit({
+      type: 'TOAST',
+      msg: `Erreur réseau: ${error.message || 'Inconnue'}`,
+      level: 'error',
+    });
 
-  if(error.type === 'network' || error.type === 'disconnected') {
-  this.attemptReconnect();
-}
+    if (error.type === 'network' || error.type === 'disconnected') {
+      this.attemptReconnect();
+    }
   }
 
   /**
    * Gère la déconnexion
    */
   private handleDisconnect(): void {
-  this.attemptReconnect();
-}
+    this.attemptReconnect();
+  }
 
   /**
    * Tente de se reconnecter
    */
   private attemptReconnect(): void {
-  if(
-    this.state.isReconnecting ||
+    if (
+      this.state.isReconnecting ||
       this.state.reconnectAttempt >= this.MAX_RECONNECT_ATTEMPTS
     ) {
-  this.emit({
-    type: 'DISCONNECTED',
-    reason: 'ERROR',
-  });
-  return;
-}
-
-this.state.isReconnecting = true;
-this.state.reconnectAttempt++;
-
-this.emit({
-  type: 'RECONNECTING',
-  attempt: this.state.reconnectAttempt,
-});
-
-const delay = Math.min(1000 * Math.pow(2, this.state.reconnectAttempt), 30000);
-
-this.reconnectTimeout = setTimeout(() => {
-  if (this.state.userData && this.state.role) {
-    this.init(this.state.userData, this.state.role, this.state.hostId || undefined)
-      .then(() => {
-        this.state.isReconnecting = false;
-        this.state.reconnectAttempt = 0;
-      })
-      .catch(() => {
-        this.state.isReconnecting = false;
-        this.attemptReconnect();
+      this.emit({
+        type: 'DISCONNECTED',
+        reason: 'ERROR',
       });
-  }
-}, delay);
+      return;
+    }
+
+    this.state.isReconnecting = true;
+    this.state.reconnectAttempt++;
+
+    this.emit({
+      type: 'RECONNECTING',
+      attempt: this.state.reconnectAttempt,
+    });
+
+    const delay = Math.min(1000 * Math.pow(2, this.state.reconnectAttempt), 30000);
+
+    this.reconnectTimeout = setTimeout(() => {
+      if (this.state.userData && this.state.role) {
+        this.init(this.state.userData, this.state.role, this.state.hostId || undefined)
+          .then(() => {
+            this.state.isReconnecting = false;
+            this.state.reconnectAttempt = 0;
+          })
+          .catch(() => {
+            this.state.isReconnecting = false;
+            this.attemptReconnect();
+          });
+      }
+    }, delay);
   }
 
 
@@ -829,93 +820,93 @@ this.reconnectTimeout = setTimeout(() => {
    * Démarre le heartbeat (clients envoient à l'hôte)
    */
   private startHeartbeat(): void {
-  this.stopHeartbeat();
+    this.stopHeartbeat();
 
-  const interval = this.getHeartbeatInterval();
+    const interval = this.getHeartbeatInterval();
 
-  console.log(`[Connectivity] Starting heartbeat with ${interval}ms interval (${this.isInBackground ? 'background' : 'foreground'})`);
+    console.log(`[Connectivity] Starting heartbeat with ${interval}ms interval (${this.isInBackground ? 'background' : 'foreground'})`);
 
-  this.heartbeatInterval = setInterval(() => {
-    if (this.state.role === OperatorRole.OPR && this.state.hostId) {
-      // Les clients envoient un heartbeat à l'hôte
-      this.sendTo(this.state.hostId, {
-        type: 'HEARTBEAT',
-        timestamp: Date.now()
-      });
-    } else if (this.state.role === OperatorRole.HOST) {
-      // L'hôte vérifie les timeouts des clients
-      this.checkClientHeartbeats();
-    }
-  }, interval);
-}
+    this.heartbeatInterval = setInterval(() => {
+      if (this.state.role === OperatorRole.OPR && this.state.hostId) {
+        // Les clients envoient un heartbeat à l'hôte
+        this.sendTo(this.state.hostId, {
+          type: 'HEARTBEAT',
+          timestamp: Date.now()
+        });
+      } else if (this.state.role === OperatorRole.HOST) {
+        // L'hôte vérifie les timeouts des clients
+        this.checkClientHeartbeats();
+      }
+    }, interval);
+  }
 
   /**
    * Arrête le heartbeat
    */
   private stopHeartbeat(): void {
-  if(this.heartbeatInterval) {
-  clearInterval(this.heartbeatInterval);
-  this.heartbeatInterval = null;
-}
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
+    }
   }
 
   /**
    * Vérifie les heartbeats des clients (côté hôte)
    */
   private checkClientHeartbeats(): void {
-  const now = Date.now();
-  const timeout = this.HEARTBEAT_TIMEOUT;
+    const now = Date.now();
+    const timeout = this.HEARTBEAT_TIMEOUT;
 
-  this.state.peerData.forEach((user, userId) => {
-    const lastHeartbeat = user.connectionTimestamp || 0;
-    if (now - lastHeartbeat > timeout) {
-      console.log(`[Connectivity] Client ${user.callsign} heartbeat timeout - removing`);
-      this.state.peerData.delete(userId);
-      this.state.connections.delete(userId);
-      this.broadcastPeerList();
+    this.state.peerData.forEach((user, userId) => {
+      const lastHeartbeat = user.connectionTimestamp || 0;
+      if (now - lastHeartbeat > timeout) {
+        console.log(`[Connectivity] Client ${user.callsign} heartbeat timeout - removing`);
+        this.state.peerData.delete(userId);
+        this.state.connections.delete(userId);
+        this.broadcastPeerList();
+      }
+    });
+  }
+
+  /**
+   * Gère le changement d'état de l'app
+   */
+  handleAppStateChange(state: 'active' | 'background'): void {
+    const wasInBackground = this.isInBackground;
+    this.isInBackground = state === 'background';
+
+    console.log(`[Connectivity] App state changed to: ${state}`);
+
+    if (wasInBackground !== this.isInBackground) {
+      // Redémarrer le heartbeat avec le nouvel intervalle
+      if (this.state.peer && !this.state.peer.destroyed) {
+        this.startHeartbeat();
+      }
     }
-  });
-}
 
-/**
- * Gère le changement d'état de l'app
- */
-handleAppStateChange(state: 'active' | 'background'): void {
-  const wasInBackground = this.isInBackground;
-  this.isInBackground = state === 'background';
-
-  console.log(`[Connectivity] App state changed to: ${state}`);
-
-  if(wasInBackground !== this.isInBackground) {
-  // Redémarrer le heartbeat avec le nouvel intervalle
-  if (this.state.peer && !this.state.peer.destroyed) {
-    this.startHeartbeat();
-  }
-}
-
-if (state === 'active') {
-  if (this.state.peer && this.state.peer.disconnected) {
-    this.attemptReconnect();
-  }
-}
+    if (state === 'active') {
+      if (this.state.peer && this.state.peer.disconnected) {
+        this.attemptReconnect();
+      }
+    }
   }
 
-/**
- * S'abonne aux événements
- */
-subscribe(callback: (event: ConnectivityEvent) => void): () => void {
-  eventEmitter.on('event', callback);
-  return() => {
-  eventEmitter.off('event', callback);
-};
+  /**
+   * S'abonne aux événements
+   */
+  subscribe(callback: (event: ConnectivityEvent) => void): () => void {
+    eventEmitter.on('event', callback);
+    return () => {
+      eventEmitter.off('event', callback);
+    };
   }
 
   /**
    * Émet un événement
    */
   private emit(event: ConnectivityEvent): void {
-  eventEmitter.emit('event', event);
-}
+    eventEmitter.emit('event', event);
+  }
 
   /**
    * === HOST MIGRATION FUNCTIONS ===
@@ -925,155 +916,155 @@ subscribe(callback: (event: ConnectivityEvent) => void): () => void {
    * Gère la déconnexion de l'hôte
    */
   private handleHostDisconnection(): void {
-  console.log('[Connectivity] Host disconnected - starting election process');
+    console.log('[Connectivity] Host disconnected - starting election process');
 
-  // Annuler tout timeout d'élection en cours
-  if(this.state.electionTimeout) {
-  clearTimeout(this.state.electionTimeout);
-}
+    // Annuler tout timeout d'élection en cours
+    if (this.state.electionTimeout) {
+      clearTimeout(this.state.electionTimeout);
+    }
 
-// Attendre ELECTION_DELAY avant d'élire un nouvel hôte
-this.state.electionTimeout = setTimeout(() => {
-  const newHostId = this.electNewHost();
+    // Attendre ELECTION_DELAY avant d'élire un nouvel hôte
+    this.state.electionTimeout = setTimeout(() => {
+      const newHostId = this.electNewHost();
 
-  if (newHostId === this.state.userData?.id) {
-    // Je suis le plus ancien - devenir hôte
-    console.log('[Connectivity] I am the oldest client - promoting to host');
-    this.promoteToHost();
-  } else if (newHostId) {
-    // Un autre est plus ancien - se reconnecter à lui
-    console.log('[Connectivity] Another client is older - reconnecting to:', newHostId);
-    this.reconnectToNewHost(newHostId);
-  } else {
-    // Aucun client disponible - fermer la session
-    console.log('[Connectivity] No clients available - closing session');
-    this.closeSession();
-  }
-}, this.ELECTION_DELAY);
+      if (newHostId === this.state.userData?.id) {
+        // Je suis le plus ancien - devenir hôte
+        console.log('[Connectivity] I am the oldest client - promoting to host');
+        this.promoteToHost();
+      } else if (newHostId) {
+        // Un autre est plus ancien - se reconnecter à lui
+        console.log('[Connectivity] Another client is older - reconnecting to:', newHostId);
+        this.reconnectToNewHost(newHostId);
+      } else {
+        // Aucun client disponible - fermer la session
+        console.log('[Connectivity] No clients available - closing session');
+        this.closeSession();
+      }
+    }, this.ELECTION_DELAY);
   }
 
   /**
    * Élit le nouvel hôte (le client le plus ancien)
    */
   private electNewHost(): string | null {
-  const peers = Array.from(this.state.peerData.entries())
-    .filter(([id]) => id !== this.state.hostId) // Exclure l'ancien hôte
-    .filter(([_, user]) => user.connectionTimestamp) // Seulement ceux avec timestamp
-    .sort((a, b) => (a[1].connectionTimestamp || 0) - (b[1].connectionTimestamp || 0));
+    const peers = Array.from(this.state.peerData.entries())
+      .filter(([id]) => id !== this.state.hostId) // Exclure l'ancien hôte
+      .filter(([_, user]) => user.connectionTimestamp) // Seulement ceux avec timestamp
+      .sort((a, b) => (a[1].connectionTimestamp || 0) - (b[1].connectionTimestamp || 0));
 
-  // Ajouter moi-même dans la liste si je suis client
-  if (this.state.role === OperatorRole.OPR && this.state.userData) {
-    const myTimestamp = this.state.userData.connectionTimestamp || Date.now();
-    peers.push([this.state.userData.id, { ...this.state.userData, connectionTimestamp: myTimestamp }]);
-    peers.sort((a, b) => (a[1].connectionTimestamp || 0) - (b[1].connectionTimestamp || 0));
+    // Ajouter moi-même dans la liste si je suis client
+    if (this.state.role === OperatorRole.OPR && this.state.userData) {
+      const myTimestamp = this.state.userData.connectionTimestamp || Date.now();
+      peers.push([this.state.userData.id, { ...this.state.userData, connectionTimestamp: myTimestamp }]);
+      peers.sort((a, b) => (a[1].connectionTimestamp || 0) - (b[1].connectionTimestamp || 0));
+    }
+
+    console.log('[Connectivity] Election candidates:', peers.map(([id, user]) => ({
+      id,
+      callsign: user.callsign,
+      timestamp: user.connectionTimestamp
+    })));
+
+    return peers.length > 0 ? peers[0][0] : null;
   }
-
-  console.log('[Connectivity] Election candidates:', peers.map(([id, user]) => ({
-    id,
-    callsign: user.callsign,
-    timestamp: user.connectionTimestamp
-  })));
-
-  return peers.length > 0 ? peers[0][0] : null;
-}
 
   /**
    * Promouvoir ce client en hôte
    */
   private promoteToHost(): void {
-  console.log('[Connectivity] === PROMOTING TO HOST ===');
+    console.log('[Connectivity] === PROMOTING TO HOST ===');
 
-  this.state.role = OperatorRole.HOST;
-  this.state.hostId = this.state.userData!.id;
+    this.state.role = OperatorRole.HOST;
+    this.state.hostId = this.state.userData!.id;
 
-  // Mettre à jour le rôle dans userData
-  if(this.state.userData) {
-  this.state.userData.role = OperatorRole.HOST;
-}
+    // Mettre à jour le rôle dans userData
+    if (this.state.userData) {
+      this.state.userData.role = OperatorRole.HOST;
+    }
 
-// Notifier l'UI
-this.emit({ type: 'NEW_HOST_PROMOTED', hostId: this.state.hostId });
-this.emit({ type: 'TOAST', msg: 'Vous êtes maintenant l\'hôte de la session', level: 'info' });
+    // Notifier l'UI
+    this.emit({ type: 'NEW_HOST_PROMOTED', hostId: this.state.hostId });
+    this.emit({ type: 'TOAST', msg: 'Vous êtes maintenant l\'hôte de la session', level: 'info' });
 
-// Demander une resynchronisation complète aux autres clients
-this.requestFullResync();
+    // Demander une resynchronisation complète aux autres clients
+    this.requestFullResync();
   }
 
   /**
    * Demander une resynchronisation complète des données
    */
   private requestFullResync(): void {
-  console.log('[Connectivity] Requesting full resync from all clients');
+    console.log('[Connectivity] Requesting full resync from all clients');
 
-  // Envoyer une demande de resync à tous les clients connectés
-  this.state.connections.forEach((conn, peerId) => {
-    this.sendTo(peerId, {
-      type: 'REQUEST_RESYNC',
-      timestamp: Date.now()
+    // Envoyer une demande de resync à tous les clients connectés
+    this.state.connections.forEach((conn, peerId) => {
+      this.sendTo(peerId, {
+        type: 'REQUEST_RESYNC',
+        timestamp: Date.now()
+      });
     });
-  });
-}
+  }
 
   /**
    * Se reconnecter au nouvel hôte
    */
   private reconnectToNewHost(newHostId: string): void {
-  console.log('[Connectivity] Reconnecting to new host:', newHostId);
+    console.log('[Connectivity] Reconnecting to new host:', newHostId);
 
-  this.state.hostId = newHostId;
+    this.state.hostId = newHostId;
 
-  // Notifier l'UI
-  this.emit({ type: 'TOAST', msg: 'Reconnexion au nouvel hôte...', level: 'info' });
+    // Notifier l'UI
+    this.emit({ type: 'TOAST', msg: 'Reconnexion au nouvel hôte...', level: 'info' });
 
-  // Se connecter au nouvel hôte après un délai
-  setTimeout(() => {
-  this.connectToHost(newHostId);
-}, 1000);
+    // Se connecter au nouvel hôte après un délai
+    setTimeout(() => {
+      this.connectToHost(newHostId);
+    }, 1000);
   }
 
   /**
    * Fermer la session proprement
    */
   private closeSession(): void {
-  console.log('[Connectivity] === CLOSING SESSION ===');
-  console.log('[Connectivity] No clients available to become host');
+    console.log('[Connectivity] === CLOSING SESSION ===');
+    console.log('[Connectivity] No clients available to become host');
 
-  // Émettre événement pour arrêter le tracking
-  this.emit({ type: 'SESSION_CLOSED' });
-  this.emit({ type: 'TOAST', msg: 'Session fermée - aucun hôte disponible', level: 'warning' });
+    // Émettre événement pour arrêter le tracking
+    this.emit({ type: 'SESSION_CLOSED' });
+    this.emit({ type: 'TOAST', msg: 'Session fermée - aucun hôte disponible', level: 'warning' });
 
-  // Nettoyer les connexions
-  this.state.peerData.clear();
-  this.state.connections.clear();
-  this.state.hostId = '';
-}
-
-/**
- * Nettoie toutes les connexions
- */
-cleanup(): void {
-  this.stopHeartbeat();
-
-  if(this.reconnectTimeout) {
-  clearTimeout(this.reconnectTimeout);
-  this.reconnectTimeout = null;
-}
-
-this.state.connections.forEach((conn) => {
-  if (conn.open) {
-    conn.close();
+    // Nettoyer les connexions
+    this.state.peerData.clear();
+    this.state.connections.clear();
+    this.state.hostId = '';
   }
-});
-this.state.connections.clear();
 
-if (this.state.peer) {
-  this.state.peer.removeAllListeners();
-  this.state.peer.destroy();
-  this.state.peer = null;
-}
+  /**
+   * Nettoie toutes les connexions
+   */
+  cleanup(): void {
+    this.stopHeartbeat();
 
-this.state.isReconnecting = false;
-this.state.reconnectAttempt = 0;
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
+
+    this.state.connections.forEach((conn) => {
+      if (conn.open) {
+        conn.close();
+      }
+    });
+    this.state.connections.clear();
+
+    if (this.state.peer) {
+      this.state.peer.removeAllListeners();
+      this.state.peer.destroy();
+      this.state.peer = null;
+    }
+
+    this.state.isReconnecting = false;
+    this.state.reconnectAttempt = 0;
   }
 }
 
