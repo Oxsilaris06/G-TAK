@@ -877,13 +877,13 @@ const App: React.FC = () => {
                             setUser(prev => ({ ...prev, callsign: loginInput.toUpperCase() }));
                             setView('menu');
                         }}
-                            style={[styles.strategicaBtn, { backgroundColor: 'rgba(0,0,0,0.5)', width: '100%', alignItems: 'center' }]}
+                            style={[styles.strategicaBtn, { backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center' }]}
                         >
                             <Text style={styles.strategicaBtnText}>Praxis</Text>
                         </TouchableOpacity>
                     </View>
                     <View style={{ marginTop: 20, width: '100%', alignItems: 'center' }}>
-                        <TouchableOpacity onPress={() => setView('oi')} style={[styles.strategicaBtn, { width: '100%', alignItems: 'center' }]}>
+                        <TouchableOpacity onPress={() => setView('oi')} style={[styles.strategicaBtn, { alignItems: 'center' }]}>
                             <Text style={styles.strategicaBtnText}>Stratégica</Text>
                         </TouchableOpacity>
                     </View>
@@ -1352,7 +1352,7 @@ const styles = StyleSheet.create({
     centerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 30 },
     input: { width: '100%', borderBottomWidth: 2, borderBottomColor: '#3b82f6', borderWidth: 2, borderColor: '#3b82f6', fontSize: 30, color: 'white', textAlign: 'center', padding: 10, backgroundColor: 'transparent' },
     strategicaBtn: { padding: 10, marginTop: 20, borderWidth: 1, borderColor: '#3b82f6', borderRadius: 8, backgroundColor: 'transparent' },
-    strategicaBtnText: { color: '#3b82f6', fontSize: 16, fontWeight: 'bold', letterSpacing: 2, textTransform: 'uppercase' },
+    strategicaBtnText: { color: 'white', fontSize: 16, fontFamily: 'Saira Stencil One', letterSpacing: 2, textTransform: 'uppercase' },
     safeArea: { flex: 1, backgroundColor: '#050505', paddingTop: Platform.OS === 'android' ? RNStatusBar.currentHeight : 0 },
     menuContainer: { flex: 1, padding: 24 },
     sectionTitle: { color: '#71717a', fontSize: 12, fontWeight: 'bold', letterSpacing: 1, marginBottom: 15 },
