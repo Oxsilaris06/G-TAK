@@ -975,12 +975,22 @@ const App: React.FC = () => {
                             onPingClick={(id) => {
                                 const p = pings.find(ping => ping.id === id);
                                 if (!p) return;
-                                console.log('[App] Clicked Ping:', p.id, 'HasImage:', p.hasImage, 'ImageID:', p.imageId, 'URI:', p.imageUri);
+
+                                let imgToSet = p.imageUri || p.image || null;
+
+                                // FALLBACK DEBUG: Si on a un ID mais pas d'URI dans le state
+                                if (!imgToSet && p.imageId) {
+                                    const possibleUri = imageService.getImageUri(p.imageId);
+                                    // On suppose qu'elle existe pour l'instant (Async check trop lent pour le click UI immédiat)
+                                    // On le set, si ça fail l'image sera blanche/vide.
+                                    imgToSet = possibleUri;
+                                }
+
+                                Alert.alert("DEBUG IMAGE", `ID: ${p.id}\nHasImage: ${p.hasImage}\nImgID: ${p.imageId}\nURI: ${p.imageUri}\nFINAL: ${imgToSet}`);
+
                                 setEditingPing(p);
                                 setPingMsgInput(p.msg);
                                 if (p.details) setHostileDetails(p.details);
-                                const imgToSet = p.imageUri || p.image || null;
-                                console.log('[App] Setting tempImage to:', imgToSet);
                                 setTempImage(imgToSet); // Load existing image (Local or Legacy)
                             }}
                             onPingLongPress={(id) => {
