@@ -104,16 +104,41 @@ interface OperatorMarkerProps {
 }
 
 const OperatorMarker = ({ user, isMe, color, nightOpsMode, mapHeading = 0 }: OperatorMarkerProps) => {
-  const statusColor = nightOpsMode ? '#ef4444' : STATUS_COLORS[user.status] || '#71717a';
-  let displayColor = isMe ? color : statusColor;
+  // CORRECTION: User requested status colors even in Night Ops
+  // Logic: Always use status color if not 'isMe' (unless me is CONTACT/HOSTILE which overrides?)
+  // Standard logic: 'isMe' takes precedence for color (usually arrow color). 
+  // EXCEPT if status is CONTACT, usually we want to see it.
 
-  if (user.status === 'CLEAR' && !nightOpsMode) displayColor = STATUS_COLORS.CLEAR;
-  if (user.status === 'CONTACT' && !nightOpsMode) displayColor = STATUS_COLORS.CONTACT;
+  // Base status color (Blue/Green/Red/Orange)
+  const baseStatusColor = STATUS_COLORS[user.status] || '#71717a';
+
+  // In Night Ops, previously we forced red. Now we keep the color but maybe adjust brightness? 
+  // User asked for "colors displayed". So we strictly use baseStatusColor.
+  // Exception: If Night Ops needs specific red for everything else, we might want to respect that, 
+  // but User specifically asked for blue/green/red status colors.
+
+  let displayColor = isMe ? color : baseStatusColor;
+
+  // OVERRIDE: If CONTACT, we want to pulse RED even if it is 'Me' (User feedback implies consistency)
+  // Also 'CONTACT' overrides Night Ops uniform color.
+  if (user.status === 'CONTACT') displayColor = STATUS_COLORS.CONTACT; // Red
+  if (user.status === 'CLEAR') displayColor = STATUS_COLORS.CLEAR; // Blue
+
+  // Handle Night Ops override ONLY if status is standard/progression? 
+  // User said: "It is necessary that status colors be displayed... (blue, green, red)".
+  // So we do NOT override with uniform red if status is significant.
+  // If status is standard (BUSY/PROGRESSION), we might keep it or use night ops red?
+  // Let's stick to baseStatusColor as requested.
+
+  // However, for pure aesthetics in Night Ops, maybe we only force Red if NO status?
+  // The current code forced red for everything.
+  // We will trust `baseStatusColor`.
 
   const trigram = (user.callsign || 'UNK').substring(0, 3).toUpperCase();
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
+    // Pulse animation logic
     if (user.status === 'CONTACT') {
       Animated.loop(
         Animated.sequence([
@@ -128,22 +153,26 @@ const OperatorMarker = ({ user, isMe, color, nightOpsMode, mapHeading = 0 }: Ope
 
   return (
     <View style={[styles.markerRoot, isMe && { zIndex: 100 }]}>
-      {/* Cône retiré d'ici - Remplacé par GeoJSON FillLayer */}
-
+      {/* Circle ID - Member Icon */}
       <Animated.View style={[
         styles.circleId,
         {
           borderColor: displayColor,
           backgroundColor: isMe ? 'rgba(0,0,0,0.3)' : 'rgba(0,0,0,0.6)',
-          transform: [{ scale: pulseAnim }]
+          transform: [{ scale: pulseAnim }],
+          zIndex: 2 // Ensure it is above/below correctly
         }
       ]}>
         <Text style={styles.circleText}>{trigram}</Text>
       </Animated.View>
 
+      {/* Battery Warning */}
+      {/* Issue fix: Ensure it doesn't hide the member icon. 
+          Position is absolute bottom-right. zIndex higher to overlay on corner.
+      */}
       {user.bat < 20 && (
-        <View style={styles.batteryWarning}>
-          <MaterialIcons name="battery-alert" size={10} color="#ef4444" />
+        <View style={[styles.batteryWarning, { zIndex: 3 }]}>
+          <MaterialIcons name="battery-alert" size={12} color="#ef4444" />
         </View>
       )}
     </View>
