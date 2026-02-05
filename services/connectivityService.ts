@@ -417,11 +417,24 @@ class ConnectivityService {
             storageId = data.user.id + '_DUP';
           }
 
-          // DEDUPLICATION: Vérifier si cet utilisateur existe déjà (reconnexion)
-          const existingUser = this.state.peerData.get(storageId);
+          // DEDUPLICATION AVANCÉE: Vérifier par ID ET par callsign
+          let existingUser = this.state.peerData.get(storageId);
+          let existingUserId = storageId;
+
+          // Si pas trouvé par ID, chercher par callsign (trigramme)
+          if (!existingUser && data.user.callsign) {
+            this.state.peerData.forEach((userData: any, userId) => {
+              if (userData.callsign === data.user.callsign && userId !== this.state.userData?.id) {
+                existingUser = userData;
+                existingUserId = userId;
+                console.log('[Connectivity] Found existing user by callsign:', data.user.callsign, 'userId:', userId);
+              }
+            });
+          }
+
           if (existingUser) {
             // Reconnexion détectée - mettre à jour le network ID
-            console.log('[Connectivity] Reconnection detected for', storageId, 'old networkId:', existingUser._networkId, 'new:', from);
+            console.log('[Connectivity] Reconnection detected for', existingUserId, 'old networkId:', existingUser._networkId, 'new:', from);
 
             // Nettoyer l'ancienne connexion si elle existe encore
             const oldNetworkId = existingUser._networkId;
@@ -432,14 +445,26 @@ class ConnectivityService {
               this.state.connections.delete(oldNetworkId);
             }
 
+            // Si l'ID a changé (trouvé par callsign), supprimer l'ancienne entrée
+            if (existingUserId !== storageId) {
+              console.log('[Connectivity] User ID changed from', existingUserId, 'to', storageId, '- merging data');
+              this.state.peerData.delete(existingUserId);
+            }
+
             // Mettre à jour avec les nouvelles données et le nouveau network ID
-            const updatedUser = { ...data.user, id: storageId, _networkId: from };
+            // On fusionne les données existantes avec les nouvelles
+            const updatedUser = {
+              ...existingUser,  // Garder les données existantes
+              ...data.user,     // Écraser avec les nouvelles données
+              id: storageId,    // Utiliser le nouvel ID
+              _networkId: from  // Nouveau network ID
+            };
             this.state.peerData.set(storageId, updatedUser);
           } else {
             // Nouveau client
             const userWithNetId = { ...data.user, id: storageId, _networkId: from };
             this.state.peerData.set(storageId, userWithNetId);
-            console.log('[Connectivity] New client connected:', from, storageId);
+            console.log('[Connectivity] New client connected:', from, storageId, 'callsign:', data.user.callsign);
           }
         }
         this.broadcastPeerList();
@@ -453,8 +478,32 @@ class ConnectivityService {
             storageId = data.user.id + '_DUP';
           }
 
-          const existing = this.state.peerData.get(storageId);
-          const userWithNetId = { ...data.user, id: storageId, _networkId: existing?._networkId || from };
+          // DEDUPLICATION AVANCÉE: Chercher par ID ou callsign
+          let existing = this.state.peerData.get(storageId);
+          let existingUserId = storageId;
+
+          // Si pas trouvé par ID, chercher par callsign
+          if (!existing && data.user.callsign) {
+            this.state.peerData.forEach((userData: any, userId) => {
+              if (userData.callsign === data.user.callsign && userId !== this.state.userData?.id) {
+                existing = userData;
+                existingUserId = userId;
+              }
+            });
+          }
+
+          // Si l'ID a changé, supprimer l'ancienne entrée
+          if (existing && existingUserId !== storageId) {
+            console.log('[Connectivity] UPDATE: User ID changed from', existingUserId, 'to', storageId);
+            this.state.peerData.delete(existingUserId);
+          }
+
+          const userWithNetId = {
+            ...(existing || {}),  // Données existantes si trouvées
+            ...data.user,         // Nouvelles données
+            id: storageId,
+            _networkId: existing?._networkId || from
+          };
 
           this.state.peerData.set(storageId, userWithNetId);
 
