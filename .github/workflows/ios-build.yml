@@ -97,7 +97,7 @@ jobs:
 
 
 
-      - name: 🔧 Verify Podfile and Install Pods
+      - name: 🔧 Add MapLibre SDK to Podfile and Install
         run: |
           cd ios
           
@@ -106,10 +106,6 @@ jobs:
           
           echo ""
           echo "🔧 Ajout explicite de MapLibre SDK au Podfile..."
-          
-          # Le problème: @maplibre/maplibre-react-native nécessite MapLibre SDK
-          # mais celui-ci n'est pas toujours installé correctement
-          # Solution: Ajouter explicitement MapLibre SDK comme pod
           
           if ! grep -q "pod 'MapLibre'" Podfile; then
             # Utiliser awk pour insérer MapLibre après use_expo_modules!
@@ -129,31 +125,76 @@ jobs:
           
           echo ""
           echo "📋 Podfile modifié:"
-          head -n 35 Podfile
+          cat Podfile
           
           echo ""
-          echo "📦 Installation des pods..."
-          pod install --repo-update
-          echo "✅ Pods installés"
-
-      # Vérification que MapLibre a bien été installé
-      - name: 🔍 Verify MapLibre Installation
-        run: |
-          cd ios
+          echo "📦 Installation des pods avec logging verbeux..."
+          pod install --repo-update --verbose 2>&1 | tee pod_install.log
           
-          echo "🔍 Vérification de l'installation de MapLibre..."
+          echo ""
+          echo "🔍 MURPHY PATCH: Vérification de l'installation de MapLibre..."
           
-          if [ -d "Pods/MapLibre" ]; then
-            echo "✅ MapLibre pod installé"
-            ls -la Pods/MapLibre/
+          # Vérifier dans Podfile.lock
+          if grep -q "MapLibre" Podfile.lock; then
+            echo "✅ MapLibre trouvé dans Podfile.lock"
+            grep -A 3 "MapLibre" Podfile.lock
           else
-            echo "❌ MapLibre pod NON installé - le build va échouer"
+            echo "❌ ERREUR CRITIQUE: MapLibre NOT in Podfile.lock!"
+            echo "📋 Contenu de Podfile.lock:"
+            head -n 50 Podfile.lock
             exit 1
           fi
           
+          # Vérifier le répertoire Pods
+          if [ -d "Pods/MapLibre" ]; then
+            echo "✅ Répertoire Pods/MapLibre existe"
+            ls -la Pods/MapLibre/ | head -n 20
+          else
+            echo "❌ ERREUR: Pods/MapLibre n'existe pas!"
+            echo "📁 Contenu de Pods/:"
+            ls -la Pods/ | grep -i map || echo "Aucun pod MapLibre trouvé"
+            
+            echo ""
+            echo "🚨 MURPHY PATCH ACTIVÉ: Installation manuelle de MapLibre..."
+            
+            # Forcer l'installation manuelle
+            pod repo update
+            pod install --repo-update --clean-install
+            
+            # Vérifier à nouveau
+            if [ ! -d "Pods/MapLibre" ]; then
+              echo "❌ Échec de l'installation manuelle de MapLibre"
+              echo "📋 Logs d'installation:"
+              cat pod_install.log | grep -i maplibre || echo "Aucune mention de MapLibre dans les logs"
+              exit 1
+            fi
+          fi
+          
+          echo "✅ Pods installés avec succès"
+
+      # Vérification finale avant le build
+      - name: 🔍 Final MapLibre Verification
+        run: |
+          cd ios
+          
+          echo "🔍 Vérification finale de MapLibre SDK..."
+          
+          # Vérifier le framework
+          echo "📦 Recherche du framework MapLibre..."
+          find Pods -name "*.framework" -path "*MapLibre*" 2>/dev/null || echo "⚠️ Aucun framework MapLibre trouvé"
+          
+          # Vérifier les headers
           echo ""
-          echo "🔍 Vérification du framework MapLibre..."
-          find Pods -name "MapLibre.framework" -o -name "Mapbox.framework" 2>/dev/null || echo "Aucun framework trouvé"
+          echo "📄 Recherche des headers MapLibre..."
+          find Pods/MapLibre -name "*.h" 2>/dev/null | head -n 10 || echo "⚠️ Aucun header trouvé"
+          
+          # Vérifier la configuration du pod
+          echo ""
+          echo "⚙️ Configuration MapLibre dans Podfile.lock:"
+          grep -A 10 "MapLibre" Podfile.lock || echo "❌ MapLibre absent de Podfile.lock"
+          
+          echo ""
+          echo "✅ Vérification terminée"
 
       - name: 🔨 Build Unsigned .app with Xcode
         run: |
