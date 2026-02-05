@@ -62,6 +62,7 @@ interface TacticalMapProps {
   onPingClick: (id: string) => void;
   onPingLongPress: (id: string) => void;
   onNavStop: () => void;
+  onNavStop: () => void;
   onMapMoveEnd: (center: { lat: number; lng: number }, zoom: number) => void;
   isVisible: boolean;
 }
