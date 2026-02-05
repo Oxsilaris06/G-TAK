@@ -39,6 +39,7 @@ export interface UserData {
   lastMsg: string;
   paxColor?: string;
   _networkId?: string;
+  connectionTimestamp?: number; // Timestamp pour l'élection du nouvel hôte
 }
 
 export interface PingData {
@@ -72,6 +73,7 @@ export interface AppSettings {
   username: string;
   gpsUpdateInterval: number;
   orientationUpdateInterval: number;
+  heartbeatInterval: number; // Intervalle heartbeat en ms (5000-120000)
   userArrowColor: string;
   customMapUrl?: string;
   quickMessages: string[];
@@ -83,6 +85,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   username: '',
   gpsUpdateInterval: 5000,
   orientationUpdateInterval: 500,
+  heartbeatInterval: 10000, // 10 secondes par défaut
   userArrowColor: '#3b82f6',
   quickMessages: [
     'RAS / Effacer',

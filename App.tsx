@@ -438,8 +438,12 @@ const App: React.FC = () => {
             case 'NEW_HOST_PROMOTED':
                 setHostId(event.hostId);
                 if (event.hostId === userRef.current.id) {
+                    // Mise à jour du rôle dans l'état et l'Operator Card
                     setUser(p => ({ ...p, role: OperatorRole.HOST }));
                     Alert.alert("Promotion", "Vous êtes le nouveau Chef de Session.");
+                } else {
+                    // Un autre client est devenu hôte, je reste OPR
+                    setUser(p => ({ ...p, role: OperatorRole.OPR }));
                 }
                 break;
             case 'IMAGE_READY':
@@ -451,6 +455,19 @@ const App: React.FC = () => {
                     }
                     return p;
                 }));
+                break;
+            case 'SESSION_CLOSED':
+                console.log("[App] Session closed - stopping tracking");
+                // Arrêter le tracking GPS/orientation
+                locationService.stopTracking();
+                // Réinitialiser l'état
+                setPeers({});
+                setHostId('');
+                setPings([]);
+                setLogs([]);
+                // Retour à l'écran de login
+                setView('login');
+                showToast("Session fermée - aucun hôte disponible", "warning");
                 break;
         }
     };
