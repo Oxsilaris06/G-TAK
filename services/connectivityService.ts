@@ -284,7 +284,11 @@ class ConnectivityService {
       console.log(`[Connectivity] Sending image ${imageId} to ${targetId} (${totalChunks} chunks)`);
       Alert.alert("DEBUG P2P", `Host: Envoi image vers ${targetId}\nChunks: ${totalChunks}`);
 
-      this.sendTo(targetId, { type: 'IMAGE_START', imageId, total: totalChunks });
+      const sentStart = this.sendTo(targetId, { type: 'IMAGE_START', imageId, total: totalChunks });
+      if (!sentStart) {
+        Alert.alert("DEBUG P2P", "Host: ECHEC envoi IMAGE_START. Connexion perdue ?");
+        return;
+      }
 
       // Send chunks with slight delay to avoid congestion
       let offset = 0;
@@ -325,6 +329,7 @@ class ConnectivityService {
     if (data.type === 'IMAGE_START') {
       this.state.tempChunks.set(data.imageId, { total: data.total, chk: [] });
       console.log(`[Connectivity] Receiving image ${data.imageId} (${data.total} chunks)`);
+      Alert.alert("DEBUG P2P", `Client: Début Réception Image\nChunks: ${data.total}`);
       return;
     }
 
@@ -342,11 +347,15 @@ class ConnectivityService {
         if (receivedCount === pending.total) { // All chunks received
           const fullBase64 = pending.chk.join('');
           this.state.tempChunks.delete(data.imageId);
+          Alert.alert("DEBUG P2P", "Client: Tous chunks reçus. Ecriture fichier...");
           imageService.writeBase64(data.imageId, fullBase64).then((uri) => {
             console.log('[Connectivity] Image Received & Saved:', uri);
             this.emit({ type: 'IMAGE_READY', imageId: data.imageId, uri });
           });
         }
+      } else {
+        console.warn("Orphan chunk received", data.imageId, data.index);
+        // Alert.alert("DEBUG P2P", "Orphan Chunk: " + data.index); // Optional, might spam
       }
       return;
     }
