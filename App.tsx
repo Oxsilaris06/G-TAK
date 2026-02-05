@@ -439,7 +439,6 @@ const App: React.FC = () => {
                 );
                 showToast(`ENNEMI: ${data.ping.msg} (${gpsCoords})`, 'error');
             } else {
-            } else {
                 showToast(`${senderName}: ${data.ping.msg}`, 'info');
                 triggerTacticalNotification(`${senderName} - Info`, `${data.ping.msg}`);
             }
