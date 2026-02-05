@@ -17,7 +17,6 @@ import MapLibreGL, {
   MapView,
   Camera,
   UserLocation,
-  MarkerView,
   PointAnnotation,
   ShapeSource,
   LineLayer,
@@ -502,17 +501,28 @@ const TacticalMap = ({
         )}
 
         {/* --- MARKERS OPÉRATEURS --- */}
+        {/* --- MARKERS OPÉRATEURS --- */}
         {!!me.lat && !!me.lng && (
-          <MarkerView coordinate={[me.lng, me.lat]} anchor={{ x: 0.5, y: 0.5 }}>
+          <PointAnnotation
+            key={`me-${me.id}`}
+            id={`me-${me.id}`}
+            coordinate={[me.lng, me.lat]}
+            anchor={{ x: 0.5, y: 0.5 }}
+          >
             <OperatorMarker user={me} isMe color={userArrowColor} nightOpsMode={nightOpsMode} mapHeading={mapHeading} />
-          </MarkerView>
+          </PointAnnotation>
         )}
 
         {Object.values(peers).map((peer) =>
           !!peer.lat && !!peer.lng && (
-            <MarkerView key={peer.id} coordinate={[peer.lng, peer.lat]} anchor={{ x: 0.5, y: 0.5 }}>
+            <PointAnnotation
+              key={`peer-${peer.id}`}
+              id={`peer-${peer.id}`}
+              coordinate={[peer.lng, peer.lat]}
+              anchor={{ x: 0.5, y: 0.5 }}
+            >
               <OperatorMarker user={peer} color={userArrowColor} nightOpsMode={nightOpsMode} mapHeading={mapHeading} />
-            </MarkerView>
+            </PointAnnotation>
           )
         )}
 
