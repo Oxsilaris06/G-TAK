@@ -4,6 +4,7 @@
  */
 
 import Peer from 'peerjs';
+import { Alert } from 'react-native';
 import { EventEmitter } from 'events';
 import { UserData, OperatorRole } from '../types';
 import { mmkvStorage } from './mmkvStorage';
@@ -272,6 +273,7 @@ class ConnectivityService {
     try {
       if (!await imageService.exists(imageId)) {
         console.warn('[Connectivity] Requested image not found locally:', imageId);
+        Alert.alert("DEBUG P2P", "Host: Image demandée INTROUVABLE locally\nID: " + imageId);
         return;
       }
 
@@ -280,6 +282,7 @@ class ConnectivityService {
       const totalChunks = Math.ceil(base64.length / CHUNK_SIZE);
 
       console.log(`[Connectivity] Sending image ${imageId} to ${targetId} (${totalChunks} chunks)`);
+      Alert.alert("DEBUG P2P", `Host: Envoi image vers ${targetId}\nChunks: ${totalChunks}`);
 
       this.sendTo(targetId, { type: 'IMAGE_START', imageId, total: totalChunks });
 
@@ -312,6 +315,7 @@ class ConnectivityService {
 
     // --- IMAGE PROTOCOL HANDLERS ---
     if (data.type === 'REQUEST_IMAGE') {
+      Alert.alert("DEBUG P2P", "Host: Reçu demande image de " + from + "\nID: " + data.imageId);
       if (data.imageId) {
         this.sendImage(from, data.imageId);
       }
