@@ -571,11 +571,16 @@ const App: React.FC = () => {
             image: tempImage // Envoi de l'image
         };
 
+
         setPings(prev => [...prev, newPing]);
 
-        await safeBroadcast({ type: 'PING', ping: newPing }, currentPingType === 'HOSTILE');
+        // Close modal immediately to prevent duplicates
+        setShowPingForm(false);
+        setTempPingLoc(null);
+        setIsPingMode(false);
+        setTempImage(null);
 
-        setShowPingForm(false); setTempPingLoc(null); setIsPingMode(false); setTempImage(null);
+        await safeBroadcast({ type: 'PING', ping: newPing }, currentPingType === 'HOSTILE');
     };
 
     const handlePingMove = (updatedPing: PingData) => {
