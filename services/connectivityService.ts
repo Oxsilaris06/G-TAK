@@ -402,10 +402,30 @@ class ConnectivityService {
             storageId = data.user.id + '_DUP';
           }
 
-          const userWithNetId = { ...data.user, id: storageId, _networkId: from };
+          // DEDUPLICATION: Vérifier si cet utilisateur existe déjà (reconnexion)
+          const existingUser = this.state.peerData.get(storageId);
+          if (existingUser) {
+            // Reconnexion détectée - mettre à jour le network ID
+            console.log('[Connectivity] Reconnection detected for', storageId, 'old networkId:', existingUser._networkId, 'new:', from);
 
-          this.state.peerData.set(storageId, userWithNetId);
-          console.log('[Connectivity] Received HELLO from', from, storageId);
+            // Nettoyer l'ancienne connexion si elle existe encore
+            const oldNetworkId = existingUser._networkId;
+            if (oldNetworkId && oldNetworkId !== from && this.state.connections.has(oldNetworkId)) {
+              console.log('[Connectivity] Closing stale connection:', oldNetworkId);
+              const oldConn = this.state.connections.get(oldNetworkId);
+              if (oldConn) oldConn.close();
+              this.state.connections.delete(oldNetworkId);
+            }
+
+            // Mettre à jour avec les nouvelles données et le nouveau network ID
+            const updatedUser = { ...data.user, id: storageId, _networkId: from };
+            this.state.peerData.set(storageId, updatedUser);
+          } else {
+            // Nouveau client
+            const userWithNetId = { ...data.user, id: storageId, _networkId: from };
+            this.state.peerData.set(storageId, userWithNetId);
+            console.log('[Connectivity] New client connected:', from, storageId);
+          }
         }
         this.broadcastPeerList();
         break;

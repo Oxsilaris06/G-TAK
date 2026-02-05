@@ -337,7 +337,12 @@ const App: React.FC = () => {
     }, []);
 
     useEffect(() => {
-        if (view === 'map' || view === 'ops') {
+        // MISSION CRITICAL: Capteurs actifs tant qu'on est connecté à une session
+        // On ne s'arrête PAS quand la vue change ou que l'app est en arrière-plan
+        const isConnectedToSession = !!hostId;
+
+        if (isConnectedToSession) {
+            // Configuration GPS avec service au premier plan pour transmission continue
             locationService.updateOptions({
                 timeInterval: settings.gpsUpdateInterval,
                 foregroundService: {
@@ -348,6 +353,7 @@ const App: React.FC = () => {
             });
             locationService.startTracking();
 
+            // Magnétomètre pour orientation en temps réel
             if (magSubscription.current) magSubscription.current.remove();
             Magnetometer.setUpdateInterval(100);
             magSubscription.current = Magnetometer.addListener(data => {
@@ -369,11 +375,22 @@ const App: React.FC = () => {
             });
 
         } else {
-            if (!hostId) locationService.stopTracking();
-            if (magSubscription.current) magSubscription.current.remove();
+            // Pas de session active - arrêt des capteurs pour économiser la batterie
+            locationService.stopTracking();
+            if (magSubscription.current) {
+                magSubscription.current.remove();
+                magSubscription.current = null;
+            }
         }
-        return () => { if (magSubscription.current) magSubscription.current.remove(); }
-    }, [view, settings.gpsUpdateInterval, hostId, isLandscape]);
+
+        return () => {
+            // Cleanup uniquement si on quitte vraiment la session
+            if (!hostId && magSubscription.current) {
+                magSubscription.current.remove();
+                magSubscription.current = null;
+            }
+        };
+    }, [hostId, settings.gpsUpdateInterval, isLandscape]); // Retiré 'view' des dépendances
 
     // Initialize ID immediately
     useEffect(() => {
