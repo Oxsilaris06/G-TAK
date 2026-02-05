@@ -177,8 +177,16 @@ class ConnectivityService {
         });
 
         this.state.peer.on('disconnected', () => {
-          console.log('[Connectivity] Peer disconnected');
-          this.handleDisconnect();
+          console.log('[Connectivity] Peer disconnected - attempting reconnection');
+
+          // Utiliser reconnect() pour garder le même Peer ID
+          if (this.state.peer && !this.state.peer.destroyed) {
+            console.log('[Connectivity] Calling peer.reconnect() to maintain same ID');
+            this.state.peer.reconnect();
+          } else {
+            console.log('[Connectivity] Peer destroyed, cannot reconnect');
+            this.handleDisconnect();
+          }
         });
       } catch (e) {
         console.error('[Connectivity] Init error:', e);
@@ -416,7 +424,7 @@ class ConnectivityService {
           console.log('[Connectivity] Callsign:', data.user.callsign);
           console.log('[Connectivity] Current peerData entries:', Array.from(this.state.peerData.keys()));
 
-          // DEDUPLICATION: Vérifier si cet utilisateur existe déjà
+          // DEDUPLICATION PAR ID (peer.reconnect() maintient l'ID stable)
           const existingUser = this.state.peerData.get(storageId);
 
           if (existingUser) {
