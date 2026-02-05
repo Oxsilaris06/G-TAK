@@ -1112,7 +1112,7 @@ const App: React.FC = () => {
                                 <MaterialIcons name={showPings ? 'location-on' : 'location-off'} size={24} color={nightOpsMode ? "#ef4444" : "#d4d4d8"} />
                             </TouchableOpacity>
                             <TouchableOpacity onPress={() => setIsPingMode(!isPingMode)} {...getLandscapeProps()} style={[getLandscapeStyle(styles.mapBtn), isPingMode ? { backgroundColor: '#dc2626', borderColor: '#f87171' } : null, nightOpsMode && { borderColor: '#7f1d1d', backgroundColor: isPingMode ? '#7f1d1d' : '#000' }]}>
-                                <MaterialIcons name="ads-click" size={24} color="white" />
+                                <MaterialIcons name="ads-click" size={24} color={nightOpsMode ? "#ef4444" : "white"} />
                             </TouchableOpacity>
                         </View>
                     </View>
