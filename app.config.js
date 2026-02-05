@@ -1,8 +1,40 @@
+const { withPodfile } = require('@expo/config-plugins');
+
+/**
+ * Plugin inline pour forcer les Modular Headers sur MapLibre.
+ * Requis pour 'useFrameworks: static' sur iOS.
+ */
+const withMapLibreFix = (config) => {
+  return withPodfile(config, (config) => {
+    const podfile = config.modResults.contents;
+    const fix = "pod 'MapLibre', :modular_headers => true";
+
+    // Évite la duplication
+    if (!podfile.includes(fix)) {
+      // On injecte juste avant use_expo_modules! (ou use_react_native!)
+      // C'est un endroit sûr à l'intérieur de la target.
+      if (podfile.includes('use_expo_modules!')) {
+        config.modResults.contents = podfile.replace(
+          'use_expo_modules!',
+          `${fix}\n  use_expo_modules!`
+        );
+      } else {
+        // Fallback si use_expo_modules n'est pas trouvé (peu probable)
+        config.modResults.contents = podfile.replace(
+          'use_react_native!',
+          `${fix}\n  use_react_native!`
+        );
+      }
+    }
+    return config;
+  });
+};
+
 // ID PROJET VALIDE
 const PROJECT_ID = "f55fd8e2-57c6-4432-a64c-fae41bb16a3e";
 const VERSION = "4.1.0";
 
-export default {
+export default withMapLibreFix({
   expo: {
     name: "Praxis",
     slug: "praxis",
@@ -140,4 +172,4 @@ export default {
       "expo-task-manager"
     ]
   }
-};
+});
