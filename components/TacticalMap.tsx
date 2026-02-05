@@ -217,10 +217,12 @@ const PingMarker = ({ ping, nightOpsMode }: PingMarkerProps) => {
   const iconName = ping.type === 'HOSTILE' ? 'warning' : ping.type === 'FRIEND' ? 'shield' : 'visibility';
 
   return (
-    <View style={styles.pingMarkerContainer}>
+    <View style={styles.pingMarkerContainer} collapsable={false}>
       {/* Taille réduite pour précision (28x28) */}
       <View style={[styles.pingMarker, { backgroundColor: colors.bg, borderColor: colors.border }]}>
-        <MaterialIcons name={iconName} size={16} color={colors.text} />
+        <Text>
+          <MaterialIcons name={iconName} size={16} color={colors.text} />
+        </Text>
       </View>
       <View style={styles.pingLabelContainer}>
         <Text style={[styles.pingLabel, { color: colors.text }]} numberOfLines={1}>
