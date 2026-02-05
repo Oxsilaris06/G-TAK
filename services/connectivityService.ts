@@ -275,13 +275,8 @@ class ConnectivityService {
     switch (data.type) {
       case 'HELLO':
         // Nouveau client connecté, on stocke ses données
-        if (data.user && data.user.id) {
-          // PROTECTION: Ne jamais laisser un client écraser l'Host
-          if (this.state.userData && data.user.id === this.state.userData.id) {
-            console.warn('[Connectivity] Client tried to spoof Host ID:', from);
-            return;
-          }
-          this.state.peerData.set(data.user.id, data.user);
+        if (data.user) {
+          this.state.peerData.set(from, data.user);
           console.log('[Connectivity] Received HELLO from', from, data.user.status);
         }
         // Broadcaster la liste mise à jour à tout le monde (y compris le nouveau)
@@ -291,9 +286,8 @@ class ConnectivityService {
       case 'UPDATE_USER':
       case 'UPDATE':
         // Mettre à jour les données locales (Host)
-        if (data.user && data.user.id) {
-          if (this.state.userData && data.user.id === this.state.userData.id) return; // Protection Host
-          this.state.peerData.set(data.user.id, data.user);
+        if (data.user) {
+          this.state.peerData.set(from, data.user);
         }
         // Propager la mise à jour à tous les autres
         this.broadcastExcept(from, data);
@@ -318,23 +312,8 @@ class ConnectivityService {
 
       case 'CLIENT_LEAVING':
         // Client qui quitte proprement
-        // On doit trouver l'ID associé au 'from' si on stockait par ID
-        // Mais ici 'from' est le peerId réseau.
-        // Si on a stocké par UserID, on doit chercher
-        let userIdToRemove: string | null = null;
-        this.state.peerData.forEach((u, uid) => {
-          // Si l'ID réseau match (supposant que user.id == from pour l'instant, ou on garde map inverse ?)
-          // Simplification: `user.id` DEVRAIT être `from`.
-          if (uid === from) userIdToRemove = uid;
-        });
-        if (userIdToRemove) {
-          this.state.peerData.delete(userIdToRemove);
-        } else {
-          // Fallback: delete direct if keyed by from (old behavior) or just try delete from
-          this.state.peerData.delete(from);
-        }
-
         this.state.connections.delete(from);
+        this.state.peerData.delete(from);
         this.broadcastPeerList();
         break;
     }
@@ -352,10 +331,8 @@ class ConnectivityService {
     }
 
     // Ajouter les peers connus
-    this.state.peerData.forEach((data, userId) => {
-      // Protection double check: Ne pas écraser l'host
-      if (this.state.userData && userId === this.state.userData.id) return;
-      peers[userId] = data;
+    this.state.peerData.forEach((data, peerId) => {
+      peers[peerId] = data;
     });
 
     this.broadcast({
