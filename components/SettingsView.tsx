@@ -81,7 +81,7 @@ const SettingsView: React.FC<Props> = ({ onClose, onUpdate }) => {
         setSettings((s) => ({ ...s, customMapUrl: result.assets[0].uri }));
         Alert.alert('Carte', 'Fichier sélectionné (Simulation MBTiles)');
       }
-    } catch (e) {}
+    } catch (e) { }
   };
 
   const clearStorage = () => {
@@ -104,7 +104,7 @@ const SettingsView: React.FC<Props> = ({ onClose, onUpdate }) => {
   };
 
   const openDoc = (file: string) => {
-    Linking.openURL('https://github.com/oxsilaris06/g-tak/blob/main/' + file).catch(() => {});
+    Linking.openURL('https://github.com/oxsilaris06/g-tak/blob/main/' + file).catch(() => { });
   };
 
   return (
@@ -210,6 +210,43 @@ const SettingsView: React.FC<Props> = ({ onClose, onUpdate }) => {
                     orientationUpdateInterval: Math.min(
                       1000,
                       (s.orientationUpdateInterval || 500) + 100
+                    ),
+                  }))
+                }
+                style={styles.miniBtn}
+              >
+                <Text style={styles.miniBtnText}>+</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <View style={styles.row}>
+            <View>
+              <Text style={styles.label}>Heartbeat Connexion</Text>
+              <Text style={styles.subLabel}>{settings.heartbeatInterval / 1000} sec (×2 en arrière-plan)</Text>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <TouchableOpacity
+                onPress={() =>
+                  setSettings((s) => ({
+                    ...s,
+                    heartbeatInterval: Math.max(
+                      5000,
+                      (s.heartbeatInterval || 10000) - 5000
+                    ),
+                  }))
+                }
+                style={styles.miniBtn}
+              >
+                <Text style={styles.miniBtnText}>-</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() =>
+                  setSettings((s) => ({
+                    ...s,
+                    heartbeatInterval: Math.min(
+                      120000,
+                      (s.heartbeatInterval || 10000) + 5000
                     ),
                   }))
                 }
