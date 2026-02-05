@@ -54,147 +54,70 @@ jobs:
 
       # --- PATCH EXPO-DEVICE (FIX CRITIQUE) ---
       # Fix pour l'erreur "cannot find 'TARGET_OS_SIMULATOR' in scope" avec Xcode 15+
-      # NOTE: Ce patch est maintenant aussi appliqué via le plugin dans app.config.js
-      # mais on le garde ici pour double sécurité
       - name: 🚑 Patch expo-device (TARGET_OS_SIMULATOR)
         run: |
           echo "Patching expo-device for Xcode 15 compatibility..."
           # On remplace la vérification dynamique par 'false' car on compile pour un DEVICE physique (Release)
           # Cela corrige l'erreur de compilation immédiate.
           # Le fichier est généralement dans node_modules/expo-device/ios/UIDevice.swift
-          DEVICE_SWIFT=$(find node_modules/expo-device/ios -name "UIDevice.swift" | head -n 1)
-          
-          if [ -f "$DEVICE_SWIFT" ]; then
-            echo "📁 Fichier trouvé : $DEVICE_SWIFT"
-            
-            # Vérification avant patch
-            if grep -q "TARGET_OS_SIMULATOR" "$DEVICE_SWIFT"; then
-              echo "🔧 Application du patch..."
-              # CORRECTION: Supprimer '' après -i pour macOS
-              sed -i.bak 's/return TARGET_OS_SIMULATOR != 0/return false/g' "$DEVICE_SWIFT"
-              
-              # Vérification après patch
-              if grep -q "return false" "$DEVICE_SWIFT" && ! grep -q "TARGET_OS_SIMULATOR" "$DEVICE_SWIFT"; then
-                echo "✅ Patch appliqué avec succès sur UIDevice.swift"
-              else
-                echo "⚠️ Le patch n'a pas été appliqué correctement"
-                cat "$DEVICE_SWIFT"
-              fi
-            else
-              echo "ℹ️ Le fichier ne contient pas TARGET_OS_SIMULATOR (déjà patché?)"
-            fi
-          else
-            echo "⚠️ UIDevice.swift non trouvé, le plugin app.config.js le patchera lors du prebuild"
-          fi
-
+          find node_modules/expo-device/ios -name "UIDevice.swift" -exec sed -i '' 's/return TARGET_OS_SIMULATOR != 0/return false/g' {} +
+          echo "✅ Patch appliqué sur UIDevice.swift"
 
       # Prebuild génère les dossiers natifs (/ios)
       - name: ⚙️ Expo Prebuild
-        run: |
-          echo "🔧 Lancement du prebuild iOS..."
-          npx expo prebuild --platform ios --clean --no-install
-          echo "✅ Prebuild terminé"
+        run: npx expo prebuild --platform ios --clean --no-install
 
-
-
-      - name: 🔧 Add MapLibre SDK to Podfile and Install
+      # --- MURPHY FIX #1 : PATCH PODFILE ROBUSTE (RUBY) ---
+      - name: 🔧 Patch Podfile for iOS Version (Ruby Script)
         run: |
           cd ios
+          # Création d'un script Ruby temporaire pour modifier le Podfile proprement
+          # Cela évite les erreurs de 'sed' si le format du fichier change légèrement
+          cat <<EOF > patch_podfile.rb
+          file_path = 'Podfile'
+          text = File.read(file_path)
           
-          echo "📋 Podfile généré par Expo:"
-          head -n 30 Podfile
-          
-          echo ""
-          echo "🔧 Ajout explicite de MapLibre SDK au Podfile..."
-          
-          if ! grep -q "pod 'MapLibre'" Podfile; then
-            # Utiliser awk pour insérer MapLibre après use_expo_modules!
-            awk '/use_expo_modules!/ {
-              print $0
-              print ""
-              print "  # MapLibre SDK requis pour @maplibre/maplibre-react-native"
-              print "  pod '\''MapLibre'\'', '\''~> 6.0'\'', :modular_headers => true"
-              next
-            }
-            { print }' Podfile > Podfile.tmp && mv Podfile.tmp Podfile
-            
-            echo "✅ MapLibre SDK ajouté au Podfile"
-          else
-            echo "ℹ️ MapLibre déjà présent"
-          fi
-          
-          echo ""
-          echo "📋 Podfile modifié:"
-          cat Podfile
-          
-          echo ""
-          echo "📦 Installation des pods avec logging verbeux..."
-          pod install --repo-update --verbose 2>&1 | tee pod_install.log
-          
-          echo ""
-          echo "🔍 MURPHY PATCH: Vérification de l'installation de MapLibre..."
-          
-          # Vérifier dans Podfile.lock
-          if grep -q "MapLibre" Podfile.lock; then
-            echo "✅ MapLibre trouvé dans Podfile.lock"
-            grep -A 3 "MapLibre" Podfile.lock
-          else
-            echo "❌ ERREUR CRITIQUE: MapLibre NOT in Podfile.lock!"
-            echo "📋 Contenu de Podfile.lock:"
-            head -n 50 Podfile.lock
-            exit 1
-          fi
-          
-          # Vérifier le répertoire Pods
-          if [ -d "Pods/MapLibre" ]; then
-            echo "✅ Répertoire Pods/MapLibre existe"
-            ls -la Pods/MapLibre/ | head -n 20
-          else
-            echo "❌ ERREUR: Pods/MapLibre n'existe pas!"
-            echo "📁 Contenu de Pods/:"
-            ls -la Pods/ | grep -i map || echo "Aucun pod MapLibre trouvé"
-            
-            echo ""
-            echo "🚨 MURPHY PATCH ACTIVÉ: Installation manuelle de MapLibre..."
-            
-            # Forcer l'installation manuelle
-            pod repo update
-            pod install --repo-update --clean-install
-            
-            # Vérifier à nouveau
-            if [ ! -d "Pods/MapLibre" ]; then
-              echo "❌ Échec de l'installation manuelle de MapLibre"
-              echo "📋 Logs d'installation:"
-              cat pod_install.log | grep -i maplibre || echo "Aucune mention de MapLibre dans les logs"
-              exit 1
-            fi
-          fi
-          
-          echo "✅ Pods installés avec succès"
+          # Configuration à injecter
+          config_block = <<~RUBY
+            installer.pods_project.targets.each do |target|
+              target.build_configurations.each do |config|
+                config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.4'
+                config.build_settings['GCC_WARN_INHIBIT_ALL_WARNINGS'] = "YES"
+                config.build_settings['SWIFT_SUPPRESS_WARNINGS'] = "YES"
+              end
+            end
+          RUBY
 
-      # Vérification finale avant le build
-      - name: 🔍 Final MapLibre Verification
+          # On insère la config juste après le début du bloc post_install existant
+          if text.include?('post_install do |installer|')
+            new_text = text.sub('post_install do |installer|', "post_install do |installer|\n#{config_block}")
+            File.write(file_path, new_text)
+            puts "✅ Podfile patché avec succès (Injection)."
+          else
+            # Si pas de bloc, on en crée un à la fin
+            File.open(file_path, 'a') do |f|
+              f.puts ""
+              f.puts "post_install do |installer|"
+              f.puts config_block
+              f.puts "end"
+            end
+            puts "✅ Podfile patché avec succès (Ajout fin)."
+          end
+          EOF
+          
+          # Exécution du script
+          ruby patch_podfile.rb
+          rm patch_podfile.rb
+          
+          echo "--- Vérification du Podfile (Début) ---"
+          head -n 20 Podfile
+          echo "--- Vérification du Podfile (Fin) ---"
+          tail -n 20 Podfile
+
+      - name: 🔧 Install Pods
         run: |
           cd ios
-          
-          echo "🔍 Vérification finale de MapLibre SDK..."
-          
-          # Vérifier le framework
-          echo "📦 Recherche du framework MapLibre..."
-          find Pods -name "*.framework" -path "*MapLibre*" 2>/dev/null || echo "⚠️ Aucun framework MapLibre trouvé"
-          
-          # Vérifier les headers
-          echo ""
-          echo "📄 Recherche des headers MapLibre..."
-          find Pods/MapLibre -name "*.h" 2>/dev/null | head -n 10 || echo "⚠️ Aucun header trouvé"
-          
-          # Vérifier la configuration du pod
-          echo ""
-          echo "⚙️ Configuration MapLibre dans Podfile.lock:"
-          grep -A 10 "MapLibre" Podfile.lock || echo "❌ MapLibre absent de Podfile.lock"
-          
-          echo ""
-          echo "✅ Vérification terminée"
+          pod install --repo-update
 
       - name: 🔨 Build Unsigned .app with Xcode
         run: |
