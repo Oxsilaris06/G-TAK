@@ -303,7 +303,8 @@ class ConnectivityService {
           data: chunk
         });
 
-        if (i % 10 === 0) await new Promise(r => setTimeout(r, 10)); // Yield every 10 chunks
+        // SLOW DOWN: 20ms wait per chunk to ensure UDP/WebRTC buffers don't overflow
+        await new Promise(r => setTimeout(r, 20));
       }
 
     } catch (e) {
