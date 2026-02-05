@@ -3,17 +3,21 @@ import { View, StyleSheet, Animated, Dimensions, Easing } from 'react-native';
 
 const { width, height } = Dimensions.get('window');
 const GRID_SIZE = 40;
-const AGENT_COUNT = 5;
+const AGENT_COUNT = 6;
 const MOVE_DURATION = 400; 
 const TRAIL_DURATION = 3000;
+
+const THEME = {
+  friendly: '#3b82f6', 
+  hostile: '#ef4444'   
+};
 
 const TacticalBackground = () => {
   const pulseAnim = useRef(new Animated.Value(0.3)).current;
   const cols = Math.ceil(width / GRID_SIZE);
   const rows = Math.ceil(height / GRID_SIZE);
 
-  // REGISTRE DE COLLISION PARTAGÉ
-  const gridRegistry = useRef(new Map()); // "x,y" -> timestamp d'expiration
+  const gridRegistry = useRef(new Map());
 
   const isCellFree = useCallback((x, y) => {
     const key = `${x},${y}`;
@@ -64,6 +68,7 @@ const TacticalBackground = () => {
           startDelay={index * 800}
           isCellFree={isCellFree}
           occupyCell={occupyCell}
+          type={index === 0 ? 'hostile' : 'friendly'}
         />
       ))}
       
@@ -72,18 +77,31 @@ const TacticalBackground = () => {
   );
 };
 
-const TacticalAgent = ({ cols, rows, startDelay, isCellFree, occupyCell }) => {
+const TacticalAgent = ({ cols, rows, startDelay, isCellFree, occupyCell, type = 'friendly' }) => {
   const [pos, setPos] = useState(null); 
   const [prevPos, setPrevPos] = useState(null); 
   const [staticTrail, setStaticTrail] = useState([]); 
   
-  // Animations
+  const isHostile = type === 'hostile';
+  const color = THEME[type];
+
   const moveAnim = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
   const progressAnim = useRef(new Animated.Value(0)).current;
   const pulseScale = useRef(new Animated.Value(1)).current;
   const pulseOpacity = useRef(new Animated.Value(1)).current;
+  const heartbeatAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
+    if (isHostile) {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(heartbeatAnim, { toValue: 1.4, duration: 120, useNativeDriver: true }),
+          Animated.timing(heartbeatAnim, { toValue: 1, duration: 120, useNativeDriver: true }),
+          Animated.timing(heartbeatAnim, { toValue: 1.4, duration: 120, useNativeDriver: true }),
+          Animated.timing(heartbeatAnim, { toValue: 1, duration: 640, useNativeDriver: true }), 
+        ])
+      ).start();
+    }
     const timer = setTimeout(() => spawn(), startDelay);
     return () => clearTimeout(timer);
   }, []);
@@ -93,7 +111,6 @@ const TacticalAgent = ({ cols, rows, startDelay, isCellFree, occupyCell }) => {
     pulseOpacity.setValue(1);
     setStaticTrail([]);
 
-    // Trouver un spot libre
     let start, attempts = 0;
     do {
       start = { x: Math.floor(Math.random() * cols), y: Math.floor(Math.random() * rows) };
@@ -105,7 +122,6 @@ const TacticalAgent = ({ cols, rows, startDelay, isCellFree, occupyCell }) => {
       return;
     }
     
-    // Réserver le start
     occupyCell(start.x, start.y);
 
     let end;
@@ -116,8 +132,6 @@ const TacticalAgent = ({ cols, rows, startDelay, isCellFree, occupyCell }) => {
     setPos(start);
     setPrevPos(start);
     moveAnim.setValue({ x: start.x * GRID_SIZE, y: start.y * GRID_SIZE });
-    
-    // Démarrer mouvement
     moveStep(start, end);
   };
 
@@ -130,7 +144,6 @@ const TacticalAgent = ({ cols, rows, startDelay, isCellFree, occupyCell }) => {
     const dx = dest.x - current.x;
     const dy = dest.y - current.y;
     
-    // 1. Lister les mouvements possibles (Priorité cible > Aléatoire)
     const moves = [];
     if (Math.abs(dx) >= Math.abs(dy)) {
        if (dx !== 0) moves.push({ x: current.x + (dx > 0 ? 1 : -1), y: current.y });
@@ -140,7 +153,6 @@ const TacticalAgent = ({ cols, rows, startDelay, isCellFree, occupyCell }) => {
        if (dx !== 0) moves.push({ x: current.x + (dx > 0 ? 1 : -1), y: current.y });
     }
     
-    // Ajouter les voisins restants (secours)
     const neighbors = [
         { x: current.x + 1, y: current.y }, { x: current.x - 1, y: current.y },
         { x: current.x, y: current.y + 1 }, { x: current.x, y: current.y - 1 }
@@ -150,7 +162,6 @@ const TacticalAgent = ({ cols, rows, startDelay, isCellFree, occupyCell }) => {
        if (!moves.some(m => m.x === n.x && m.y === n.y)) moves.push(n);
     });
 
-    // 2. Choisir le premier mouvement valide
     let next = null;
     for (let m of moves) {
         if (m.x >= 0 && m.x < cols && m.y >= 0 && m.y < rows && isCellFree(m.x, m.y)) {
@@ -159,11 +170,10 @@ const TacticalAgent = ({ cols, rows, startDelay, isCellFree, occupyCell }) => {
         }
     }
 
-    // 3. Exécuter ou Terminer
     if (next) {
         occupyCell(next.x, next.y);
         progressAnim.setValue(0);
-        setPrevPos(current);
+        setPrevPos(current); // prevPos devient le "cul" de la ligne
 
         Animated.parallel([
           Animated.timing(moveAnim, {
@@ -193,7 +203,6 @@ const TacticalAgent = ({ cols, rows, startDelay, isCellFree, occupyCell }) => {
           }
         });
     } else {
-        // Bloqué
         triggerArrivalPulse();
     }
   };
@@ -210,10 +219,10 @@ const TacticalAgent = ({ cols, rows, startDelay, isCellFree, occupyCell }) => {
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="none">
       {staticTrail.map((seg) => (
-        <FadeOutTrailLine key={seg.id} x={seg.x} y={seg.y} isVertical={seg.isVertical} />
+        <FadeOutTrailLine key={seg.id} x={seg.x} y={seg.y} isVertical={seg.isVertical} color={color} />
       ))}
       {prevPos && (
-         <ActiveTrailLine start={prevPos} headAnim={moveAnim} />
+         <ActiveTrailLine start={prevPos} headAnim={moveAnim} color={color} />
       )}
       <Animated.View
         style={[
@@ -222,30 +231,89 @@ const TacticalAgent = ({ cols, rows, startDelay, isCellFree, occupyCell }) => {
         ]}
       >
         <View style={styles.agentCore} />
-        <View style={styles.agentGlow} />
-        <Animated.View style={[styles.pulseRing, { transform: [{ scale: pulseScale }] }]} />
+        <Animated.View 
+          style={[
+            styles.agentGlow, 
+            { 
+              backgroundColor: color,
+              transform: [{ scale: isHostile ? heartbeatAnim : 1 }] 
+            }
+          ]} 
+        />
+        <Animated.View 
+          style={[
+            styles.pulseRing, 
+            { borderColor: color, transform: [{ scale: pulseScale }] }
+          ]} 
+        />
       </Animated.View>
     </View>
   );
 };
 
-const ActiveTrailLine = ({ start, headAnim }) => {
+// Composant corrigé pour ne jamais dessiner devant la node
+const ActiveTrailLine = ({ start, headAnim, color }) => {
   const startX = start.x * GRID_SIZE;
   const startY = start.y * GRID_SIZE;
-  const scaleX = headAnim.x.interpolate({ inputRange: [startX - GRID_SIZE, startX, startX + GRID_SIZE], outputRange: [-1, 0, 1] });
-  const scaleY = headAnim.y.interpolate({ inputRange: [startY - GRID_SIZE, startY, startY + GRID_SIZE], outputRange: [-1, 0, 1] });
-  const translateX = scaleX.interpolate({ inputRange: [-1, 0, 1], outputRange: [-GRID_SIZE/2, 0, GRID_SIZE/2] });
-  const translateY = scaleY.interpolate({ inputRange: [-1, 0, 1], outputRange: [-GRID_SIZE/2, 0, GRID_SIZE/2] });
+
+  // Calcul du Scale : 0 -> 1 (ou 0 -> -1). Clampé pour ne pas dépasser 1.
+  const scaleX = headAnim.x.interpolate({ 
+    inputRange: [startX - GRID_SIZE, startX, startX + GRID_SIZE], 
+    outputRange: [-1, 0, 1],
+    extrapolate: 'clamp'
+  });
+
+  const scaleY = headAnim.y.interpolate({ 
+    inputRange: [startY - GRID_SIZE, startY, startY + GRID_SIZE], 
+    outputRange: [-1, 0, 1],
+    extrapolate: 'clamp'
+  });
+
+  // Calcul de translation corrigé : (scale - 1) * width / 2
+  // Si scale = 1 (droite) -> (1-1)*20 = 0.
+  // Si scale = 0 (début) -> (0-1)*20 = -20 (Centre décalé à gauche pour que le bord droit soit au début).
+  // Si scale = -1 (gauche) -> (-1-1)*20 = -40 (Centre décalé de 40px à gauche).
+  const translateX = scaleX.interpolate({ 
+    inputRange: [-1, 0, 1], 
+    outputRange: [-GRID_SIZE, -GRID_SIZE/2, 0],
+    extrapolate: 'clamp'
+  });
+
+  const translateY = scaleY.interpolate({ 
+    inputRange: [-1, 0, 1], 
+    outputRange: [-GRID_SIZE, -GRID_SIZE/2, 0],
+    extrapolate: 'clamp'
+  });
 
   return (
     <>
-      <Animated.View style={[styles.trailLine, { left: startX, top: startY, width: GRID_SIZE, height: 2, marginTop: -1, transform: [{ translateX }, { scaleX }] }]} />
-      <Animated.View style={[styles.trailLine, { left: startX, top: startY, width: 2, height: GRID_SIZE, marginLeft: -1, transform: [{ translateY }, { scaleY }] }]} />
+      {/* Ligne Horizontale */}
+      <Animated.View style={[
+        styles.trailLine, 
+        { 
+          backgroundColor: color, shadowColor: color, 
+          left: startX, top: startY, 
+          width: GRID_SIZE, height: 2, 
+          marginTop: -1, 
+          transform: [{ translateX }, { scaleX }] 
+        }
+      ]} />
+      {/* Ligne Verticale */}
+      <Animated.View style={[
+        styles.trailLine, 
+        { 
+          backgroundColor: color, shadowColor: color, 
+          left: startX, top: startY, 
+          width: 2, height: GRID_SIZE, 
+          marginLeft: -1, 
+          transform: [{ translateY }, { scaleY }] 
+        }
+      ]} />
     </>
   );
 };
 
-const FadeOutTrailLine = ({ x, y, isVertical }) => {
+const FadeOutTrailLine = ({ x, y, isVertical, color }) => {
   const opacity = useRef(new Animated.Value(1)).current;
   useEffect(() => {
     Animated.timing(opacity, { toValue: 0, duration: 2500, useNativeDriver: true }).start();
@@ -255,6 +323,8 @@ const FadeOutTrailLine = ({ x, y, isVertical }) => {
       style={[
         styles.trailLine,
         {
+          backgroundColor: color,
+          shadowColor: color,
           left: x * GRID_SIZE, top: y * GRID_SIZE,
           width: isVertical ? 2 : GRID_SIZE,
           height: isVertical ? GRID_SIZE : 2,
@@ -279,11 +349,11 @@ const styles = StyleSheet.create({
   },
   agent: { position: 'absolute', width: 0, height: 0, alignItems: 'center', justifyContent: 'center', zIndex: 20 },
   agentCore: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#FFF', position: 'absolute', zIndex: 2 },
-  agentGlow: { width: 20, height: 20, borderRadius: 10, backgroundColor: '#3b82f6', opacity: 0.5, position: 'absolute', zIndex: 1, shadowColor: '#3b82f6', shadowRadius: 8, elevation: 5 },
-  pulseRing: { width: 10, height: 10, borderRadius: 5, borderWidth: 2, borderColor: '#3b82f6', position: 'absolute', zIndex: 0 },
+  agentGlow: { width: 20, height: 20, borderRadius: 10, opacity: 0.5, position: 'absolute', zIndex: 1, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 1, shadowRadius: 8, elevation: 5 },
+  pulseRing: { width: 10, height: 10, borderRadius: 5, borderWidth: 2, position: 'absolute', zIndex: 0 },
   trailLine: {
-    position: 'absolute', backgroundColor: '#3b82f6',
-    shadowColor: '#3b82f6', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.8, shadowRadius: 4, elevation: 3, zIndex: 5,
+    position: 'absolute', 
+    shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.8, shadowRadius: 4, elevation: 3, zIndex: 5,
   },
   vignette: { ...StyleSheet.absoluteFillObject, backgroundColor: 'transparent' }
 });
