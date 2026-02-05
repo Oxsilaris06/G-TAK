@@ -244,7 +244,8 @@ class ConnectivityService {
     });
 
     conn.on('close', () => {
-      console.log('[Connectivity] Connection closed:', conn.peer);
+      console.log('[Connectivity] === CONNECTION CLOSED ===');
+      console.log('[Connectivity] Network ID:', conn.peer);
       this.state.connections.delete(conn.peer);
 
       // Nettoyer les données utilisateur associées à cette connexion
@@ -256,9 +257,16 @@ class ConnectivityService {
       });
 
       if (userIdToRemove) {
-        console.log('[Connectivity] Removing user data for closed connection:', userIdToRemove);
+        console.log('[Connectivity] Removing user data for closed connection');
+        console.log('[Connectivity]   User ID:', userIdToRemove);
+        console.log('[Connectivity]   Network ID:', conn.peer);
         this.state.peerData.delete(userIdToRemove);
+      } else {
+        console.log('[Connectivity] No user data found for closed connection:', conn.peer);
       }
+
+      console.log('[Connectivity] peerData after close:', Array.from(this.state.peerData.keys()));
+      console.log('[Connectivity] === END CONNECTION CLOSED ===');
 
       this.broadcastPeerList();
     });
@@ -416,10 +424,20 @@ class ConnectivityService {
             storageId = data.user.id + '_DUP';
           }
 
+          // DEBUG: Afficher l'état actuel de peerData
+          console.log('[Connectivity] === HELLO RECEIVED ===');
+          console.log('[Connectivity] From network ID:', from);
+          console.log('[Connectivity] User ID:', storageId);
+          console.log('[Connectivity] Callsign:', data.user.callsign);
+          console.log('[Connectivity] Current peerData entries:', Array.from(this.state.peerData.keys()));
+
           // DEDUPLICATION: Vérifier si cet utilisateur existe déjà
           const existingUser = this.state.peerData.get(storageId);
 
           if (existingUser) {
+            console.log('[Connectivity] User FOUND in peerData');
+            console.log('[Connectivity] Existing network ID:', existingUser._networkId);
+
             // Utilisateur existe - vérifier si c'est une RECONNEXION (nouveau network ID)
             if (existingUser._networkId !== from) {
               // RECONNEXION: Même ID utilisateur, mais NOUVEAU network ID
@@ -435,6 +453,8 @@ class ConnectivityService {
                 const oldConn = this.state.connections.get(oldNetworkId);
                 if (oldConn) oldConn.close();
                 this.state.connections.delete(oldNetworkId);
+              } else {
+                console.log('[Connectivity] Old connection already closed:', oldNetworkId);
               }
 
               // Mettre à jour avec le nouveau network ID
@@ -445,6 +465,7 @@ class ConnectivityService {
                 _networkId: from  // NOUVEAU network ID
               };
               this.state.peerData.set(storageId, updatedUser);
+              console.log('[Connectivity] Updated existing entry with new network ID');
             } else {
               // Même network ID - simple mise à jour (rare)
               console.log('[Connectivity] Updating existing user (same network ID):', storageId);
@@ -452,6 +473,8 @@ class ConnectivityService {
               this.state.peerData.set(storageId, updatedUser);
             }
           } else {
+            console.log('[Connectivity] User NOT FOUND in peerData - creating new entry');
+
             // NOUVEAU CLIENT: Pas d'entrée avec cet ID
             const userWithNetId = { ...data.user, id: storageId, _networkId: from };
             this.state.peerData.set(storageId, userWithNetId);
@@ -460,6 +483,9 @@ class ConnectivityService {
             console.log('[Connectivity]   Network ID:', from);
             console.log('[Connectivity]   Callsign:', data.user.callsign);
           }
+
+          console.log('[Connectivity] peerData after HELLO:', Array.from(this.state.peerData.keys()));
+          console.log('[Connectivity] === END HELLO ===');
         }
         this.broadcastPeerList();
         break;
