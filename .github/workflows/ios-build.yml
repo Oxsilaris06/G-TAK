@@ -63,6 +63,14 @@ jobs:
           find node_modules/expo-device/ios -name "UIDevice.swift" -exec sed -i '' 's/return TARGET_OS_SIMULATOR != 0/return false/g' {} +
           echo "✅ Patch appliqué sur UIDevice.swift"
 
+      # --- PATCH MAPLIBRE IMPORTS (FIX MODULE NOT FOUND) ---
+      # Remplace @import MapLibre; par #import <MapLibre/MapLibre.h> pour éviter les erreurs de module
+      - name: 🚑 Patch MapLibre Imports
+        run: |
+          echo "Patching MapLibre imports for static framework compatibility..."
+          find node_modules/@maplibre/maplibre-react-native/ios -type f \( -name "*.h" -o -name "*.m" \) -print0 | xargs -0 sed -i '' 's/@import MapLibre;/#import <MapLibre\/MapLibre.h>/g'
+          echo "✅ Patch appliqué sur les fichiers MapLibre"
+
       # Prebuild génère les dossiers natifs (/ios)
       - name: ⚙️ Expo Prebuild
         run: npx expo prebuild --platform ios --clean --no-install
