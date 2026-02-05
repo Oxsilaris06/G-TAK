@@ -77,10 +77,10 @@ jobs:
           text = File.read(file_path)
           
           # 1. Ajouter MapLibre SDK AVANT use_expo_modules! si pas déjà présent
-          # CRITIQUE: @maplibre/maplibre-react-native v10 nécessite MapLibre SDK 5.14.0, PAS 6.x !
+          # CRITIQUE: @maplibre/maplibre-react-native v10 nécessite MapLibre SDK 6.17.1 pour iOS
           unless text.include?("pod 'MapLibre'")
-            text = text.sub(/(\s+use_expo_modules!)/, "  # MapLibre Native SDK 5.14.0 for @maplibre/maplibre-react-native v10\n  pod 'MapLibre', '5.14.0', :modular_headers => true\n\n\\1")
-            puts "✅ MapLibre SDK 5.14.0 ajouté au Podfile"
+            text = text.sub(/(\s+use_expo_modules!)/, "  # MapLibre Native SDK 6.17.1 for @maplibre/maplibre-react-native v10\n  pod 'MapLibre', '6.17.1', :modular_headers => true\n\n\\1")
+            puts "✅ MapLibre SDK 6.17.1 ajouté au Podfile"
           end
           
           # 2. Configuration post_install pour iOS version + MapLibre modular headers
