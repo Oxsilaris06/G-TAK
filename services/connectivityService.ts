@@ -407,7 +407,6 @@ class ConnectivityService {
   private handleHostData(data: any, from: string): void {
     switch (data.type) {
       case 'HELLO':
-        // Nouveau client connecté, on stocke ses données
         if (data.user && data.user.id) {
           let storageId = data.user.id;
 
@@ -417,54 +416,49 @@ class ConnectivityService {
             storageId = data.user.id + '_DUP';
           }
 
-          // DEDUPLICATION AVANCÉE: Vérifier par ID ET par callsign
-          let existingUser = this.state.peerData.get(storageId);
-          let existingUserId = storageId;
-
-          // Si pas trouvé par ID, chercher par callsign (trigramme)
-          if (!existingUser && data.user.callsign) {
-            this.state.peerData.forEach((userData: any, userId) => {
-              if (userData.callsign === data.user.callsign && userId !== this.state.userData?.id) {
-                existingUser = userData;
-                existingUserId = userId;
-                console.log('[Connectivity] Found existing user by callsign:', data.user.callsign, 'userId:', userId);
-              }
-            });
-          }
+          // DEDUPLICATION: Vérifier si cet utilisateur existe déjà
+          const existingUser = this.state.peerData.get(storageId);
 
           if (existingUser) {
-            // Reconnexion détectée - mettre à jour le network ID
-            console.log('[Connectivity] Reconnection detected for', existingUserId, 'old networkId:', existingUser._networkId, 'new:', from);
+            // Utilisateur existe - vérifier si c'est une RECONNEXION (nouveau network ID)
+            if (existingUser._networkId !== from) {
+              // RECONNEXION: Même ID utilisateur, mais NOUVEAU network ID
+              console.log('[Connectivity] *** RECONNECTION DETECTED ***');
+              console.log('[Connectivity]   User ID:', storageId);
+              console.log('[Connectivity]   Old network ID:', existingUser._networkId);
+              console.log('[Connectivity]   New network ID:', from);
 
-            // Nettoyer l'ancienne connexion si elle existe encore
-            const oldNetworkId = existingUser._networkId;
-            if (oldNetworkId && oldNetworkId !== from && this.state.connections.has(oldNetworkId)) {
-              console.log('[Connectivity] Closing stale connection:', oldNetworkId);
-              const oldConn = this.state.connections.get(oldNetworkId);
-              if (oldConn) oldConn.close();
-              this.state.connections.delete(oldNetworkId);
+              // Nettoyer l'ancienne connexion réseau
+              const oldNetworkId = existingUser._networkId;
+              if (oldNetworkId && this.state.connections.has(oldNetworkId)) {
+                console.log('[Connectivity] Closing stale connection:', oldNetworkId);
+                const oldConn = this.state.connections.get(oldNetworkId);
+                if (oldConn) oldConn.close();
+                this.state.connections.delete(oldNetworkId);
+              }
+
+              // Mettre à jour avec le nouveau network ID
+              const updatedUser = {
+                ...existingUser,  // Garder les données existantes (position, etc.)
+                ...data.user,     // Appliquer les nouvelles données
+                id: storageId,    // Garder le même ID
+                _networkId: from  // NOUVEAU network ID
+              };
+              this.state.peerData.set(storageId, updatedUser);
+            } else {
+              // Même network ID - simple mise à jour (rare)
+              console.log('[Connectivity] Updating existing user (same network ID):', storageId);
+              const updatedUser = { ...existingUser, ...data.user, id: storageId, _networkId: from };
+              this.state.peerData.set(storageId, updatedUser);
             }
-
-            // Si l'ID a changé (trouvé par callsign), supprimer l'ancienne entrée
-            if (existingUserId !== storageId) {
-              console.log('[Connectivity] User ID changed from', existingUserId, 'to', storageId, '- merging data');
-              this.state.peerData.delete(existingUserId);
-            }
-
-            // Mettre à jour avec les nouvelles données et le nouveau network ID
-            // On fusionne les données existantes avec les nouvelles
-            const updatedUser = {
-              ...existingUser,  // Garder les données existantes
-              ...data.user,     // Écraser avec les nouvelles données
-              id: storageId,    // Utiliser le nouvel ID
-              _networkId: from  // Nouveau network ID
-            };
-            this.state.peerData.set(storageId, updatedUser);
           } else {
-            // Nouveau client
+            // NOUVEAU CLIENT: Pas d'entrée avec cet ID
             const userWithNetId = { ...data.user, id: storageId, _networkId: from };
             this.state.peerData.set(storageId, userWithNetId);
-            console.log('[Connectivity] New client connected:', from, storageId, 'callsign:', data.user.callsign);
+            console.log('[Connectivity] *** NEW CLIENT CONNECTED ***');
+            console.log('[Connectivity]   User ID:', storageId);
+            console.log('[Connectivity]   Network ID:', from);
+            console.log('[Connectivity]   Callsign:', data.user.callsign);
           }
         }
         this.broadcastPeerList();
