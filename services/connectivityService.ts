@@ -60,10 +60,10 @@ class ConnectivityService {
    * Initialise la connexion PeerJS
    */
   /**
-   * Génère un ID court (6 caractères alphanumériques majuscules)
+   * Génère un ID simplifié et lisible (6 caractères)
    */
-  private generateShortId(): string {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  private generateSimplifiedId(): string {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Exclut I, O, 1, 0 pour éviter confusion
     let result = '';
     for (let i = 0; i < 6; i++) {
       result += chars.charAt(Math.floor(Math.random() * chars.length));
@@ -81,10 +81,21 @@ class ConnectivityService {
   ): Promise<void> {
     // 1. Récupération de l'ID persistant
     let storedId = mmkvStorage.getString(CONFIG.SESSION_STORAGE_KEY);
-    if (!storedId) {
-      storedId = this.generateShortId();
+
+    // MIGRATION: Si l'ID est un UUID (long), on force la regénération vers un ID court
+    if (storedId && storedId.length > 10) {
+      console.log('[Connectivity] Migrating legacy UUID to Simplified ID');
+      storedId = undefined; // Force la régénération
     }
-    console.log('[Connectivity] Target Persistent ID:', storedId);
+
+    // STRICTEMENT Persistant : Si pas d'ID, on en crée un et on le garde A VIE.
+    if (!storedId) {
+      storedId = this.generateSimplifiedId();
+      mmkvStorage.set(CONFIG.SESSION_STORAGE_KEY, storedId);
+      console.log('[Connectivity] Created NEW Persistent Short ID:', storedId);
+    } else {
+      console.log('[Connectivity] Loaded Persistent Short ID:', storedId);
+    }
 
     // 2. Vérifier si on peut réutiliser la connexion existante
     if (this.state.peer && !this.state.peer.disconnected && !this.state.peer.destroyed) {
@@ -118,15 +129,16 @@ class ConnectivityService {
     return new Promise((resolve, reject) => {
       try {
         // Créer le peer avec l'ID persistant
+        // NOTE: Si l'ID est déjà pris sur le serveur (zombie), PeerJS renverra 'unavailable-id'
         this.state.peer = new Peer(storedId, CONFIG.PEER_CONFIG);
 
         this.state.peer.on('open', (id) => {
           console.log('[Connectivity] Peer opened:', id);
           this.state.userData!.id = id;
 
-          // Si l'ID a changé (conflit résolu par le serveur?), on sauvegarde le nouveau
+          // Si l'ID a changé (ce qui ne devrait pas arriver avec un UUID sauf collision cosmique)
           if (id !== storedId) {
-            console.log('[Connectivity] Saving new persistent ID:', id);
+            console.warn('[Connectivity] ID changed by server (unexpected):', id);
             mmkvStorage.set(CONFIG.SESSION_STORAGE_KEY, id);
           }
 
