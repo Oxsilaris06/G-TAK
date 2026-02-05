@@ -106,6 +106,11 @@ const App: React.FC = () => {
     const [showPingMenu, setShowPingMenu] = useState(false);
     const [showPingForm, setShowPingForm] = useState(false);
 
+    useEffect(() => {
+        if (tempImage) console.log('[App] tempImage is currently:', tempImage);
+    }, [tempImage]);
+
+    // Reference pour accès dans les callbacks sans dépendance
     const [freeMsgInput, setFreeMsgInput] = useState('');
     const [quickMessagesList, setQuickMessagesList] = useState<string[]>([]);
     const [tempPingLoc, setTempPingLoc] = useState<any>(null);
@@ -970,10 +975,13 @@ const App: React.FC = () => {
                             onPingClick={(id) => {
                                 const p = pings.find(ping => ping.id === id);
                                 if (!p) return;
+                                console.log('[App] Clicked Ping:', p.id, 'HasImage:', p.hasImage, 'ImageID:', p.imageId, 'URI:', p.imageUri);
                                 setEditingPing(p);
                                 setPingMsgInput(p.msg);
                                 if (p.details) setHostileDetails(p.details);
-                                setTempImage(p.imageUri || p.image || null); // Load existing image (Local or Legacy)
+                                const imgToSet = p.imageUri || p.image || null;
+                                console.log('[App] Setting tempImage to:', imgToSet);
+                                setTempImage(imgToSet); // Load existing image (Local or Legacy)
                             }}
                             onPingLongPress={(id) => {
                                 // Handled by WebView
