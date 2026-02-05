@@ -145,18 +145,13 @@ interface TacticalCompassProps {
 
 const TacticalCompass = ({ heading, isLandscape, onPress, mode }: TacticalCompassProps) => {
   // Correction: En mode Paysage, l'orientation est inversée de 180° selon le retour utilisateur
-  const displayHeading = isLandscape ? (heading + 180) % 360 : heading;
-
-  // Correction positionnement paysage (Absolu explicite)
-  const containerStyle = isLandscape
-    ? { position: 'absolute' as 'absolute', bottom: 120, left: 20 }
-    : { position: 'absolute' as 'absolute', top: 20, left: 20 };
+  const displayHeading = isLandscape ? heading + 180 : heading;
 
   return (
     <TouchableOpacity
       onPress={onPress}
       activeOpacity={0.7}
-      style={[styles.compassContainer, containerStyle]}
+      style={[styles.compassContainer, isLandscape ? styles.compassLandscape : null]}
     >
       <View style={styles.compassIndicator} />
       <View style={[
@@ -180,7 +175,6 @@ const TacticalCompass = ({ heading, isLandscape, onPress, mode }: TacticalCompas
     </TouchableOpacity>
   );
 };
-
 
 // 3. Marker Ping
 interface PingMarkerProps {
@@ -264,8 +258,8 @@ const TacticalMap = ({
   const [isMapReady, setIsMapReady] = useState(false);
   const [followUser, setFollowUser] = useState(true);
   const [trails, setTrails] = useState<Record<string, { coords: [number, number][], color: string }[]>>({});
-  // Mode Boussole : Par défaut au NORD
-  const [compassMode, setCompassMode] = useState<'north' | 'heading'>('north');
+  // Mode Boussole
+  const [compassMode, setCompassMode] = useState<'north' | 'heading'>('heading');
 
   // Effet pour la boussole magnétique
   useEffect(() => {
@@ -355,21 +349,16 @@ const TacticalMap = ({
     }
   }, [isMapReady, navTargetId, peers, followUser, me.lat, me.lng]);
 
-  // Initial Center & Systematic User Center on Load
-  const initialCenterDone = useRef(false);
-
+  // Initial Center
   useEffect(() => {
-    if (isMapReady && me.lat && me.lng && !initialCenterDone.current) {
-      // Force centering on user at startup AND Force North orientation
+    if (isMapReady && initialCenter) {
       cameraRef.current?.setCamera({
-        centerCoordinate: [me.lng, me.lat],
-        zoomLevel: initialCenter?.zoom || 15,
-        heading: 0,
-        animationDuration: 1000
+        centerCoordinate: [initialCenter.lng, initialCenter.lat],
+        zoomLevel: initialCenter.zoom,
+        animationDuration: 0
       });
-      initialCenterDone.current = true;
     }
-  }, [isMapReady, me.lat, me.lng, initialCenter]);
+  }, [isMapReady, initialCenter]);
 
   // GeoJSON Trails
   const trailsGeoJSON = useMemo(() => {
@@ -504,7 +493,7 @@ const TacticalMap = ({
         {/* --- PINGS (Draggable) --- */}
         {showPings && pings.map((ping) => (
           <PointAnnotation
-            key={`${ping.id}-${mapMode}-${nightOpsMode}`} // Force re-render on NightOps toggle
+            key={`${ping.id}-${mapMode}`}
             id={ping.id}
             coordinate={[ping.lng, ping.lat]}
             draggable
@@ -527,8 +516,6 @@ const TacticalMap = ({
         onPress={() => {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
           setCompassMode(prev => prev === 'north' ? 'heading' : 'north');
-          // If we are switching TO heading (current is north), we don't need to reset camera here
-          // If we are switching TO north (current is heading), reset camera
           if (compassMode === 'heading') {
             cameraRef.current?.setCamera({
               heading: 0,
@@ -537,11 +524,6 @@ const TacticalMap = ({
           }
         }}
       />
-
-      {/* --- NIGHT OPS OVERLAY (Global Red Filter) --- */}
-      {nightOpsMode && (
-        <View style={styles.nightOpsOverlay} pointerEvents="none" />
-      )}
 
       {pingMode && (
         <View style={styles.pingModeIndicator}>
@@ -577,14 +559,6 @@ const TacticalMap = ({
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
   map: { flex: 1 },
-
-  // Night Ops Overlay
-  nightOpsOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(50, 0, 0, 0.3)', // Red/Sepia tint
-    zIndex: 999, // On top of everything
-    pointerEvents: 'none', // Allow touches to pass through
-  },
 
   // Marker Opérateur
   markerRoot: {
@@ -629,10 +603,7 @@ const styles = StyleSheet.create({
   },
 
   // Ping Marker
-  pingMarkerContainer: {
-    alignItems: 'center',
-    zIndex: 1000 // Ensure it's clickable
-  },
+  pingMarkerContainer: { alignItems: 'center' },
   pingMarker: {
     width: 28,
     height: 28,
@@ -665,13 +636,19 @@ const styles = StyleSheet.create({
   // Boussole
   compassContainer: {
     position: 'absolute',
+    top: 20,
+    left: 20,
     width: 60,
     height: 60,
     zIndex: 90,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // Removed implicit merging issue by handling in render
+  compassLandscape: {
+    top: 'auto',
+    bottom: 100, // Juste au dessus de la barre de statut (PROGRESSION etc)
+    left: 20,
+  },
   compassRose: {
     width: 60,
     height: 60,
