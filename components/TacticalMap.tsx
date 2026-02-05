@@ -217,7 +217,9 @@ const PingMarker = ({ ping, nightOpsMode }: PingMarkerProps) => {
   const iconName = ping.type === 'HOSTILE' ? 'warning' : ping.type === 'FRIEND' ? 'shield' : 'visibility';
 
   return (
-    <View style={styles.pingMarkerContainer}>
+    <View
+      style={styles.pingMarkerContainer}
+    >
       {/* Taille réduite pour précision (28x28) */}
       <View style={[styles.pingMarker, { backgroundColor: colors.bg, borderColor: colors.border }]}>
         <MaterialIcons name={iconName} size={16} color={colors.text} />
@@ -589,7 +591,10 @@ const TacticalMap = ({
             coordinate={[ping.lng, ping.lat]}
             draggable
             onDragEnd={(e) => handlePingDragEnd(e, ping)}
-            onSelected={() => onPingClick(ping.id)}
+            onSelected={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              onPingClick(ping.id);
+            }}
           >
             <PingMarker
               ping={ping}
