@@ -866,7 +866,6 @@ const App: React.FC = () => {
                             }}
                             onNavStop={() => setNavTargetId(null)}
                             onMapMoveEnd={(center, zoom) => setMapState({ ...center, zoom })}
-                            isVisible={isMapMode}
                         />
 
                         <View style={[styles.mapControls, isLandscapeMap && { top: '50%', right: 16, marginTop: -100 }]}>
