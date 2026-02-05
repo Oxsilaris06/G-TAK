@@ -619,7 +619,7 @@ const TacticalMap = ({
         {/* --- PINGS (Draggable) --- */}
         {showPings && pings.map((ping) => (
           <PointAnnotation
-            key={`${ping.id}-${mapMode}-${nightOpsMode}`}
+            key={`${ping.id}-${mapMode}-${nightOpsMode}-${ping.timestamp}`}
             id={ping.id}
             coordinate={[ping.lng, ping.lat]}
             draggable
