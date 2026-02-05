@@ -50,7 +50,10 @@ export interface PingData {
   sender: string;
   timestamp: number;
   details?: HostileDetails;
-  image?: string | null;
+  image?: string | null; // Legacy Base64 (Optional)
+  imageUri?: string | null; // Local File URI
+  imageId?: string | null; // Network ID for P2P transfer
+  hasImage?: boolean; // Flag to indicate image availability
 }
 
 export interface LogEntry {

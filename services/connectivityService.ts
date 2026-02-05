@@ -8,6 +8,7 @@ import { EventEmitter } from 'events';
 import { UserData, OperatorRole } from '../types';
 import { mmkvStorage } from './mmkvStorage';
 import { CONFIG } from '../constants';
+import { imageService } from './imageService';
 
 export type ConnectivityEvent =
   | { type: 'PEER_OPEN'; id: string }
@@ -17,7 +18,8 @@ export type ConnectivityEvent =
   | { type: 'DATA_RECEIVED'; data: any; from: string }
   | { type: 'DISCONNECTED'; reason: 'KICKED' | 'NO_HOST' | 'ERROR' }
   | { type: 'RECONNECTING'; attempt: number }
-  | { type: 'NEW_HOST_PROMOTED'; hostId: string };
+  | { type: 'NEW_HOST_PROMOTED'; hostId: string }
+  | { type: 'IMAGE_READY'; imageId: string; uri: string };
 
 interface ConnectionState {
   peer: Peer | null;
@@ -28,6 +30,7 @@ interface ConnectionState {
   hostId: string;
   isReconnecting: boolean;
   reconnectAttempt: number;
+  tempChunks: Map<string, { total: number; chk: string[] }>;
 }
 
 class ConnectivityEventEmitter extends EventEmitter {
@@ -49,6 +52,7 @@ class ConnectivityService {
     hostId: '',
     isReconnecting: false,
     reconnectAttempt: 0,
+    tempChunks: new Map(),
   };
 
   private reconnectTimeout: NodeJS.Timeout | null = null;
@@ -56,9 +60,6 @@ class ConnectivityService {
   private readonly HEARTBEAT_INTERVAL = 10000;
   private readonly MAX_RECONNECT_ATTEMPTS = 5;
 
-  /**
-   * Initialise la connexion PeerJS
-   */
   /**
    * Génère un ID simplifié et lisible (6 caractères)
    */
@@ -173,7 +174,6 @@ class ConnectivityService {
           }
 
           this.handleError(err);
-          // On ne reject pas forcément pour les autres erreurs non fatales
         });
 
         this.state.peer.on('disconnected', () => {
@@ -254,10 +254,99 @@ class ConnectivityService {
   }
 
   /**
+   * Request an image from a peer
+   */
+  requestImage(imageId: string, targetIds: string[]): void {
+    const msg = { type: 'REQUEST_IMAGE', imageId, from: this.state.userData?.id };
+    targetIds.forEach(id => {
+      if (id === this.state.hostId || this.state.connections.has(id)) {
+        this.sendTo(id, msg);
+      }
+    });
+  }
+
+  /**
+   * Send an image to a peer (Found in local storage)
+   */
+  private async sendImage(targetId: string, imageId: string): Promise<void> {
+    try {
+      if (!await imageService.exists(imageId)) {
+        console.warn('[Connectivity] Requested image not found locally:', imageId);
+        return;
+      }
+
+      const base64 = await imageService.readAsBase64(imageId);
+      const CHUNK_SIZE = 16 * 1024; // 16KB
+      const totalChunks = Math.ceil(base64.length / CHUNK_SIZE);
+
+      console.log(`[Connectivity] Sending image ${imageId} to ${targetId} (${totalChunks} chunks)`);
+
+      this.sendTo(targetId, { type: 'IMAGE_START', imageId, total: totalChunks });
+
+      // Send chunks with slight delay to avoid congestion
+      let offset = 0;
+      for (let i = 0; i < totalChunks; i++) {
+        const chunk = base64.slice(offset, offset + CHUNK_SIZE);
+        offset += CHUNK_SIZE;
+
+        this.sendTo(targetId, {
+          type: 'IMAGE_CHUNK',
+          imageId,
+          index: i,
+          data: chunk
+        });
+
+        if (i % 10 === 0) await new Promise(r => setTimeout(r, 10)); // Yield every 10 chunks
+      }
+
+    } catch (e) {
+      console.error('[Connectivity] Error sending image:', e);
+    }
+  }
+
+  /**
    * Gère les données reçues
    */
   private handleData(data: any, from: string): void {
     if (!data || typeof data !== 'object') return;
+
+    // --- IMAGE PROTOCOL HANDLERS ---
+    if (data.type === 'REQUEST_IMAGE') {
+      if (data.imageId) {
+        this.sendImage(from, data.imageId);
+      }
+      return;
+    }
+
+    if (data.type === 'IMAGE_START') {
+      this.state.tempChunks.set(data.imageId, { total: data.total, chk: [] });
+      console.log(`[Connectivity] Receiving image ${data.imageId} (${data.total} chunks)`);
+      return;
+    }
+
+    if (data.type === 'IMAGE_CHUNK') {
+      const pending = this.state.tempChunks.get(data.imageId);
+      if (pending) {
+        pending.chk[data.index] = data.data; // Store at index handles out-of-order
+
+        // Check completion
+        let receivedCount = 0;
+        for (let i = 0; i < pending.total; i++) {
+          if (pending.chk[i]) receivedCount++;
+        }
+
+        if (receivedCount === pending.total) { // All chunks received
+          const fullBase64 = pending.chk.join('');
+          this.state.tempChunks.delete(data.imageId);
+          imageService.writeBase64(data.imageId, fullBase64).then((uri) => {
+            console.log('[Connectivity] Image Received & Saved:', uri);
+            this.emit({ type: 'IMAGE_READY', imageId: data.imageId, uri });
+          });
+        }
+      }
+      return;
+    }
+    // -------------------------------
 
     // Propager l'événement
     this.emit({ type: 'DATA_RECEIVED', data, from });
@@ -278,75 +367,56 @@ class ConnectivityService {
         if (data.user && data.user.id) {
           let storageId = data.user.id;
 
-          // PROTECTION: Si collision avec l'ID de l'Host, on suffixe pour éviter l'écrasement
-          // Cela permet au client de se connecter quand même (mode dégradé pour tests/doublons)
+          // PROTECTION: Si collision avec l'ID de l'Host, on suffixe
           if (this.state.userData && data.user.id === this.state.userData.id) {
             console.warn('[Connectivity] ID Collision with Host. Suffixing client:', from);
             storageId = data.user.id + '_DUP';
           }
 
-          // On attache le networkId pour le nettoyage futur
           const userWithNetId = { ...data.user, id: storageId, _networkId: from };
 
           this.state.peerData.set(storageId, userWithNetId);
           console.log('[Connectivity] Received HELLO from', from, storageId);
-
-          // Note: HELLO ne se contente pas de broadcaster la liste, 
-          // mais le broadcastPeerList() qui suit va envoyer la liste COMPLÈTE avec les bons IDs.
-          // Donc pour HELLO c'est géré par le case suivant.
         }
-        // Broadcaster la liste mise à jour à tout le monde (y compris le nouveau)
         this.broadcastPeerList();
         break;
 
       case 'UPDATE_USER':
       case 'UPDATE':
-        // Mettre à jour les données locales (Host)
         if (data.user && data.user.id) {
           let storageId = data.user.id;
-
-          // Gestion Collision Update (même logique que HELLO)
           if (this.state.userData && data.user.id === this.state.userData.id) {
             storageId = data.user.id + '_DUP';
           }
 
-          // On préserve le _networkId existant si on update
           const existing = this.state.peerData.get(storageId);
           const userWithNetId = { ...data.user, id: storageId, _networkId: existing?._networkId || from };
 
           this.state.peerData.set(storageId, userWithNetId);
 
-          // CRITIQUE : On doit propager l'ID modifié (suffixed) aux autres !
           const patchedData = { ...data, user: userWithNetId };
           this.broadcastExcept(from, patchedData);
         } else {
-          // Si pas de user payload (rare pour update?), on relaye tel quel
           this.broadcastExcept(from, data);
         }
         break;
 
       case 'PING':
-        // Propager le ping à tous
-        this.broadcast(data);
-        break;
-
       case 'LOG_UPDATE':
-        // Propager les logs
-        this.broadcast(data);
-        break;
-
       case 'PING_MOVE':
       case 'PING_DELETE':
       case 'PING_UPDATE':
-        // Propager les modifications de pings
         this.broadcast(data);
         break;
 
+      case 'REQUEST_IMAGE':
+        // Relay request to everyone (Broadcasting search)
+        this.broadcastExcept(from, data);
+        break;
+
       case 'CLIENT_LEAVING':
-        // Client qui quitte proprement
         this.state.connections.delete(from);
 
-        // Nettoyage intelligent basé sur le _networkId
         let userIdToRemove: string | null = null;
         this.state.peerData.forEach((u: any, uid) => {
           if (u._networkId === from) {
@@ -358,7 +428,6 @@ class ConnectivityService {
           console.log('[Connectivity] Removing user mapped to network ID:', userIdToRemove, from);
           this.state.peerData.delete(userIdToRemove);
         } else {
-          // Fallback Legacy
           if (this.state.peerData.has(from)) {
             this.state.peerData.delete(from);
           }
@@ -375,14 +444,11 @@ class ConnectivityService {
   private broadcastPeerList(): void {
     const peers: Record<string, UserData> = {};
 
-    // Ajouter l'hôte
     if (this.state.userData) {
       peers[this.state.userData.id] = this.state.userData;
     }
 
-    // Ajouter les peers connus
     this.state.peerData.forEach((data, userId) => {
-      // Protection double check: Ne pas écraser l'host DANS L'OBJET FINAL
       if (this.state.userData && userId === this.state.userData.id) return;
       peers[userId] = data;
     });
@@ -525,7 +591,6 @@ class ConnectivityService {
       level: 'error',
     });
 
-    // Tentative de reconnexion si pertinent
     if (error.type === 'network' || error.type === 'disconnected') {
       this.attemptReconnect();
     }
@@ -602,7 +667,6 @@ class ConnectivityService {
    */
   handleAppStateChange(state: 'active' | 'background'): void {
     if (state === 'active') {
-      // Vérifier la connexion
       if (this.state.peer && this.state.peer.disconnected) {
         this.attemptReconnect();
       }
@@ -645,8 +709,6 @@ class ConnectivityService {
     this.state.connections.clear();
 
     if (this.state.peer) {
-      // IMPORTANT: Enlever les listeners pour éviter que destroy() déclenche 'disconnected'
-      // Ce qui provoquerait une boucle infinie de reconnexions
       this.state.peer.removeAllListeners();
       this.state.peer.destroy();
       this.state.peer = null;
