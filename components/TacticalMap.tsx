@@ -340,14 +340,7 @@ const TacticalMap = ({
     }
   }, [pingMode, onPing]);
 
-  // Handle Ping Drag
-  const handlePingDragEnd = (payload: any, ping: PingData) => {
-    const { geometry } = payload;
-    if (geometry && geometry.coordinates) {
-      const [lng, lat] = geometry.coordinates;
-      onPingMove({ ...ping, lat, lng });
-    }
-  };
+
 
   // Suivi Caméra & Auto-Center
   useEffect(() => {
@@ -468,6 +461,25 @@ const TacticalMap = ({
     lastClickTime.current = now;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     onPingClick(id);
+  };
+
+  // Handle Ping Drag with Micro-Move Detection
+  const handlePingDragEnd = (payload: any, ping: PingData) => {
+    const { geometry } = payload;
+    if (geometry && geometry.coordinates) {
+      const [lng, lat] = geometry.coordinates;
+
+      const deltaLat = Math.abs(lat - ping.lat);
+      const deltaLng = Math.abs(lng - ping.lng);
+
+      // If movement is very small (< ~50m), consider it a sloppy click
+      if (deltaLat < 0.0005 && deltaLng < 0.0005) {
+        handlePingClickWithThrottle(ping.id);
+        return;
+      }
+
+      onPingMove({ ...ping, lat, lng });
+    }
   };
 
   return (
