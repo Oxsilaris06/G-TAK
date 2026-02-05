@@ -400,7 +400,11 @@ const App: React.FC = () => {
 
         if (data.type === 'PING') {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            setPings(prev => [...prev, data.ping]);
+            setPings(prev => {
+                // Deduplication: Si le ping existe déjà, on ne l'ajoute pas
+                if (prev.some(p => p.id === data.ping.id)) return prev;
+                return [...prev, data.ping];
+            });
             const isHostile = data.ping.type === 'HOSTILE';
 
             if (isHostile) {
