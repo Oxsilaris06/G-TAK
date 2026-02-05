@@ -100,6 +100,7 @@ export default {
           },
           ios: {
             newArchEnabled: false,
+            useFrameworks: 'static',
             deploymentTarget: '15.0'
           }
         }
