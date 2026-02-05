@@ -244,33 +244,18 @@ class ConnectivityService {
     });
 
     conn.on('close', () => {
-      console.log('[Connectivity] === CONNECTION CLOSED ===');
-      console.log('[Connectivity] Network ID:', conn.peer);
+      console.log('[Connectivity] Connection closed:', conn.peer);
       this.state.connections.delete(conn.peer);
 
-      // Nettoyer les données utilisateur associées à cette connexion
-      let userIdToRemove: string | null = null;
-      this.state.peerData.forEach((userData: any, userId) => {
-        if (userData._networkId === conn.peer) {
-          userIdToRemove = userId;
-        }
-      });
+      // NOTE: On ne supprime PAS les données utilisateur ici pour éviter
+      // une race condition lors des reconnexions. Le HELLO handler gère
+      // déjà la mise à jour du _networkId.
 
-      if (userIdToRemove) {
-        console.log('[Connectivity] Removing user data for closed connection');
-        console.log('[Connectivity]   User ID:', userIdToRemove);
-        console.log('[Connectivity]   Network ID:', conn.peer);
-        this.state.peerData.delete(userIdToRemove);
-      } else {
-        console.log('[Connectivity] No user data found for closed connection:', conn.peer);
-      }
+      console.log('[Connectivity] Keeping user data for potential reconnection');
 
-      console.log('[Connectivity] peerData after close:', Array.from(this.state.peerData.keys()));
-      console.log('[Connectivity] === END CONNECTION CLOSED ===');
-
+      // On broadcast pour mettre à jour les statuts
       this.broadcastPeerList();
     });
-
     conn.on('error', (err: any) => {
       console.error('[Connectivity] Connection error:', conn.peer, err);
     });
