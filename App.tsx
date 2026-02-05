@@ -684,21 +684,21 @@ const App: React.FC = () => {
             return (
                 <View style={headerContainerStyle}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                        <MaterialIcons name="navigation" size={24} color="#06b6d4" />
+                        <MaterialIcons name="navigation" size={24} color={nightOpsMode ? '#ef4444' : '#06b6d4'} />
                         <View>
-                            <Text style={{ color: '#06b6d4', fontWeight: 'bold', fontSize: 16 }}>RALLIEMENT</Text>
-                            <Text style={{ color: 'white', fontSize: 12 }}>{peers[navTargetId]?.callsign} - {navInfo.dist} - {navInfo.time}</Text>
+                            <Text style={{ color: nightOpsMode ? '#ef4444' : '#06b6d4', fontWeight: 'bold', fontSize: 16 }}>RALLIEMENT</Text>
+                            <Text style={{ color: nightOpsMode ? '#ef4444' : 'white', fontSize: 12 }}>{peers[navTargetId]?.callsign} - {navInfo.dist} - {navInfo.time}</Text>
                         </View>
                     </View>
                     <View style={{ flexDirection: 'row', gap: 15, alignItems: 'center' }}>
                         <TouchableOpacity onPress={() => setNavMode('pedestrian')} {...getLandscapeProps()} style={getLandscapeStyle()}>
-                            <MaterialIcons name="directions-walk" size={26} color={navMode === 'pedestrian' ? '#22c55e' : '#52525b'} />
+                            <MaterialIcons name="directions-walk" size={26} color={navMode === 'pedestrian' ? (nightOpsMode ? '#ef4444' : '#22c55e') : '#52525b'} />
                         </TouchableOpacity>
                         <TouchableOpacity onPress={() => setNavMode('vehicle')} {...getLandscapeProps()} style={getLandscapeStyle()}>
-                            <MaterialIcons name="directions-car" size={26} color={navMode === 'vehicle' ? '#22c55e' : '#52525b'} />
+                            <MaterialIcons name="directions-car" size={26} color={navMode === 'vehicle' ? (nightOpsMode ? '#ef4444' : '#22c55e') : '#52525b'} />
                         </TouchableOpacity>
                         <TouchableOpacity onPress={() => setNavTargetId(null)} style={[getLandscapeStyle(), { padding: 8, marginLeft: 10 }]} {...getLandscapeProps()}>
-                            <MaterialIcons name="close" size={28} color="white" />
+                            <MaterialIcons name="close" size={28} color={nightOpsMode ? '#ef4444' : 'white'} />
                         </TouchableOpacity>
                     </View>
                 </View>
@@ -937,14 +937,14 @@ const App: React.FC = () => {
             <Modal visible={showQuickMsgModal} animationType="fade" transparent>
                 <KeyboardAvoidingView behavior="padding" style={styles.modalOverlay}>
                     <View style={[styles.modalContent, {
-                        backgroundColor: '#18181b', borderWidth: 1, borderColor: '#333',
+                        backgroundColor: nightOpsMode ? '#000' : '#18181b', borderWidth: 1, borderColor: nightOpsMode ? '#7f1d1d' : '#333',
                         width: isLandscape ? '100%' : '90%',
                         height: '80%',
                         maxHeight: isLandscape ? '100%' : '80%',
                         borderRadius: isLandscape ? 0 : 24,
                         justifyContent: 'space-between', paddingBottom: 10
                     }]}>
-                        <Text style={[styles.modalTitle, { color: '#06b6d4', marginBottom: 5 }]}>MESSAGE RAPIDE</Text>
+                        <Text style={[styles.modalTitle, { color: nightOpsMode ? '#ef4444' : '#06b6d4', marginBottom: 5 }]}>MESSAGE RAPIDE</Text>
 
                         <View style={{ flex: 1, width: '100%', marginBottom: 10 }}>
                             <FlatList
@@ -962,15 +962,15 @@ const App: React.FC = () => {
                         </View>
 
                         <View style={{ flexDirection: 'row', marginBottom: 10, width: '100%', paddingHorizontal: 5 }}>
-                            <TextInput style={[styles.pingInput, { flex: 1, marginBottom: 0, textAlign: 'left' }]} placeholder="Message libre..." placeholderTextColor="#52525b" value={freeMsgInput} onChangeText={setFreeMsgInput} />
-                            <TouchableOpacity onPress={() => handleSendQuickMessage(freeMsgInput)} style={[styles.iconBtn, { backgroundColor: '#06b6d4', marginLeft: 10 }]}>
-                                <MaterialIcons name="send" size={24} color="white" />
+                            <TextInput style={[styles.pingInput, { flex: 1, marginBottom: 0, textAlign: 'left' }, nightOpsMode && { borderColor: '#7f1d1d', color: '#ef4444' }]} placeholder="Message libre..." placeholderTextColor={nightOpsMode ? '#7f1d1d' : '#52525b'} value={freeMsgInput} onChangeText={setFreeMsgInput} />
+                            <TouchableOpacity onPress={() => handleSendQuickMessage(freeMsgInput)} style={[styles.iconBtn, { backgroundColor: nightOpsMode ? '#7f1d1d' : '#06b6d4', marginLeft: 10 }]}>
+                                <MaterialIcons name="send" size={24} color={nightOpsMode ? 'black' : 'white'} />
                             </TouchableOpacity>
                         </View>
 
                         <View style={{ flexDirection: 'row', justifyContent: 'center' }}>
-                            <TouchableOpacity onPress={() => setShowQuickMsgModal(false)} style={[styles.iconBtn, { backgroundColor: '#27272a' }]}>
-                                <MaterialIcons name="close" size={24} color="#a1a1aa" />
+                            <TouchableOpacity onPress={() => setShowQuickMsgModal(false)} style={[styles.iconBtn, { backgroundColor: nightOpsMode ? '#000' : '#27272a', borderWidth: nightOpsMode ? 1 : 0, borderColor: '#7f1d1d' }]}>
+                                <MaterialIcons name="close" size={24} color={nightOpsMode ? '#ef4444' : '#a1a1aa'} />
                             </TouchableOpacity>
                         </View>
                     </View>
@@ -979,15 +979,15 @@ const App: React.FC = () => {
 
             <Modal visible={showPingMenu} transparent animationType="fade">
                 <View style={styles.modalOverlay}>
-                    <View style={styles.pingMenuContainer}>
+                    <View style={[styles.pingMenuContainer, nightOpsMode && { backgroundColor: '#000', borderColor: '#7f1d1d' }]}>
                         <Text style={styles.modalTitle}>TYPE DE MARQUEUR</Text>
                         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 15, justifyContent: 'center' }}>
                             <TouchableOpacity onPress={() => { setCurrentPingType('HOSTILE'); setShowPingMenu(false); setPingMsgInput(''); setHostileDetails({ position: tempPingLoc ? `${tempPingLoc.lat.toFixed(5)}, ${tempPingLoc.lng.toFixed(5)}` : '', nature: '', attitude: '', volume: '', armes: '', substances: '' }); setShowPingForm(true); }} style={[styles.pingTypeBtn, { backgroundColor: 'rgba(239, 68, 68, 0.2)', borderColor: '#ef4444' }]}><MaterialIcons name="warning" size={30} color="#ef4444" /><Text style={{ color: '#ef4444', fontWeight: 'bold', fontSize: 10, marginTop: 5 }}>ADVERSAIRE</Text></TouchableOpacity>
                             <TouchableOpacity onPress={() => { setCurrentPingType('FRIEND'); setShowPingMenu(false); setPingMsgInput(''); setShowPingForm(true); }} style={[styles.pingTypeBtn, { backgroundColor: 'rgba(34, 197, 94, 0.2)', borderColor: '#22c55e' }]}><MaterialIcons name="shield" size={30} color="#22c55e" /><Text style={{ color: '#22c55e', fontWeight: 'bold', fontSize: 10, marginTop: 5 }}>AMI</Text></TouchableOpacity>
                             <TouchableOpacity onPress={() => { setCurrentPingType('INTEL'); setShowPingMenu(false); setPingMsgInput(''); setShowPingForm(true); }} style={[styles.pingTypeBtn, { backgroundColor: 'rgba(234, 179, 8, 0.2)', borderColor: '#eab308' }]}><MaterialIcons name="visibility" size={30} color="#eab308" /><Text style={{ color: '#eab308', fontWeight: 'bold', fontSize: 10, marginTop: 5 }}>RENS</Text></TouchableOpacity>
                         </View>
-                        <TouchableOpacity onPress={() => setShowPingMenu(false)} style={[styles.iconBtn, { marginTop: 20, backgroundColor: '#27272a' }]}>
-                            <MaterialIcons name="close" size={24} color="white" />
+                        <TouchableOpacity onPress={() => setShowPingMenu(false)} style={[styles.iconBtn, { marginTop: 20, backgroundColor: nightOpsMode ? '#000' : '#27272a', borderWidth: nightOpsMode ? 1 : 0, borderColor: '#7f1d1d' }]}>
+                            <MaterialIcons name="close" size={24} color={nightOpsMode ? '#ef4444' : 'white'} />
                         </TouchableOpacity>
                     </View>
                 </View>
@@ -1065,12 +1065,12 @@ const App: React.FC = () => {
                             )}
                         </ScrollView>
 
-                        <View style={styles.modalFooter}>
-                            <TouchableOpacity onPress={() => setShowPingForm(false)} style={[styles.iconBtn, { backgroundColor: '#27272a' }]}>
-                                <MaterialIcons name="close" size={28} color="white" />
+                        <View style={[styles.modalFooter, nightOpsMode && { backgroundColor: '#000', borderTopColor: '#7f1d1d' }]}>
+                            <TouchableOpacity onPress={() => setShowPingForm(false)} style={[styles.iconBtn, { backgroundColor: nightOpsMode ? '#000' : '#27272a', borderWidth: nightOpsMode ? 1 : 0, borderColor: '#7f1d1d' }]}>
+                                <MaterialIcons name="close" size={28} color={nightOpsMode ? '#ef4444' : 'white'} />
                             </TouchableOpacity>
-                            <TouchableOpacity onPress={submitPing} style={[styles.iconBtn, { backgroundColor: '#3b82f6' }]}>
-                                <MaterialIcons name="check" size={28} color="white" />
+                            <TouchableOpacity onPress={submitPing} style={[styles.iconBtn, { backgroundColor: nightOpsMode ? '#7f1d1d' : '#3b82f6' }]}>
+                                <MaterialIcons name="check" size={28} color={nightOpsMode ? 'black' : 'white'} />
                             </TouchableOpacity>
                         </View>
                     </View>
@@ -1137,15 +1137,15 @@ const App: React.FC = () => {
                             )}
                         </ScrollView>
 
-                        <View style={styles.modalFooter}>
+                        <View style={[styles.modalFooter, nightOpsMode && { backgroundColor: '#000', borderTopColor: '#7f1d1d' }]}>
                             <TouchableOpacity onPress={deletePing} style={[styles.iconBtn, { backgroundColor: '#ef4444' }]}>
                                 <MaterialIcons name="delete" size={28} color="white" />
                             </TouchableOpacity>
-                            <TouchableOpacity onPress={() => setEditingPing(null)} style={[styles.iconBtn, { backgroundColor: '#52525b' }]}>
-                                <MaterialIcons name="close" size={28} color="white" />
+                            <TouchableOpacity onPress={() => setEditingPing(null)} style={[styles.iconBtn, { backgroundColor: nightOpsMode ? '#000' : '#52525b', borderWidth: nightOpsMode ? 1 : 0, borderColor: '#7f1d1d' }]}>
+                                <MaterialIcons name="close" size={28} color={nightOpsMode ? '#ef4444' : 'white'} />
                             </TouchableOpacity>
-                            <TouchableOpacity onPress={savePingEdit} style={[styles.iconBtn, { backgroundColor: '#22c55e' }]}>
-                                <MaterialIcons name="check" size={28} color="white" />
+                            <TouchableOpacity onPress={savePingEdit} style={[styles.iconBtn, { backgroundColor: nightOpsMode ? '#7f1d1d' : '#22c55e' }]}>
+                                <MaterialIcons name="check" size={28} color={nightOpsMode ? 'black' : 'white'} />
                             </TouchableOpacity>
                         </View>
                     </View>

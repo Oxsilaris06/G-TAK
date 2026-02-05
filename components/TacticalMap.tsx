@@ -146,9 +146,12 @@ interface TacticalCompassProps {
   mode: 'north' | 'heading';
 }
 
-const TacticalCompass = ({ heading, isLandscape, onPress, mode }: TacticalCompassProps) => {
+const TacticalCompass = ({ heading, isLandscape, onPress, mode, nightOpsMode }: TacticalCompassProps & { nightOpsMode: boolean }) => {
   // Correction: En mode Paysage, l'orientation est inversée de 180° selon le retour utilisateur
   const displayHeading = isLandscape ? heading + 180 : heading;
+
+  const borderColor = nightOpsMode ? '#7f1d1d' : 'rgba(255,255,255,0.2)';
+  const labelColor = nightOpsMode ? '#ef4444' : 'rgba(255,255,255,0.8)';
 
   return (
     <TouchableOpacity
@@ -162,13 +165,14 @@ const TacticalCompass = ({ heading, isLandscape, onPress, mode }: TacticalCompas
         {
           transform: [{
             rotate: mode === 'heading' ? `${-displayHeading}deg` : '0deg'
-          }]
+          }],
+          borderColor: borderColor
         }
       ]}>
-        <Text style={[styles.compassLabel, styles.compassN]}>N</Text>
-        <Text style={[styles.compassLabel, styles.compassE]}>E</Text>
-        <Text style={[styles.compassLabel, styles.compassS]}>S</Text>
-        <Text style={[styles.compassLabel, styles.compassW]}>O</Text>
+        <Text style={[styles.compassLabel, styles.compassN, nightOpsMode && { color: '#ef4444' }]}>N</Text>
+        <Text style={[styles.compassLabel, styles.compassE, { color: labelColor }]}>E</Text>
+        <Text style={[styles.compassLabel, styles.compassS, { color: labelColor }]}>S</Text>
+        <Text style={[styles.compassLabel, styles.compassW, { color: labelColor }]}>O</Text>
       </View>
       {mode === 'heading' && (
         <View style={{ position: 'absolute', bottom: -15, backgroundColor: 'rgba(0,0,0,0.5)', paddingHorizontal: 4, borderRadius: 4 }}>
@@ -518,6 +522,7 @@ const TacticalMap = ({
         heading={me.head || 0}
         isLandscape={isLandscape}
         mode={compassMode}
+        nightOpsMode={nightOpsMode}
         onPress={() => {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
           setCompassMode(prev => prev === 'north' ? 'heading' : 'north');
@@ -539,21 +544,21 @@ const TacticalMap = ({
 
       {!followUser && !navTargetId && (
         <TouchableOpacity
-          style={[styles.recenterButton, isLandscape && styles.recenterButtonLand]}
+          style={[styles.recenterButton, isLandscape && styles.recenterButtonLand, nightOpsMode && { borderColor: '#7f1d1d', backgroundColor: '#000' }]}
           onPress={() => { setFollowUser(true); setCompassMode('north'); }}
         >
-          <MaterialIcons name="my-location" size={24} color="#3b82f6" />
+          <MaterialIcons name="my-location" size={24} color={nightOpsMode ? "#ef4444" : "#3b82f6"} />
         </TouchableOpacity>
       )}
 
       {navTargetId && peers[navTargetId] && (
-        <View style={styles.navIndicator}>
-          <MaterialIcons name="navigation" size={20} color="#06b6d4" />
-          <Text style={styles.navText}>
+        <View style={[styles.navIndicator, nightOpsMode && { backgroundColor: '#7f1d1d' }]}>
+          <MaterialIcons name="navigation" size={20} color={nightOpsMode ? "#ef4444" : "#06b6d4"} />
+          <Text style={[styles.navText, nightOpsMode && { color: '#ef4444' }]}>
             CIBLE: {peers[navTargetId].callsign}
           </Text>
           <TouchableOpacity onPress={onNavStop} style={styles.navStopBtn}>
-            <MaterialIcons name="close" size={20} color="#ef4444" />
+            <MaterialIcons name="close" size={20} color={nightOpsMode ? "#ef4444" : "#ef4444"} />
           </TouchableOpacity>
         </View>
       )}
@@ -659,7 +664,8 @@ const styles = StyleSheet.create({
     height: 60,
     borderRadius: 30,
     borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.2)',
+    borderColor: 'rgba(255,255,255,0.2)', // Overridden safely by style prop if not using StyleSheet.flatten? Actually style matches order.
+    // Ideally we pass dynamic styles.
     backgroundColor: 'rgba(0,0,0,0.6)',
     alignItems: 'center',
     justifyContent: 'center',
