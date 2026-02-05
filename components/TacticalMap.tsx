@@ -501,10 +501,9 @@ const TacticalMap = ({
         )}
 
         {/* --- MARKERS OPÉRATEURS --- */}
-        {/* --- MARKERS OPÉRATEURS --- */}
         {!!me.lat && !!me.lng && (
           <PointAnnotation
-            key={`me-${me.id}`}
+            key={`me-${me.id}-${me.status}-${Math.round((me.head || 0) / 2)}`}
             id={`me-${me.id}`}
             coordinate={[me.lng, me.lat]}
             anchor={{ x: 0.5, y: 0.5 }}
@@ -516,7 +515,7 @@ const TacticalMap = ({
         {Object.values(peers).map((peer) =>
           !!peer.lat && !!peer.lng && (
             <PointAnnotation
-              key={`peer-${peer.id}`}
+              key={`peer-${peer.id}-${peer.status}-${Math.round((peer.head || 0) / 2)}`}
               id={`peer-${peer.id}`}
               coordinate={[peer.lng, peer.lat]}
               anchor={{ x: 0.5, y: 0.5 }}
