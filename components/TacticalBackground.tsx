@@ -3,7 +3,7 @@ import { View, StyleSheet, Animated, Dimensions, Easing } from 'react-native';
 
 const { width, height } = Dimensions.get('window');
 const GRID_SIZE = 40;
-const AGENT_COUNT = 6;
+const AGENT_COUNT = 5;
 const MOVE_DURATION = 400; 
 const TRAIL_DURATION = 3000;
 
@@ -270,9 +270,6 @@ const ActiveTrailLine = ({ start, headAnim, color }) => {
   });
 
   // Calcul de translation corrigé : (scale - 1) * width / 2
-  // Si scale = 1 (droite) -> (1-1)*20 = 0.
-  // Si scale = 0 (début) -> (0-1)*20 = -20 (Centre décalé à gauche pour que le bord droit soit au début).
-  // Si scale = -1 (gauche) -> (-1-1)*20 = -40 (Centre décalé de 40px à gauche).
   const translateX = scaleX.interpolate({ 
     inputRange: [-1, 0, 1], 
     outputRange: [-GRID_SIZE, -GRID_SIZE/2, 0],
@@ -337,7 +334,12 @@ const FadeOutTrailLine = ({ x, y, isVertical, color }) => {
 };
 
 const styles = StyleSheet.create({
-  container: { ...StyleSheet.absoluteFillObject, backgroundColor: '#050505', zIndex: -1 },
+  container: { 
+    ...StyleSheet.absoluteFillObject, 
+    backgroundColor: '#050505', 
+    zIndex: -1, 
+    opacity: 0.6 // Opacité globale ajoutée
+  },
   gridContainer: { ...StyleSheet.absoluteFillObject, opacity: 0.1 },
   line: { position: 'absolute', backgroundColor: '#3b82f6' },
   vertical: { width: 1, height: '100%' },
