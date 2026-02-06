@@ -939,8 +939,18 @@ class ConnectivityService {
 
         // L'hôte vérifie aussi les timeouts (ceux qui n'ont pas répondu PONG)
         this.checkClientHeartbeats();
+      } else {
+        // CLIENT LOOP: Vérifier si l'Hôte est toujours vivant
+        const timeSinceLastHostPing = Date.now() - this.state.lastHostHeartbeat;
+        // On utilise getHeartbeatInterval() * 3 (soit 30s ou 60s en background)
+        // C'est une sécurité. Si l'hôte n'a pas PING depuis tout ce temps, il est mort.
+        const TIMEOUT = this.getHeartbeatInterval() * 4;
+
+        if (timeSinceLastHostPing > TIMEOUT) {
+          console.warn(`[Connectivity] Host heartbeat timeout (${timeSinceLastHostPing}ms > ${TIMEOUT}ms). Triggering disconnection handler.`);
+          this.handleHostDisconnection();
+        }
       }
-      // Les clients ne font RIEN pro-activement, ils répondent juste au PING (voir handleData)
     }, interval);
   }
 
@@ -1063,6 +1073,37 @@ class ConnectivityService {
     }
 
     console.log('[Connectivity] Host disconnected - starting election process');
+
+    // SECURITY: ZOMBIE CHECK (ISOLATED CLIENT)
+    // Si je suis tout seul (connecté uniquement à l'hôte qui vient de mourir),
+    // je ne dois PAS devenir hôte, car je suis probablement partitionné.
+    // peerData contient (Moi + Host + Autres). 
+    // Si je ne vois que Moi et Host (ou juste Moi), je suis seul.
+
+    // Note: connections contient les DataConnection.
+    // En tant que Client, on est connecté à l'Hôte... et c'est tout ?
+    // NON! En Mesh, on est connecté aux autres ? 
+    // ATTENTION: Dans ce code, on dirait une architecture Étoile (Client <-> Host).
+    // Si architecture Étoile : Si Host meurt, les clients ne se voient plus !
+    // Donc l'élection est impossible en pure étoile sans reconnexion Mesh.
+    // MAIS : Le code electNewHost trie 'this.state.peerData'.
+    // Si peerData n'est pas vide, c'est que j'ai reçu la liste des autres via 'PEERS_UPDATED'.
+    // Donc je CONNAIS les autres, même si je n'ai pas de connexion directe ouverte (si l'architecture est Star).
+    // Sauf si 'connections' sont required pour l'élection.
+
+    // ZOMBIE CHECK REVISITED:
+    // Si ça fait très longtemps que je n'ai pas eu de 'PEERS_UPDATED' ou de 'PING' d'un autre...
+    // Simplification : Si je suis le seul dans ma liste peerData (filtrée sans l'hôte), je suis seul.
+    const potentialPeers = Array.from(this.state.peerData.keys())
+      .filter(id => id !== this.state.hostId && id !== this.state.userData?.id);
+
+    if (potentialPeers.length === 0) {
+      console.warn('[Connectivity] I am isolated (no other peers known). Reconnecting instead of electing.');
+      this.state.electionTimeout = setTimeout(() => {
+        this.attemptReconnect();
+      }, 1000);
+      return;
+    }
 
     // Annuler tout timeout d'élection en cours
     if (this.state.electionTimeout) {
