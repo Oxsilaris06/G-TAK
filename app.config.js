@@ -3,97 +3,92 @@ const fs = require('fs');
 const path = require('path');
 
 /**
- * Plugin pour ajouter un post_install hook au Podfile
- * Cela force les modular headers sur MapLibre et configure correctement les pods
+ * Plugin pour forcer MapLibre Native SDK en version 6.x et configurer le compilateur iOS
+ * Indispensable pour la compatibilité iOS 17+ et Xcode 15/16
  */
-const withMapLibreFix = (config) => {
+const withMapLibrePodfileFix = (config) => {
   return withPodfile(config, (config) => {
     const podfile = config.modResults.contents;
 
-    // Hook post_install pour configurer MapLibre
-    const postInstallHook = `
-  post_install do |installer|
+    // 1. On injecte la dépendance spécifique MapLibre 6.17.1
+    // On doit l'insérer avant 'use_expo_modules!' pour qu'elle prenne la précédence
+    let newPodfile = podfile;
+    if (!newPodfile.includes("pod 'MapLibre'")) {
+      newPodfile = newPodfile.replace(
+        /use_expo_modules!/,
+        `
+  # Fix MapLibre Version for iOS 17+ compatibility
+  pod 'MapLibre', '6.17.1'
+  
+  use_expo_modules!`
+      );
+    }
+
+    // 2. Bloc post_install pour nettoyer les warnings et forcer la compatibilité
+    const postInstallBlock = `
     installer.pods_project.targets.each do |target|
       target.build_configurations.each do |config|
         config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.4'
         
-        # Force modular headers pour MapLibre
-        if target.name == 'MapLibre'
-          config.build_settings['DEFINES_MODULE'] = 'YES'
-          config.build_settings['CLANG_ENABLE_MODULES'] = 'YES'
-        end
+        # Désactiver les warnings bloquants (Critical for CI)
+        config.build_settings['GCC_WARN_INHIBIT_ALL_WARNINGS'] = "YES"
+        config.build_settings['SWIFT_SUPPRESS_WARNINGS'] = "YES"
+        
+        # Autoriser les inclusions non-modulaires (Fix pour MapLibre static framework)
+        config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
+        
+        # Fix pour Xcode 15+ Linker
+        config.build_settings['OTHER_LDFLAGS'] ||= ['$(inherited)']
+        config.build_settings['OTHER_LDFLAGS'] << '-ld64'
       end
     end
-    
-    # Configuration spécifique pour MapLibre avec use_frameworks! static
-    installer.pod_targets.each do |pod|
-      if pod.name == 'MapLibre'
-        def pod.build_type
-          Pod::BuildType.static_framework
-        end
-      end
-    end
-  end`;
+    `;
 
-    // Vérifier si un post_install existe déjà
-    if (!podfile.includes('post_install do |installer|')) {
-      // Ajouter le hook avant le 'end' final du Podfile
-      const lines = podfile.split('\n');
-      const lastEndIndex = lines.lastIndexOf('end');
-      if (lastEndIndex !== -1) {
-        lines.splice(lastEndIndex, 0, postInstallHook);
-        config.modResults.contents = lines.join('\n');
-      }
+    // Insertion intelligente du post_install
+    if (newPodfile.includes('post_install do |installer|')) {
+      // Si un bloc existe déjà (souvent créé par expo-build-properties), on insère notre code dedans
+      newPodfile = newPodfile.replace(
+        'post_install do |installer|',
+        `post_install do |installer|\n${postInstallBlock}`
+      );
     } else {
-      // Si post_install existe, on l'améliore
-      console.log('⚠️ post_install hook already exists, manual merge may be needed');
+      newPodfile += `\npost_install do |installer|\n${postInstallBlock}\nend\n`;
     }
 
+    config.modResults.contents = newPodfile;
     return config;
   });
 };
 
 /**
- * Plugin pour patcher expo-device automatiquement lors du prebuild
- * Fix pour l'erreur "cannot find 'TARGET_OS_SIMULATOR' in scope" avec Xcode 15+
+ * Plugin pour patcher expo-device (UIDevice.swift)
+ * Corrige l'erreur "TARGET_OS_SIMULATOR" sur Xcode 15+ pour les builds physiques
  */
-const withExpoDevicePatch = (config) => {
+const withExpoDeviceXcode15Fix = (config) => {
   return withDangerousMod(config, [
     'ios',
     async (config) => {
-      const projectRoot = config.modRequest.projectRoot;
-      const deviceSwiftPath = path.join(
-        projectRoot,
-        'node_modules',
-        'expo-device',
-        'ios',
-        'UIDevice.swift'
-      );
-
-      if (fs.existsSync(deviceSwiftPath)) {
-        let content = fs.readFileSync(deviceSwiftPath, 'utf8');
-
-        // Patch pour Xcode 15+ : remplacer TARGET_OS_SIMULATOR par false
-        if (content.includes('TARGET_OS_SIMULATOR')) {
-          content = content.replace(
-            /return TARGET_OS_SIMULATOR != 0/g,
-            'return false'
-          );
-          fs.writeFileSync(deviceSwiftPath, content, 'utf8');
-          console.log('✅ expo-device patched for Xcode 15+ compatibility');
+      const file = path.join(config.modRequest.projectRoot, 'node_modules/expo-device/ios/UIDevice.swift');
+      if (fs.existsSync(file)) {
+        let content = fs.readFileSync(file, 'utf8');
+        // Remplacement safe : si on compile pour device, TARGET_OS_SIMULATOR n'est pas nécessaire
+        // On force le retour à false pour éviter l'erreur de scope
+        if (content.includes('return TARGET_OS_SIMULATOR != 0')) {
+          content = content.replace('return TARGET_OS_SIMULATOR != 0', 'return false');
+          fs.writeFileSync(file, content);
+          console.log('✅ Patched expo-device UIDevice.swift for Xcode 15');
         }
       }
-
       return config;
     },
   ]);
 };
 
-// ID PROJET VALIDE
+// --- CONFIGURATION PRINCIPALE ---
 const PROJECT_ID = "f55fd8e2-57c6-4432-a64c-fae41bb16a3e";
 const VERSION = "4.1.0";
 
-export default withExpoDevicePatch(withMapLibreFix({
+const config = {
   expo: {
     name: "Praxis",
     slug: "praxis",
@@ -101,31 +96,18 @@ export default withExpoDevicePatch(withMapLibreFix({
     orientation: "default",
     icon: "./assets/icon.png",
     userInterfaceStyle: "dark",
-
     runtimeVersion: VERSION,
-
-    // Inclusion des assets
-    assetBundlePatterns: [
-      "**/*"
-    ],
-
+    assetBundlePatterns: ["**/*"],
     updates: {
       url: `https://u.expo.dev/${PROJECT_ID}`,
-      requestHeaders: {
-        "expo-channel-name": "production"
-      },
+      requestHeaders: { "expo-channel-name": "production" },
       enabled: true,
       checkAutomatically: "ON_LOAD",
       fallbackToCacheTimeout: 30000
     },
-
     extra: {
-      eas: {
-        projectId: PROJECT_ID
-      }
+      eas: { projectId: PROJECT_ID }
     },
-
-    // Configuration iOS
     ios: {
       bundleIdentifier: "com.praxis.app",
       supportsTablet: true,
@@ -138,43 +120,24 @@ export default withExpoDevicePatch(withMapLibreFix({
         NSPhotoLibraryUsageDescription: "Nécessaire pour ajouter des photos aux pings.",
       }
     },
-
     splash: {
       image: "./assets/icon2.png",
       resizeMode: "contain",
       backgroundColor: "#000000"
     },
-
     android: {
       package: "com.praxis.app",
       adaptiveIcon: {
         foregroundImage: "./assets/adaptive-icon.png",
         backgroundColor: "#000000"
       },
-      metaData: {
-        "expo.modules.updates.EXPO_UPDATES_CHECK_ON_LAUNCH": "ALWAYS",
-        "expo.modules.updates.EXPO_UPDATES_LAUNCH_WAIT_MS": "30000",
-        "expo.modules.updates.EXPO_UPDATES_URL": `https://u.expo.dev/${PROJECT_ID}`,
-        "expo.modules.updates.EXPO_UPDATES_CHANNEL_NAME": "production",
-        "expo.modules.updates.EXPO_RUNTIME_VERSION": VERSION
-      },
       permissions: [
-        "ACCESS_FINE_LOCATION",
-        "ACCESS_COARSE_LOCATION",
-        "ACCESS_BACKGROUND_LOCATION",
-        "FOREGROUND_SERVICE",
-        "FOREGROUND_SERVICE_LOCATION",
-        "INTERNET",
-        "WAKE_LOCK",
-        "CAMERA",
-        "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE",
-        "VIBRATE",
-        "RECEIVE_BOOT_COMPLETED",
-        "POST_NOTIFICATIONS"
+        "ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION", "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE", "FOREGROUND_SERVICE_LOCATION", "INTERNET", "WAKE_LOCK",
+        "CAMERA", "READ_EXTERNAL_STORAGE", "WRITE_EXTERNAL_STORAGE", "VIBRATE",
+        "RECEIVE_BOOT_COMPLETED", "POST_NOTIFICATIONS"
       ]
     },
-
     plugins: [
       [
         "expo-build-properties",
@@ -184,13 +147,11 @@ export default withExpoDevicePatch(withMapLibreFix({
             compileSdkVersion: 34,
             targetSdkVersion: 34,
             buildToolsVersion: "34.0.0",
-            newArchEnabled: false,
-            gradleProperties: [
-              { key: 'org.gradle.jvmargs', value: '-Xmx6144m -XX:MaxMetaspaceSize=512m' }
-            ]
           },
           ios: {
             newArchEnabled: false,
+            // CRITIQUE : useFrameworks: 'static' active automatiquement les Modules
+            // Ne PAS faire de patch manuel sur les imports MapLibre quand ceci est activé
             useFrameworks: 'static',
             deploymentTarget: '13.4'
           }
@@ -198,37 +159,23 @@ export default withExpoDevicePatch(withMapLibreFix({
       ],
       [
         "expo-camera",
-        {
-          "cameraPermission": "Nécessaire pour scanner les QR Codes de session.",
-          "microphonePermission": false,
-          "recordAudioAndroid": false
-        }
+        { "cameraPermission": "Nécessaire pour scanner les QR Codes de session." }
       ],
-      [
-        "@config-plugins/react-native-webrtc",
-        {
-          cameraPermission: false,
-          microphonePermission: false
-        }
-      ],
+      ["@config-plugins/react-native-webrtc", { cameraPermission: false, microphonePermission: false }],
       [
         "expo-location",
         {
           "locationAlwaysAndWhenInUsePermission": "Cette application a besoin de votre position même en arrière-plan pour le suivi tactique continu.",
-          "locationWhenInUsePermission": "Cette application a besoin de votre position pour le suivi tactique.",
           "isIosBackgroundLocationEnabled": true,
           "isAndroidBackgroundLocationEnabled": true
         }
       ],
-      [
-        "expo-notifications",
-        {
-          "icon": "./assets/adaptive-icon.png",
-          "color": "#000000",
-
-        }
-      ],
+      "expo-notifications",
       "expo-task-manager"
     ]
   }
-}));
+};
+
+// Application des plugins custom
+// L'ordre est important : Device Fix d'abord, puis configuration du Podfile
+module.exports = withMapLibrePodfileFix(withExpoDeviceXcode15Fix(config));
