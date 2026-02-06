@@ -3,50 +3,52 @@ const fs = require('fs');
 const path = require('path');
 
 /**
- * Plugin pour forcer MapLibre Native SDK en version 6.x et configurer le compilateur iOS
- * Indispensable pour la compatibilité iOS 17+ et Xcode 15/16
+ * Plugin pour forcer MapLibre Native SDK en version 6.x avec Support Module
+ * Corrige l'erreur "module 'MapLibre' not found" en activant modular_headers
  */
 const withMapLibrePodfileFix = (config) => {
   return withPodfile(config, (config) => {
     const podfile = config.modResults.contents;
 
-    // 1. On injecte la dépendance spécifique MapLibre 6.17.1
-    // On doit l'insérer avant 'use_expo_modules!' pour qu'elle prenne la précédence
+    // 1. INJECTION DE LA DÉPENDANCE AVEC MODULAR HEADERS
+    // L'option :modular_headers => true est CRITIQUE pour que '@import MapLibre' fonctionne
     let newPodfile = podfile;
     if (!newPodfile.includes("pod 'MapLibre'")) {
       newPodfile = newPodfile.replace(
         /use_expo_modules!/,
         `
-  # Fix MapLibre Version for iOS 17+ compatibility
-  pod 'MapLibre', '6.17.1'
+  # Fix MapLibre pour iOS : Force la version et active les headers modulaires
+  pod 'MapLibre', '6.17.1', :modular_headers => true
   
   use_expo_modules!`
       );
     }
 
-    // 2. Bloc post_install pour nettoyer les warnings et forcer la compatibilité
+    // 2. CONFIGURATION POST_INSTALL ROBUSTE
     const postInstallBlock = `
     installer.pods_project.targets.each do |target|
       target.build_configurations.each do |config|
+        # 1. Uniformisation de la version iOS minimale (Fix warnings)
         config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.4'
         
-        # Désactiver les warnings bloquants (Critical for CI)
+        # 2. Désactivation des warnings bloquants
         config.build_settings['GCC_WARN_INHIBIT_ALL_WARNINGS'] = "YES"
         config.build_settings['SWIFT_SUPPRESS_WARNINGS'] = "YES"
         
-        # Autoriser les inclusions non-modulaires (Fix pour MapLibre static framework)
+        # 3. Autoriser les inclusions non-modulaires (Indispensable pour MapLibre static)
         config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
         
-        # Fix pour Xcode 15+ Linker
-        config.build_settings['OTHER_LDFLAGS'] ||= ['$(inherited)']
-        config.build_settings['OTHER_LDFLAGS'] << '-ld64'
+        # 4. Configuration spécifique pour la cible MapLibre elle-même
+        if target.name == 'MapLibre'
+          config.build_settings['DEFINES_MODULE'] = 'YES'
+          config.build_settings['CLANG_ENABLE_MODULES'] = 'YES'
+        end
       end
     end
     `;
 
-    // Insertion intelligente du post_install
+    // Insertion du post_install
     if (newPodfile.includes('post_install do |installer|')) {
-      // Si un bloc existe déjà (souvent créé par expo-build-properties), on insère notre code dedans
       newPodfile = newPodfile.replace(
         'post_install do |installer|',
         `post_install do |installer|\n${postInstallBlock}`
@@ -62,7 +64,7 @@ const withMapLibrePodfileFix = (config) => {
 
 /**
  * Plugin pour patcher expo-device (UIDevice.swift)
- * Corrige l'erreur "TARGET_OS_SIMULATOR" sur Xcode 15+ pour les builds physiques
+ * Corrige l'erreur "TARGET_OS_SIMULATOR" sur Xcode 15+
  */
 const withExpoDeviceXcode15Fix = (config) => {
   return withDangerousMod(config, [
@@ -71,8 +73,6 @@ const withExpoDeviceXcode15Fix = (config) => {
       const file = path.join(config.modRequest.projectRoot, 'node_modules/expo-device/ios/UIDevice.swift');
       if (fs.existsSync(file)) {
         let content = fs.readFileSync(file, 'utf8');
-        // Remplacement safe : si on compile pour device, TARGET_OS_SIMULATOR n'est pas nécessaire
-        // On force le retour à false pour éviter l'erreur de scope
         if (content.includes('return TARGET_OS_SIMULATOR != 0')) {
           content = content.replace('return TARGET_OS_SIMULATOR != 0', 'return false');
           fs.writeFileSync(file, content);
@@ -150,8 +150,7 @@ const config = {
           },
           ios: {
             newArchEnabled: false,
-            // CRITIQUE : useFrameworks: 'static' active automatiquement les Modules
-            // Ne PAS faire de patch manuel sur les imports MapLibre quand ceci est activé
+            // 'static' est requis pour MapLibre v10, mais cause l'erreur de module si mal configuré
             useFrameworks: 'static',
             deploymentTarget: '13.4'
           }
@@ -176,6 +175,4 @@ const config = {
   }
 };
 
-// Application des plugins custom
-// L'ordre est important : Device Fix d'abord, puis configuration du Podfile
 module.exports = withMapLibrePodfileFix(withExpoDeviceXcode15Fix(config));
