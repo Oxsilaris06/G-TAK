@@ -1,53 +1,100 @@
 const { withPodfile, withDangerousMod } = require('@expo/config-plugins');
 const fs = require('fs');
 const path = require('path');
+const glob = require('glob'); // Assurez-vous que glob est dispo ou on utilise une fonction custom
 
 /**
- * Plugin pour forcer MapLibre Native SDK en version 6.x avec Support Module
- * Corrige l'erreur "module 'MapLibre' not found" en activant modular_headers
+ * PLUGIN CRITIQUE : Patch le code source de @maplibre/maplibre-react-native
+ * Remplace l'import de module (@import) par un import de header (#import)
+ * Indispensable pour le mode 'useFrameworks: static'
+ */
+const withMapLibreImportPatch = (config) => {
+  return withDangerousMod(config, [
+    'ios',
+    async (config) => {
+      console.log('🚑 Patching MapLibre source files for static framework compatibility...');
+      const libPath = path.join(config.modRequest.projectRoot, 'node_modules/@maplibre/maplibre-react-native/ios');
+      
+      // Fonction récursive simple pour trouver les fichiers .h et .m
+      const getAllFiles = (dirPath, arrayOfFiles) => {
+        files = fs.readdirSync(dirPath);
+        arrayOfFiles = arrayOfFiles || [];
+        files.forEach((file) => {
+          if (fs.statSync(dirPath + "/" + file).isDirectory()) {
+            arrayOfFiles = getAllFiles(dirPath + "/" + file, arrayOfFiles);
+          } else {
+            if (file.endsWith('.h') || file.endsWith('.m') || file.endsWith('.mm')) {
+              arrayOfFiles.push(path.join(dirPath, "/", file));
+            }
+          }
+        });
+        return arrayOfFiles;
+      };
+
+      try {
+        const files = getAllFiles(libPath);
+        let patchedCount = 0;
+        
+        files.forEach(file => {
+          let content = fs.readFileSync(file, 'utf8');
+          if (content.includes('@import MapLibre;')) {
+            // Le remplacement magique
+            content = content.replace(/@import MapLibre;/g, '#import <MapLibre/MapLibre.h>');
+            fs.writeFileSync(file, content, 'utf8');
+            patchedCount++;
+          }
+        });
+        console.log(`✅ Patch appliqué sur ${patchedCount} fichiers MapLibre.`);
+      } catch (e) {
+        console.error("⚠️ Erreur lors du patch MapLibre:", e);
+        // On ne bloque pas le build ici, mais ça risque de planter plus tard
+      }
+
+      return config;
+    },
+  ]);
+};
+
+/**
+ * Plugin pour forcer MapLibre Native SDK en version 6.x dans le Podfile
  */
 const withMapLibrePodfileFix = (config) => {
   return withPodfile(config, (config) => {
     const podfile = config.modResults.contents;
 
-    // 1. INJECTION DE LA DÉPENDANCE AVEC MODULAR HEADERS
-    // L'option :modular_headers => true est CRITIQUE pour que '@import MapLibre' fonctionne
+    // 1. Injection de la dépendance MapLibre 6.17.1
+    // On garde :modular_headers => true car ça aide certains linkers, même si on a patché le code
     let newPodfile = podfile;
     if (!newPodfile.includes("pod 'MapLibre'")) {
       newPodfile = newPodfile.replace(
         /use_expo_modules!/,
         `
-  # Fix MapLibre pour iOS : Force la version et active les headers modulaires
+  # Fix MapLibre Version for iOS
   pod 'MapLibre', '6.17.1', :modular_headers => true
   
   use_expo_modules!`
       );
     }
 
-    // 2. CONFIGURATION POST_INSTALL ROBUSTE
+    // 2. Bloc post_install pour nettoyer les warnings et forcer la compatibilité
     const postInstallBlock = `
     installer.pods_project.targets.each do |target|
       target.build_configurations.each do |config|
-        # 1. Uniformisation de la version iOS minimale (Fix warnings)
         config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.4'
-        
-        # 2. Désactivation des warnings bloquants
         config.build_settings['GCC_WARN_INHIBIT_ALL_WARNINGS'] = "YES"
         config.build_settings['SWIFT_SUPPRESS_WARNINGS'] = "YES"
         
-        # 3. Autoriser les inclusions non-modulaires (Indispensable pour MapLibre static)
+        # CRITIQUE : Autorise l'import de headers non-modulaires dans les frameworks
         config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
         
-        # 4. Configuration spécifique pour la cible MapLibre elle-même
+        # Fix pour MapLibre static linkage
         if target.name == 'MapLibre'
           config.build_settings['DEFINES_MODULE'] = 'YES'
-          config.build_settings['CLANG_ENABLE_MODULES'] = 'YES'
         end
       end
     end
     `;
 
-    // Insertion du post_install
     if (newPodfile.includes('post_install do |installer|')) {
       newPodfile = newPodfile.replace(
         'post_install do |installer|',
@@ -63,8 +110,7 @@ const withMapLibrePodfileFix = (config) => {
 };
 
 /**
- * Plugin pour patcher expo-device (UIDevice.swift)
- * Corrige l'erreur "TARGET_OS_SIMULATOR" sur Xcode 15+
+ * Plugin pour patcher expo-device (Xcode 15 fix)
  */
 const withExpoDeviceXcode15Fix = (config) => {
   return withDangerousMod(config, [
@@ -150,7 +196,6 @@ const config = {
           },
           ios: {
             newArchEnabled: false,
-            // 'static' est requis pour MapLibre v10, mais cause l'erreur de module si mal configuré
             useFrameworks: 'static',
             deploymentTarget: '13.4'
           }
@@ -175,4 +220,4 @@ const config = {
   }
 };
 
-module.exports = withMapLibrePodfileFix(withExpoDeviceXcode15Fix(config));
+module.exports = withMapLibrePodfileFix(withExpoDeviceXcode15Fix(withMapLibreImportPatch(config)));
