@@ -776,11 +776,13 @@ const styles = StyleSheet.create({
   },
   batteryWarning: {
     position: 'absolute',
-    bottom: 24,
-    right: 24,
+    top: 15,
+    right: 15,
     backgroundColor: 'rgba(0,0,0,0.8)',
     borderRadius: 6,
-    padding: 1,
+    padding: 2,
+    borderWidth: 1,
+    borderColor: '#ef4444'
   },
   heartbeat: {
     borderColor: '#ef4444',
