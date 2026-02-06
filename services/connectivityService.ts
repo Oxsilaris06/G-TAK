@@ -551,6 +551,10 @@ class ConnectivityService {
           }
 
           console.log('[Connectivity] peerData after HELLO:', Array.from(this.state.peerData.keys()));
+
+          // RESET HEARTBEAT STATS: Welcome back!
+          this.state.peerHeartbeatStats.set(storageId, { missedPongs: 0, isBackground: false });
+
           console.log('[Connectivity] === END HELLO ===');
         }
         this.broadcastPeerList();
