@@ -634,6 +634,12 @@ const App: React.FC = () => {
         try {
             // L'init ici configure le rôle Hôte
             await connectivityService.init({ ...user, role, paxColor: settings.userArrowColor, joinedAt: now }, role);
+
+            // FIX: Force hostId update immediately because if peer is reused, PEER_OPEN event won't fire again
+            if (user.id && user.id !== 'loading...') {
+                setHostId(user.id);
+            }
+
             setView('map');
             setLastOpsView('map');
         } catch (error) {
