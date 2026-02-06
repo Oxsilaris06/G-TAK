@@ -1570,7 +1570,7 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(9, 9, 11, 0.95)',
         borderBottomWidth: 1,
         borderBottomColor: THEME.borderGlass,
-        paddingTop: Platform.OS === 'android' ? 40 : 15,
+        paddingTop: Platform.OS === 'android' ? 55 : 30,
         paddingBottom: 15,
         paddingHorizontal: 20,
         flexDirection: 'row',
@@ -1582,7 +1582,7 @@ const styles = StyleSheet.create({
     headerTitle: {
         color: THEME.accentBlue,
         fontSize: 20,
-        fontWeight: '900',
+        fontFamily: 'Saira Stencil One',
         letterSpacing: 2,
         textShadowColor: THEME.accentGlow,
         textShadowOffset: { width: 0, height: 0 },
