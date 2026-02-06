@@ -21,7 +21,8 @@ export type ConnectivityEvent =
   | { type: 'RECONNECTING'; attempt: number }
   | { type: 'NEW_HOST_PROMOTED'; hostId: string }
   | { type: 'SESSION_CLOSED' }
-  | { type: 'IMAGE_READY'; imageId: string; uri: string };
+  | { type: 'IMAGE_READY'; imageId: string; uri: string }
+  | { type: 'JOIN_REQUEST'; peerId: string; callsign: string };
 
 interface ConnectionState {
   peer: Peer | null;
@@ -35,6 +36,9 @@ interface ConnectionState {
   tempChunks: Map<string, { total: number; chk: string[] }>;
   lastHostHeartbeat: number; // Timestamp du dernier heartbeat de l'hôte
   electionTimeout: NodeJS.Timeout | null; // Timeout pour l'élection du nouvel hôte
+  bannedPeers: Set<string>; // ID des utilisateurs bannis
+  pendingJoins: Map<string, any>; // Connexions en attente d'approbation (ban)
+  peerHeartbeatStats: Map<string, { missedPongs: number; isBackground: boolean }>; // Heartbeat stats
 }
 
 class ConnectivityEventEmitter extends EventEmitter {
@@ -59,11 +63,17 @@ class ConnectivityService {
     tempChunks: new Map(),
     lastHostHeartbeat: Date.now(),
     electionTimeout: null,
+    bannedPeers: new Set(),
+    pendingJoins: new Map(),
+    // Track stats for heartbeat/timeout
+    peerHeartbeatStats: new Map(),
   };
+
+  private lastHeartbeatRun: number = 0; // Pour détecter l'auto-lag de l'hôte
 
   private reconnectTimeout: NodeJS.Timeout | null = null;
   private heartbeatInterval: NodeJS.Timeout | null = null;
-  private readonly HEARTBEAT_TIMEOUT = 60000; // Augmenté à 60s pour éviter les déconnexions intempestives
+  // HEARTBEAT_TIMEOUT Removed (replaced by dynamic interval * threshold)
   private readonly ELECTION_DELAY = 5000; // Délai augmenté à 5s pour stabilisation
   private readonly MAX_RECONNECT_ATTEMPTS = 5;
   private isInBackground: boolean = false; // État de l'application
@@ -459,6 +469,27 @@ class ConnectivityService {
             storageId = data.user.id + '_DUP';
           }
 
+          // --- BAN CHECK ---
+          if (this.state.bannedPeers.has(storageId)) {
+            console.warn('[Connectivity] Banned user attempted to join:', data.user.callsign, storageId);
+
+            // Stocker la demande en attente
+            this.state.pendingJoins.set(storageId, {
+              networkId: from,
+              userData: { ...data.user, id: storageId, _networkId: from },
+              rawHello: data
+            });
+
+            // Notifier l'Hôte pour décision
+            this.emit({
+              type: 'JOIN_REQUEST',
+              peerId: storageId,
+              callsign: data.user.callsign || 'Inconnu'
+            });
+            return; // STOP l'exécution ici, ne pas ajouter aux peerData
+          }
+          // -----------------
+
           // DEBUG: Afficher l'état actuel de peerData
           console.log('[Connectivity] === HELLO RECEIVED ===');
           console.log('[Connectivity] From network ID:', from);
@@ -629,7 +660,59 @@ class ConnectivityService {
         // Usually HEARTBEAT doesn't carry ID, we trust 'from'.
         // If we found the user, great. If not, they might be ghosting.
         break;
+
+      case 'HEARTBEAT_PONG':
+        // Update timestamp for the user associated with this network ID
+        // console.log('[Connectivity] Received PONG from', from);
+        this.state.peerData.forEach((u: any, uid) => {
+          if (u._networkId === from || uid === from) {
+            u.connectionTimestamp = Date.now();
+          }
+        });
+        break;
     }
+  }
+
+  /**
+   * Approuve la connexion d'un utilisateur banni (Déban + Connexion)
+   */
+  approveJoin(peerId: string): void {
+    const pending = this.state.pendingJoins.get(peerId);
+    if (pending) {
+      console.log('[Connectivity] Approving join for:', peerId);
+      this.state.bannedPeers.delete(peerId); // Unban
+
+      // Traiter le message HELLO stocké comme si de rien n'était
+      // On réinjecte le HELLO dans le pipeline
+      this.handleHostData(pending.rawHello, pending.networkId);
+
+      this.state.pendingJoins.delete(peerId);
+    }
+  }
+
+  /**
+   * Refuse la connexion d'un utilisateur banni
+   */
+  denyJoin(peerId: string): void {
+    const pending = this.state.pendingJoins.get(peerId);
+    if (pending) {
+      console.log('[Connectivity] Denying join for:', peerId);
+      this.sendTo(pending.networkId, { type: 'DISCONNECTED', reason: 'KICKED' });
+      // Fermer la connexion
+      const conn = this.state.connections.get(pending.networkId);
+      if (conn) conn.close();
+
+      this.state.pendingJoins.delete(peerId);
+    }
+  }
+
+  /**
+   * Bannir un utilisateur
+   */
+  banUser(peerId: string): void {
+    console.log('[Connectivity] Banning user:', peerId);
+    this.state.bannedPeers.add(peerId);
+    this.kickUser(peerId); // Kick immédiat
   }
 
   /**
@@ -849,16 +932,15 @@ class ConnectivityService {
     console.log(`[Connectivity] Starting heartbeat with ${interval}ms interval (${this.isInBackground ? 'background' : 'foreground'})`);
 
     this.heartbeatInterval = setInterval(() => {
-      if (this.state.role === OperatorRole.OPR && this.state.hostId) {
-        // Les clients envoient un heartbeat à l'hôte
-        this.sendTo(this.state.hostId, {
-          type: 'HEARTBEAT',
-          timestamp: Date.now()
-        });
-      } else if (this.state.role === OperatorRole.HOST) {
-        // L'hôte vérifie les timeouts des clients
+      if (this.state.role === OperatorRole.HOST) {
+        // L'hôte envoie un PING à TOUS les clients connectés
+        // console.log('[Connectivity] Host sending PING to all clients');
+        this.broadcast({ type: 'HEARTBEAT_PING', timestamp: Date.now() });
+
+        // L'hôte vérifie aussi les timeouts (ceux qui n'ont pas répondu PONG)
         this.checkClientHeartbeats();
       }
+      // Les clients ne font RIEN pro-activement, ils répondent juste au PING (voir handleData)
     }, interval);
   }
 
@@ -875,31 +957,20 @@ class ConnectivityService {
   /**
    * Vérifie les heartbeats des clients (côté hôte)
    */
-  private checkClientHeartbeats(): void {
-    const now = Date.now();
-    const timeout = this.HEARTBEAT_TIMEOUT;
 
-    this.state.peerData.forEach((user, userId) => {
-      const lastHeartbeat = user.connectionTimestamp || 0;
-      if (now - lastHeartbeat > timeout) {
-        console.log(`[Connectivity] Client ${user.callsign} heartbeat timeout - removing`);
-        this.state.peerData.delete(userId);
-        this.state.connections.delete(userId);
-        this.broadcastPeerList();
-      }
-    });
-  }
 
   /**
    * Gère le changement d'état de l'app
    */
   handleAppStateChange(state: 'active' | 'background'): void {
+    this.sendAppState(state); // Forward to sendAppState which now handles logic + network
+
     const wasInBackground = this.isInBackground;
-    this.isInBackground = state === 'background';
+    // this.isInBackground is updated in sendAppState, but we check here for local side effects
 
     console.log(`[Connectivity] App state changed to: ${state}`);
 
-    if (wasInBackground !== this.isInBackground) {
+    if (wasInBackground !== (state === 'background')) {
       // Redémarrer le heartbeat avec le nouvel intervalle
       if (this.state.peer && !this.state.peer.destroyed) {
         this.startHeartbeat();
@@ -921,6 +992,53 @@ class ConnectivityService {
     return () => {
       eventEmitter.off('event', callback);
     };
+  }
+
+  /**
+   * Vérifie les heartbeat des clients
+   */
+  private checkClientHeartbeats(): void {
+    const now = Date.now();
+    const interval = this.getHeartbeatInterval();
+
+    // === SECURITY CHECK: HOST LAG ===
+    // Si l'hôte a "sauté" un cycle (lag > 2x interval), 
+    // on annule ce check pour ne pas kicker tout le monde injustement.
+    if (this.lastHeartbeatRun > 0 && (now - this.lastHeartbeatRun) > (interval * 2.5)) {
+      console.warn('[Connectivity] Host lag detected (skipped cycles). Skipping timeout checks to prevent mass kick.');
+      this.lastHeartbeatRun = now;
+      return;
+    }
+    this.lastHeartbeatRun = now;
+    // ================================
+
+    const TIMEOUT_THRESHOLD_PONGS = 12; // 12 pongs ratés = Kick (environ 2 min)
+
+    this.state.peerData.forEach((user, peerId) => {
+      // Ne pas vérifier l'hôte lui-même
+      if (peerId === this.state.hostId) return;
+
+      let stats = this.state.peerHeartbeatStats.get(peerId);
+      if (!stats) {
+        stats = { missedPongs: 0, isBackground: false };
+        this.state.peerHeartbeatStats.set(peerId, stats);
+      }
+
+      // Incrémenter le compteur de pongs ratés
+      // (Il sera reset à 0 quand on reçoit un HEARTBEAT_PONG dans handleData)
+      stats.missedPongs++;
+
+      // Calculer le seuil effectif
+      // Si en background, on double la tolérance (ou plus, selon besoin)
+      const effectiveThreshold = stats.isBackground ? (TIMEOUT_THRESHOLD_PONGS * 2) : TIMEOUT_THRESHOLD_PONGS;
+
+      if (stats.missedPongs >= effectiveThreshold) {
+        console.log(`[Connectivity] Client ${user.callsign} (${peerId}) timed out. Missed: ${stats.missedPongs}/${effectiveThreshold} (BG: ${stats.isBackground})`);
+        // Timeout -> Kick
+        this.emit({ type: 'TOAST', msg: `${user.callsign} déconnecté (Timeout)`, level: 'warning' });
+        this.kickUser(peerId);
+      }
+    });
   }
 
   /**
@@ -1073,6 +1191,13 @@ class ConnectivityService {
   cleanup(): void {
     this.isCleaningUp = true; // Fix: Mark as intentional cleanup
     this.stopHeartbeat();
+
+    this.state.pendingJoins.clear();
+    // On ne vide PAS bannedPeers ici pour garder le ban actif tant que l'app tourne ?
+    // Ou on vide si logout ? Le user a dit "reconnexion évaluée par l'hôte", 
+    // donc ça sous-entend persistance tant que la session (Host) est active.
+    // Si l'hôte redémarre l'app, la liste est perdue (ce qui est logique en P2P éphémère).
+
 
     if (this.reconnectTimeout) {
       clearTimeout(this.reconnectTimeout);
