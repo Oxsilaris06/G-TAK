@@ -63,8 +63,8 @@ class ConnectivityService {
 
   private reconnectTimeout: NodeJS.Timeout | null = null;
   private heartbeatInterval: NodeJS.Timeout | null = null;
-  private readonly HEARTBEAT_TIMEOUT = 30000; // Timeout de 30 secondes sans réponse (3x le heartbeat max)
-  private readonly ELECTION_DELAY = 2000; // Délai de 2 secondes avant élection
+  private readonly HEARTBEAT_TIMEOUT = 60000; // Augmenté à 60s pour éviter les déconnexions intempestives
+  private readonly ELECTION_DELAY = 5000; // Délai augmenté à 5s pour stabilisation
   private readonly MAX_RECONNECT_ATTEMPTS = 5;
   private isInBackground: boolean = false; // État de l'application
 
@@ -613,6 +613,21 @@ class ConnectivityService {
         }
 
         this.broadcastPeerList();
+        break;
+
+      case 'HEARTBEAT':
+        // Update timestamp for the user associated with this network ID
+        let found = false;
+        this.state.peerData.forEach((u: any, uid) => {
+          if (u._networkId === from || uid === from) {
+            u.connectionTimestamp = Date.now();
+            found = true;
+          }
+        });
+
+        // If not found by network ID, try to find by ID if passed in data (security check needed?)
+        // Usually HEARTBEAT doesn't carry ID, we trust 'from'.
+        // If we found the user, great. If not, they might be ghosting.
         break;
     }
   }
