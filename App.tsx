@@ -309,9 +309,7 @@ const App: React.FC = () => {
             }
         });
 
-        const connSub = connectivityService.subscribe((event) => {
-            handleConnectivityEvent(event);
-        });
+
 
         const locSub = locationService.subscribe((loc) => {
             setGpsStatus('OK');
@@ -333,7 +331,7 @@ const App: React.FC = () => {
         });
 
         return () => {
-            mounted = false; connSub(); locSub(); battSub.remove(); appStateSub.remove();
+            mounted = false; locSub(); battSub.remove(); appStateSub.remove();
             locationService.stopTracking();
             if (magSubscription.current) magSubscription.current.remove();
         };
@@ -403,77 +401,7 @@ const App: React.FC = () => {
         }
     }, []);
 
-    const handleConnectivityEvent = (event: ConnectivityEvent) => {
-        switch (event.type) {
-            case 'PEER_OPEN':
-                // C'est ici qu'on récupère le VRAI ID persistant depuis le service
-                console.log("[App] ID Persistant récupéré:", event.id);
-                setUser(prev => ({ ...prev, id: event.id }));
-                if (userRef.current.role === OperatorRole.HOST) {
-                    setHostId(event.id);
-                    showToast(`Session: ${event.id}`, "success");
-                }
-                break;
-            case 'PEERS_UPDATED':
-                setPeers(event.peers);
-                break;
-            case 'HOST_CONNECTED':
-                setHostId(event.hostId);
-                showToast("Lien Hôte établi", "success");
-                break;
-            case 'TOAST':
-                showToast(event.msg, event.level as any);
-                break;
-            case 'DATA_RECEIVED':
-                handleProtocolData(event.data, event.from);
-                break;
-            case 'DISCONNECTED':
-                if (event.reason === 'KICKED') {
-                    Alert.alert("Fin de Mission", "Vous avez été exclu de la session.");
-                    finishLogout();
-                } else if (event.reason === 'NO_HOST') {
-                    showToast("Liaison Hôte Perdue...", "warning");
-                }
-                break;
-            case 'RECONNECTING':
-                showToast(`Reconnexion réseau (${event.attempt})...`, "warning");
-                break;
-            case 'NEW_HOST_PROMOTED':
-                setHostId(event.hostId);
-                if (event.hostId === userRef.current.id) {
-                    // Mise à jour du rôle dans l'état et l'Operator Card
-                    setUser(p => ({ ...p, role: OperatorRole.HOST }));
-                    Alert.alert("Promotion", "Vous êtes le nouveau Chef de Session.");
-                } else {
-                    // Un autre client est devenu hôte, je reste OPR
-                    setUser(p => ({ ...p, role: OperatorRole.OPR }));
-                }
-                break;
-            case 'IMAGE_READY':
-                console.log("[App] Image Ready:", event.imageId);
-                showToast("📸 Image tactique reçue", "success");
-                setPings(prev => prev.map(p => {
-                    if (p.imageId === event.imageId) {
-                        return { ...p, imageUri: event.uri };
-                    }
-                    return p;
-                }));
-                break;
-            case 'SESSION_CLOSED':
-                console.log("[App] Session closed - stopping tracking");
-                // Arrêter le tracking GPS/orientation
-                locationService.stopTracking();
-                // Réinitialiser l'état
-                setPeers({});
-                setHostId('');
-                setPings([]);
-                setLogs([]);
-                // Retour à l'écran de login
-                setView('login');
-                showToast("Session fermée - aucun hôte disponible", "warning");
-                break;
-        }
-    };
+
 
     const handleProtocolData = (data: any, fromId: string) => {
         const senderName = peersRef.current[fromId]?.callsign || fromId.substring(0, 4);
@@ -594,6 +522,75 @@ const App: React.FC = () => {
         }
     };
 
+    // --- EFFECT: Connectivity Events ---
+    useEffect(() => {
+        const unsubscribe = connectivityService.subscribe((event) => {
+            switch (event.type) {
+                case 'PEER_OPEN':
+                    showToast(`ID Terminal: ${event.id}`, "success");
+                    break;
+                case 'PEERS_UPDATED':
+                    setPeers(event.peers);
+                    break;
+                case 'HOST_CONNECTED':
+                    showToast(`Connecté à la session ${event.hostId}`, "success");
+                    setHostId(event.hostId);
+                    setPings([]);
+                    break;
+                case 'TOAST':
+                    showToast(event.msg, event.level as any);
+                    break;
+                case 'DATA_RECEIVED':
+                    handleProtocolData(event.data, event.from);
+                    break;
+                case 'DISCONNECTED':
+                    if (event.reason === 'KICKED') {
+                        Alert.alert("Déconnecté", "Vous avez été exclu de la session.");
+                        handleLogout();
+                        setView('login');
+                    } else if (event.reason === 'NO_HOST') {
+                        showToast("Hôte déconnecté", "error");
+                    }
+                    setHostId('');
+                    break;
+                case 'RECONNECTING':
+                    showToast(`Tentative de reconnexion (${event.attempt})...`, "warning");
+                    break;
+                case 'NEW_HOST_PROMOTED':
+                    if (event.hostId === user.id) {
+                        setUser(prev => ({ ...prev, role: OperatorRole.HOST }));
+                        Alert.alert("Promotion Hôte", "L'hôte précédent a quitté. Vous êtes maintenant l'hôte de la session.");
+                    }
+                    setHostId(event.hostId);
+                    break;
+                case 'SESSION_CLOSED':
+                    Alert.alert("Session Terminée", "La session a été fermée car aucun hôte n'est disponible.");
+                    handleLogout();
+                    setView('menu');
+                    break;
+                case 'JOIN_REQUEST':
+                    // Host side: A banned user wants to join
+                    Alert.alert(
+                        "Demande de Connexion",
+                        `L'utilisateur banni ${event.callsign} (${event.peerId}) souhaite rejoindre la session.`,
+                        [
+                            { text: "Refuser", onPress: () => connectivityService.denyJoin(event.peerId), style: 'destructive' },
+                            { text: "Accepter (Débannir)", onPress: () => connectivityService.approveJoin(event.peerId) }
+                        ],
+                        { cancelable: false }
+                    );
+                    break;
+                case 'IMAGE_READY':
+                    // Image received
+                    break;
+            }
+        });
+
+        return () => {
+            unsubscribe();
+        };
+    }, [user.id]);
+
     const finishLogout = useCallback(() => {
         connectivityService.cleanup();
         locationService.stopTracking();
@@ -661,10 +658,16 @@ const App: React.FC = () => {
         connectivityService.sendTo(targetId, { type: 'RALLY_REQ', sender: user.callsign });
     };
 
-    const handleOperatorActionKick = (targetId: string) => {
-        connectivityService.kickUser(targetId);
+    const handleOperatorActionKick = (targetId: string, banType: 'temp' | 'perm') => {
+        if (banType === 'perm') {
+            connectivityService.banUser(targetId);
+            showToast("Utilisateur banni définitivement", "info");
+        } else {
+            connectivityService.kickUser(targetId);
+            showToast("Utilisateur exclu", "info");
+        }
         const newPeers = { ...peers }; delete newPeers[targetId]; setPeers(newPeers);
-        showToast("Opérateur Exclu");
+        setSelectedOperatorId(null);
     };
 
     const handleSendQuickMessage = (msg: string) => {
