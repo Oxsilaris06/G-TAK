@@ -68,6 +68,9 @@ class ConnectivityService {
   private readonly MAX_RECONNECT_ATTEMPTS = 5;
   private isInBackground: boolean = false; // État de l'application
 
+  // FIX: Flag to prevent migration processing during intentional disconnect (e.g. back button)
+  private isCleaningUp: boolean = false;
+
   /**
    * Obtient l'intervalle de heartbeat depuis les settings
    */
@@ -97,6 +100,9 @@ class ConnectivityService {
     role: OperatorRole,
     hostId?: string
   ): Promise<void> {
+    // Reset cleanup flag
+    this.isCleaningUp = false;
+
     // 1. Récupération de l'ID persistant
     let storedId = mmkvStorage.getString(CONFIG.SESSION_STORAGE_KEY);
 
@@ -323,7 +329,8 @@ class ConnectivityService {
     try {
       if (!await imageService.exists(imageId)) {
         console.warn('[Connectivity] Requested image not found locally:', imageId);
-        Alert.alert("DEBUG P2P", "Host: Image demandée INTROUVABLE locally\nID: " + imageId);
+        // Using alert temporarily for debug, but better to use toast
+        this.emit({ type: 'TOAST', msg: `Host: Image demandée INTROUVABLE ${imageId}`, level: 'error' });
         return;
       }
 
@@ -916,6 +923,12 @@ class ConnectivityService {
    * Gère la déconnexion de l'hôte
    */
   private handleHostDisconnection(): void {
+    // FIX: Do not start election if we are intentionally disconnecting
+    if (this.isCleaningUp) {
+      console.log('[Connectivity] Intentional disconnection (cleanup) - skipping host election');
+      return;
+    }
+
     console.log('[Connectivity] Host disconnected - starting election process');
 
     // Annuler tout timeout d'élection en cours
@@ -1043,6 +1056,7 @@ class ConnectivityService {
    * Nettoie toutes les connexions
    */
   cleanup(): void {
+    this.isCleaningUp = true; // Fix: Mark as intentional cleanup
     this.stopHeartbeat();
 
     if (this.reconnectTimeout) {
