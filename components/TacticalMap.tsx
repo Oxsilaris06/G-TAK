@@ -634,37 +634,6 @@ const TacticalMap = ({
             />
           </ShapeSource>
         )}
-            }}
-          />
-        )}
-        {/* Note: FillLayer requires a source. To make a global overlay, we need a source covering the world or viewport.
-            Actually, it's easier to use a View overlay on top of MapView if we want it to cover everything, 
-            BUT markers need to arguably be ON TOP or UNDER? 
-            User said "Un filtre rouge s'applique si la carte est Dark/White".
-            Usually this means the MAP is tinted. Markers might be tinted too or pop out.
-            Status colors (Blue/Green/Red) MUST be visible (previous request). 
-            If I put a View overlay over the MapView, it might wash out the markers or block interactions?
-            PointerEvents="none" on View allows interaction.
-            
-            Alternative: A GeoJSON polygon covering the world?
-            Easier: Use a specialized View inside the component, absolutely positioned, pointerEvents="none".
-            Structure:
-            <View container>
-              <MapView>...</MapView>
-              <Overlay />
-              <Compass />
-            </View>
-            
-            Let's do that instead of a Layer inside MapView, as it's more robust effectively acting as a screen filter.
-            Wait, if I put it outside MapView, it will tint markers too.
-            If I put it layer inside MapView, it tints the base map but Markers (React Native Views) are above Layers?
-            In MapLibre RN, PointAnnotations are views on top. Layers are GL.
-            So a FillLayer is BELOW PointAnnotations.
-            This is perfect! It tints the map tiles but keeps markers bright and colored as requested.
-            
-            We need a source for the FillLayer.
-            Let's create a simple world bounding box GeoJSON.
-        */}
 
         {/* --- CONES DE VISION (GeoJSON Native) --- */}
         <ShapeSource id="conesSource" shape={conesGeoJSON}>
