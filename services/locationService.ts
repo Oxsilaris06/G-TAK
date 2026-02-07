@@ -126,13 +126,16 @@ class LocationService {
         },
         (location) => {
           // FILTRAGE GPS
-          // 1. Précision : On rejette si > 500m (configurable ?)
-          if (location.coords.accuracy && location.coords.accuracy > 500) {
-            console.log('[LocationService] Rejected low accuracy:', location.coords.accuracy);
+
+          // 1. Précision stricte pour éviter les sauts d'antennes relais
+          // Les relais GSM ont souvent une précision > 100-2000m.
+          if (location.coords.accuracy && location.coords.accuracy > 50) {
+            // console.log('[LocationService] Rejected low accuracy:', location.coords.accuracy);
             return;
           }
 
           // 2. Vitesse / Cohérence : On rejette si saut impossible (> 300km/h soit ~83m/s)
+          // Cela protège contre les abérrations GPS instantanées même avec "bonne" précision
           if (this.lastLocation) {
             const timeDelta = (location.timestamp - this.lastLocation.timestamp) / 1000; // secondes
             if (timeDelta > 0) {
@@ -140,9 +143,13 @@ class LocationService {
                 this.lastLocation.latitude, this.lastLocation.longitude,
                 location.coords.latitude, location.coords.longitude
               );
+
+              // On accepte les sauts importants SI le temps écoulé est grand (ex: sortie de tunnel / reprise après pause)
+              // MAIS si c'est rapproché, on filtre.
               const speed = dist / timeDelta; // m/s
+
               if (speed > 83) { // ~300 km/h
-                console.log('[LocationService] Rejected unrealistic jump:', speed, 'm/s');
+                console.log(`[LocationService] Rejected jump: ${Math.round(dist)}m in ${timeDelta.toFixed(1)}s (${Math.round(speed * 3.6)}km/h)`);
                 return;
               }
             }
