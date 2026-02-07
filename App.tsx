@@ -368,7 +368,14 @@ const App: React.FC = () => {
 
             locationService.startTracking();
 
-            // Magnétomètre géré par LocationService
+            const unsubscribe = locationService.subscribe((loc) => {
+                connectivityService.updateUserPosition(loc.latitude, loc.longitude, loc.heading || 0);
+                connectivityService.pulse(); // Background Heartbeat Driver
+            });
+
+            return () => {
+                unsubscribe();
+            };
         } else {
             // Pas de session active - arrêt des capteurs pour économiser la batterie
             locationService.stopTracking();

@@ -404,16 +404,25 @@ export class ConnectivityService {
       return;
     }
 
-    // ACTIVITY AS HEARTBEAT: Any valid data proves connection is alive
+    // ACTIVITY AS HEARTBEAT (PASSIVE): Any valid data reset timeout
     if (this.state.role === OperatorRole.OPR && from === this.state.hostId) {
       this.state.lastHostHeartbeat = Date.now();
     } else if (this.state.role === OperatorRole.HOST) {
-      // Reset missed pongs for this client
       const stats = this.state.peerHeartbeatStats.get(from);
       if (stats) stats.missedPongs = 0;
-      // Also update connection timestamp
       const peer = this.state.peerData.get(from);
       if (peer) peer.connectionTimestamp = Date.now();
+    }
+
+    // REACTIVE KEEP-ALIVE (ACTIVE): Reply to notifications to keep link alive
+    // "Receiving a notification obliges the sending of a ping/pong"
+    const NOTIFICATION_TYPES = ['PING_UPDATE', 'PING', 'MSG', 'LOG_UPDATE', 'TOAST'];
+    // Also specific user updates like CONTACT
+    const isContactUpdate = data.type === 'UPDATE_USER' && data.user?.status === 'CONTACT';
+
+    if (NOTIFICATION_TYPES.includes(data.type) || isContactUpdate) {
+      // Force a PONG to confirm reception and refresh NAT
+      this.sendTo(from, { type: 'HEARTBEAT_PONG' });
     }
 
     // --- IMAGE PROTOCOL HANDLERS ---

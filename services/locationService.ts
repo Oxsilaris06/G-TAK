@@ -6,7 +6,7 @@
 
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
-import { Magnetometer } from 'expo-sensors';
+
 import { EventEmitter } from 'events';
 
 const LOCATION_TASK_NAME = 'praxis-background-location-task';
@@ -236,24 +236,16 @@ class LocationService {
         }
       );
 
-      // Souscription au Heading (Magnetometer)
-      // On utilise le Magnetometer pour l'orientation à l'arrêt
-      this.headingSubscription = Magnetometer.addListener((data) => {
-        let { x, y } = data;
+      // Souscription au Heading (Location Service - Works in Background)
+      // Remplacement de Magnetometer par watchHeadingAsync pour support background
+      this.headingSubscription = await Location.watchHeadingAsync((newHeading) => {
+        let heading = newHeading.magHeading;
 
         // Correction pour le mode Paysage (Landscape Left standard)
-        // En paysage, l'axe X devient Y, et Y devient -X
+        // En paysage, l'affichage est tourné de 90 degrés
         if (this.isLandscape) {
-          const temp = x;
-          x = y;
-          y = -temp;
+          heading = (heading - 90 + 360) % 360;
         }
-
-        let heading = Math.atan2(y, x) * (180 / Math.PI);
-        if (heading < 0) heading += 360;
-
-        // Offset de 90° souvent nécessaire selon le repère capteur
-        heading = (heading - 90 + 360) % 360;
 
         // Safety check for NaN
         if (isNaN(heading)) heading = 0;
@@ -266,7 +258,6 @@ class LocationService {
           locationEmitter.emit('location', this.lastLocation);
         }
       });
-      Magnetometer.setUpdateInterval(200); // 5Hz pour réactivité fluide
 
       this.isTracking = true;
       return true;
