@@ -189,9 +189,6 @@ interface TacticalCompassProps {
 }
 
 const TacticalCompass = ({ heading, isLandscape, onPress, mode, nightOpsMode }: TacticalCompassProps & { nightOpsMode: boolean }) => {
-  // Correction: En mode Paysage, l'orientation est inversée de 180° selon le retour utilisateur
-  const displayHeading = isLandscape ? (heading + 180) % 360 : heading;
-
   const borderColor = nightOpsMode ? '#7f1d1d' : 'rgba(255,255,255,0.2)';
   const labelColor = nightOpsMode ? '#ef4444' : 'rgba(255,255,255,0.8)';
 
@@ -209,7 +206,7 @@ const TacticalCompass = ({ heading, isLandscape, onPress, mode, nightOpsMode }: 
         styles.compassRose,
         {
           transform: [{
-            rotate: mode === 'heading' ? `${-displayHeading}deg` : '0deg'
+            rotate: mode === 'heading' ? `${-heading}deg` : '0deg'
           }],
           borderColor: borderColor
         }

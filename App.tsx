@@ -564,8 +564,7 @@ const App: React.FC = () => {
                     // Handled by Store
                     break;
                 case 'HOST_CONNECTED':
-                    // Silent reconnection - only show toast on FIRST connection
-                    // showToast(`Connecté à la session ${event.hostId}`, "success"); // REMOVED
+                    showToast(`Connecté à la session ${event.hostId}`, "success");
                     // State handled by Store
                     break;
                 case 'TOAST':
@@ -586,8 +585,7 @@ const App: React.FC = () => {
                     // setHostId(''); // Store has it
                     break;
                 case 'RECONNECTING':
-                    // Silent reconnection - no toast or vibration
-                    // showToast(`Tentative de reconnexion (${event.attempt})...`, "warning"); // REMOVED
+                    showToast(`Tentative de reconnexion (${event.attempt})...`, "warning");
                     break;
                 case 'NEW_HOST_PROMOTED':
                     if (event.hostId === user.id) {
