@@ -40,6 +40,7 @@ export interface UserData {
   paxColor?: string;
   _networkId?: string;
   connectionTimestamp?: number; // Timestamp pour l'élection du nouvel hôte
+  isBackground?: boolean;
 }
 
 export interface PingData {

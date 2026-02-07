@@ -1036,7 +1036,7 @@ export class ConnectivityService {
    */
   sendAppState(state: 'active' | 'background'): void {
     const isBackground = state === 'background';
-    this.state.isBackground = isBackground;
+    this.isInBackground = isBackground;
 
     // Broadcast status change so others know we might be slow/throttled
     if (this.state.userData) {

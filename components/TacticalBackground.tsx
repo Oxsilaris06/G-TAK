@@ -337,8 +337,7 @@ const styles = StyleSheet.create({
   container: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: '#050505',
-    zIndex: -1,
-    opacity: 0.3 // Opacité globale ajoutée
+    // Opacity removed to ensure visibility
   },
   gridContainer: { ...StyleSheet.absoluteFillObject, opacity: 0.1 },
   line: { position: 'absolute', backgroundColor: '#3b82f6' },
