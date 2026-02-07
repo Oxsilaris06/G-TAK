@@ -189,8 +189,8 @@ interface TacticalCompassProps {
 }
 
 const TacticalCompass = ({ heading, isLandscape, onPress, mode, nightOpsMode }: TacticalCompassProps & { nightOpsMode: boolean }) => {
-  // Correction: En mode Paysage, l'orientation est inversée de 180° selon le retour utilisateur - ANNULÉ: Le user signale que le Nord est le Sud. On retire l'inversion.
-  const displayHeading = heading;
+  // Correction: En mode Paysage, l'orientation est inversée de 180° selon le retour utilisateur
+  const displayHeading = isLandscape ? (heading + 180) % 360 : heading;
 
   const borderColor = nightOpsMode ? '#7f1d1d' : 'rgba(255,255,255,0.2)';
   const labelColor = nightOpsMode ? '#ef4444' : 'rgba(255,255,255,0.8)';

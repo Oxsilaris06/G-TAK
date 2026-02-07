@@ -11,6 +11,7 @@ import { mmkvStorage } from './mmkvStorage';
 import { CONFIG } from '../constants';
 import { imageService } from './imageService';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
+import { usePraxisStore } from '../store/usePraxisStore';
 
 export type ConnectivityEvent =
   | { type: 'PEER_OPEN'; id: string }
@@ -236,6 +237,7 @@ export class ConnectivityService {
           } else {
             console.log('[Connectivity] Peer destroyed, cannot reconnect');
             this.handleDisconnect();
+            usePraxisStore.getState().actions.setNetworkStatus({ isConnected: false, isReconnecting: false });
           }
         });
       } catch (e) {
@@ -269,6 +271,11 @@ export class ConnectivityService {
 
       this.state.connections.set(hostId, conn);
       this.state.hostId = hostId;
+
+      // OPTIMIZATION: Update Store directly
+      usePraxisStore.getState().actions.setHostId(hostId);
+      usePraxisStore.getState().actions.setNetworkStatus({ isConnected: true, hostId });
+
       this.emit({ type: 'HOST_CONNECTED', hostId });
 
       // Envoyer HELLO avec timestamp de connexion
@@ -467,8 +474,42 @@ export class ConnectivityService {
     }
     // -------------------------------
 
-    // Propager l'événement
+    // Propager l'événement (Side Effects only)
     this.emit({ type: 'DATA_RECEIVED', data, from });
+
+    // OPTIMIZATION: Update Store directly
+    const store = usePraxisStore.getState();
+
+    if (data.type === 'PING') {
+      store.actions.addPing(data.ping);
+      // Auto-request image if needed
+      if (data.ping.hasImage && data.ping.imageId) {
+        imageService.exists(data.ping.imageId).then(exists => {
+          if (!exists) this.requestImage(data.ping.imageId, [from]);
+        });
+      }
+    } else if (data.type === 'PING_UPDATE') {
+      store.actions.updatePing(data.id, {
+        msg: data.msg,
+        details: data.details,
+        // image updates handled by re-request logic below
+      });
+      if (data.hasImage && data.imageId) {
+        imageService.exists(data.imageId).then(exists => {
+          if (!exists) this.requestImage(data.imageId, [from]);
+        });
+      }
+    } else if (data.type === 'PING_MOVE') {
+      store.actions.movePing(data.id, data.lat, data.lng);
+    } else if (data.type === 'PING_DELETE') {
+      store.actions.deletePing(data.id);
+    } else if (data.type === 'LOG_UPDATE') {
+      store.actions.addLog(data.entry);
+    } else if (data.type === 'MSG') {
+      // Handle MSG (Last Msg update is usually user-specific)
+      // Check if data.msg exists
+    }
+
 
     // Gestion spéciale pour l'hôte
     if (this.state.role === OperatorRole.HOST) {
@@ -774,6 +815,9 @@ export class ConnectivityService {
       if (this.state.userData && userId === this.state.userData.id) return;
       peers[userId] = data;
     });
+
+    // OPTIMIZATION: Update Store directly
+    usePraxisStore.getState().actions.setPeers(peers);
 
     this.broadcast({
       type: 'PEERS_UPDATED',
@@ -1291,8 +1335,8 @@ export class ConnectivityService {
 
     this.state.hostId = newHostId;
 
-    // Notifier l'UI
-    this.emit({ type: 'TOAST', msg: 'Reconnexion au nouvel hôte...', level: 'info' });
+    // Notifier l'UI (SILENT - no toast for normal reconnection)
+    // this.emit({ type: 'TOAST', msg: 'Reconnexion au nouvel hôte...', level: 'info' }); // REMOVED
 
     // Se connecter au nouvel hôte après un délai
     setTimeout(() => {
