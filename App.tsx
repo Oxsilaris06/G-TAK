@@ -82,7 +82,8 @@ const App: React.FC = () => {
     const peersRef = useRef(peers);
     const userRef = useRef(user);
 
-    const magSubscription = useRef<any>(null);
+    // const magSubscription = useRef<any>(null); // Removed: Managed by LocationService
+    const lastSentHead = useRef<number>(0);
     const lastSentHead = useRef<number>(0);
 
     // Prevention double scan
@@ -314,26 +315,33 @@ const App: React.FC = () => {
         const locSub = locationService.subscribe((loc) => {
             setGpsStatus('OK');
 
-            // FUSION SENSORS :
-            // Si on bouge (> 1 m/s), on priorise le Cap GPS (Course) car plus précis pour le mouvement.
-            // Si on est à l'arrêt, on garde le Cap Magnétique (géré par le Magnetometer listener) pour savoir où on regarde.
-            const isMoving = (loc.speed || 0) > 1.0;
-            const gpsHeadingAvailable = loc.heading !== null && loc.heading !== undefined;
+            // FUSION SENSORS: Managed by LocationService now (See services/locationService.ts)
+            // Logic moved to service for background persistence
 
-            let newHead = userRef.current.head;
+            setUser(prev => ({ ...prev, lat: loc.latitude, lng: loc.longitude, head: loc.heading || prev.head }));
 
-            if (isMoving && gpsHeadingAvailable) {
-                newHead = loc.heading!; // Safe assertion due to logic above
+            // Network Throttling Logic (Moved from Mag Listener)
+            const newHead = loc.heading || userRef.current.head;
+
+            // Send update if:
+            // 1. Heading changed significantly (> 5 deg)
+            // 2. OR Distance changed significantly (> 2m - implicit in GPS update rate)
+            // 3. Prevent flood
+
+            const headDiff = Math.abs(newHead - lastSentHead.current);
+            // Handling 359->1 transition logic (simplified)
+            const circularDiff = Math.min(headDiff, 360 - headDiff); // 359 and 1 -> diff 2
+
+            if (circularDiff > 3 || (loc.speed && loc.speed > 0.5)) {
+                lastSentHead.current = newHead;
+                connectivityService.updateUserPosition(loc.latitude, loc.longitude, newHead);
             }
-
-            setUser(prev => ({ ...prev, lat: loc.latitude, lng: loc.longitude, head: newHead }));
-            connectivityService.updateUserPosition(loc.latitude, loc.longitude, newHead);
         });
 
         return () => {
             mounted = false; locSub(); battSub.remove(); appStateSub.remove();
             locationService.stopTracking();
-            if (magSubscription.current) magSubscription.current.remove();
+            // magSubscription remove handled in LocationService now
         };
     }, []);
 
@@ -354,42 +362,15 @@ const App: React.FC = () => {
             });
             locationService.startTracking();
 
-            // Magnétomètre pour orientation en temps réel
-            if (magSubscription.current) magSubscription.current.remove();
-            Magnetometer.setUpdateInterval(100);
-            magSubscription.current = Magnetometer.addListener(data => {
-                const { x, y } = data;
-                let angle = Math.atan2(y, x) * (180 / Math.PI);
-                angle = angle - 90;
-                if (isLandscape) angle = angle + 90;
-
-                if (angle < 0) angle = angle + 360;
-                const heading = Math.floor(angle) % 360;
-
-                setUser(prev => ({ ...prev, head: heading }));
-
-                // Throttling pour le réseau uniquement
-                if (Math.abs(heading - lastSentHead.current) > 5) {
-                    lastSentHead.current = heading;
-                    connectivityService.updateUserPosition(userRef.current.lat, userRef.current.lng, heading);
-                }
-            });
-
+            // Magnétomètre géré par LocationService
         } else {
             // Pas de session active - arrêt des capteurs pour économiser la batterie
             locationService.stopTracking();
-            if (magSubscription.current) {
-                magSubscription.current.remove();
-                magSubscription.current = null;
-            }
         }
 
         return () => {
             // Cleanup uniquement si on quitte vraiment la session
-            if (!hostId && magSubscription.current) {
-                magSubscription.current.remove();
-                magSubscription.current = null;
-            }
+            // Handled mostly by unmount or explicit logout
         };
     }, [hostId, settings.gpsUpdateInterval, isLandscape]); // Retiré 'view' des dépendances
 
@@ -594,10 +575,8 @@ const App: React.FC = () => {
     const finishLogout = useCallback(() => {
         connectivityService.cleanup();
         locationService.stopTracking();
-        if (magSubscription.current) {
-            magSubscription.current.remove();
-            magSubscription.current = null;
-        }
+        locationService.stopTracking();
+        // magSubscription handled in service
         setPeers({}); setPings([]); setLogs([]); setHostId(''); setView('login');
         // On garde l'ID persistant même après logout, on ne reset que le statut
         setUser(prev => ({ ...prev, role: OperatorRole.OPR, status: OperatorStatus.CLEAR }));
