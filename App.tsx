@@ -336,6 +336,9 @@ const App: React.FC = () => {
                 lastSentHead.current = newHead;
                 connectivityService.updateUserPosition(loc.latitude, loc.longitude, newHead);
             }
+
+            // HEARTBEAT PULSE: Drive connection logic via robust Location service
+            connectivityService.pulse();
         });
 
         return () => {
@@ -360,6 +363,9 @@ const App: React.FC = () => {
                     notificationColor: "#000000"
                 }
             });
+            // NEW: Pass orientation for Magnetometer correction (Landscape/Portrait)
+            locationService.setOrientation(isLandscape);
+
             locationService.startTracking();
 
             // Magnétomètre géré par LocationService

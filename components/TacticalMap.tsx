@@ -487,7 +487,10 @@ const TacticalMap = ({
 
   // Click throttling to prevent double events from hybrid approach
   const lastClickTime = useRef<number>(0);
+  const justDragged = useRef(false);
+
   const handlePingClickWithThrottle = (id: string) => {
+    if (justDragged.current) return;
     const now = Date.now();
     if (now - lastClickTime.current < 500) return;
     lastClickTime.current = now;
@@ -510,6 +513,9 @@ const TacticalMap = ({
         return;
       }
 
+      // Mark as dragged to block subsequent click event
+      justDragged.current = true;
+      setTimeout(() => justDragged.current = false, 1000);
       onPingMove({ ...ping, lat, lng });
     }
   };
@@ -776,8 +782,8 @@ const styles = StyleSheet.create({
   },
   batteryWarning: {
     position: 'absolute',
-    top: 15,
-    right: 15,
+    top: 0,
+    right: 0,
     backgroundColor: 'rgba(0,0,0,0.8)',
     borderRadius: 6,
     padding: 2,

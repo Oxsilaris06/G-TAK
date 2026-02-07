@@ -77,6 +77,11 @@ class LocationService {
   private headingSubscription: any | null = null;
   private lastLocation: LocationData | null = null;
   private latestHeading: number | null = null; // Magnetic heading storage
+  private isLandscape: boolean = false;
+
+  setOrientation(isLandscape: boolean) {
+    this.isLandscape = isLandscape;
+  }
 
   /**
    * Met à jour les options de suivi
@@ -234,10 +239,22 @@ class LocationService {
       // Souscription au Heading (Magnetometer)
       // On utilise le Magnetometer pour l'orientation à l'arrêt
       this.headingSubscription = Magnetometer.addListener((data) => {
-        const { x, y } = data;
+        let { x, y } = data;
+
+        // Correction pour le mode Paysage (Landscape Left standard)
+        // En paysage, l'axe X devient Y, et Y devient -X
+        if (this.isLandscape) {
+          const temp = x;
+          x = y;
+          y = -temp;
+        }
+
         let heading = Math.atan2(y, x) * (180 / Math.PI);
         if (heading < 0) heading += 360;
-        // Correction basic (Portrait) - A adapter si landscape
+
+        // Offset de 90° souvent nécessaire selon le repère capteur
+        heading = (heading - 90 + 360) % 360;
+
         this.latestHeading = heading;
 
         // Si on est à l'arrêt, on met à jour l'orientation immédiatement
@@ -246,7 +263,7 @@ class LocationService {
           locationEmitter.emit('location', this.lastLocation);
         }
       });
-      Magnetometer.setUpdateInterval(500); // 2Hz suffisant pour le background
+      Magnetometer.setUpdateInterval(200); // 5Hz pour réactivité fluide
 
       this.isTracking = true;
       return true;

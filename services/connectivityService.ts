@@ -398,6 +398,15 @@ export class ConnectivityService {
   private handleData(data: any, from: string): void {
     if (!data || typeof data !== 'object') return;
 
+    // --- HEARTBEAT PROTOCOL HANDLERS ---
+    if (data.type === 'HEARTBEAT_PING') {
+      // Update last heartbeat timestamp to prevent timeout disconnection
+      this.state.lastHostHeartbeat = Date.now();
+      // Send PONG back to host to confirm we are alive
+      this.sendTo(from, { type: 'HEARTBEAT_PONG' });
+      return;
+    }
+
     // --- IMAGE PROTOCOL HANDLERS ---
     if (data.type === 'REQUEST_IMAGE') {
       if (data.imageId) {
@@ -942,33 +951,59 @@ export class ConnectivityService {
   /**
    * Démarre le heartbeat (clients envoient à l'hôte)
    */
-  private startHeartbeat(): void {
-    this.stopHeartbeat();
-
+  /**
+   * Pulse: Called externally (e.g. by Location Service) to drive the heartbeat loop
+   * independent of JS timers which may throttle in background.
+   */
+  pulse(): void {
+    const now = Date.now();
     const interval = this.getHeartbeatInterval();
 
-    console.log(`[Connectivity] Starting heartbeat with ${interval}ms interval (${this.isInBackground ? 'background' : 'foreground'})`);
+    // Safety check: Don't pulse too often (debounce)
+    if (now - this.lastHeartbeatRun < (interval * 0.8)) {
+      return;
+    }
 
-    this.heartbeatInterval = setInterval(() => {
-      if (this.state.role === OperatorRole.HOST) {
-        // L'hôte envoie un PING à TOUS les clients connectés
-        // console.log('[Connectivity] Host sending PING to all clients');
-        this.broadcast({ type: 'HEARTBEAT_PING', timestamp: Date.now() });
+    // Execute Heartbeat Logic
+    this.executeHeartbeatCycle();
+  }
 
-        // L'hôte vérifie aussi les timeouts (ceux qui n'ont pas répondu PONG)
-        this.checkClientHeartbeats();
-      } else {
-        // CLIENT LOOP: Vérifier si l'Hôte est toujours vivant
-        const timeSinceLastHostPing = Date.now() - this.state.lastHostHeartbeat;
-        // On utilise getHeartbeatInterval() * 3 (soit 30s ou 60s en background)
-        // C'est une sécurité. Si l'hôte n'a pas PING depuis tout ce temps, il est mort.
-        const TIMEOUT = this.getHeartbeatInterval() * 4;
+  /**
+   * Logic previously in setInterval
+   */
+  private executeHeartbeatCycle(): void {
+    const now = Date.now();
+    // this.lastHeartbeatRun is updated in checkClientHeartbeats or here
+    // We update it here to be safe, but checkClientHeartbeats also uses it for lag detection.
 
-        if (timeSinceLastHostPing > TIMEOUT) {
-          console.warn(`[Connectivity] Host heartbeat timeout (${timeSinceLastHostPing}ms > ${TIMEOUT}ms). Triggering disconnection handler.`);
-          this.handleHostDisconnection();
-        }
+    if (this.state.role === OperatorRole.HOST) {
+      // L'hôte envoie un PING à TOUS les clients connectés
+      this.broadcast({ type: 'HEARTBEAT_PING', timestamp: now });
+      // L'hôte vérifie aussi les timeouts
+      this.checkClientHeartbeats();
+    } else {
+      // CLIENT LOOP
+      const timeSinceLastHostPing = now - this.state.lastHostHeartbeat;
+      const TIMEOUT = this.getHeartbeatInterval() * 4;
+
+      if (timeSinceLastHostPing > TIMEOUT) {
+        console.warn(`[Connectivity] Host heartbeat timeout (${timeSinceLastHostPing}ms > ${TIMEOUT}ms). Triggering disconnection handler.`);
+        this.handleHostDisconnection();
       }
+    }
+  }
+
+  /**
+   * Démarre le heartbeat (clients envoient à l'hôte)
+   */
+  private startHeartbeat(): void {
+    this.stopHeartbeat();
+    const interval = this.getHeartbeatInterval();
+    console.log(`[Connectivity] Starting heartbeat with ${interval}ms interval`);
+
+    // We still keep setInterval as a fallback for Foreground
+    this.heartbeatInterval = setInterval(() => {
+      this.pulse();
     }, interval);
   }
 
