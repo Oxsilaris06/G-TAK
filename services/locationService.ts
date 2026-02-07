@@ -3,8 +3,10 @@
  * Gère le suivi GPS avec haute performance
  */
 
+
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
+import { Magnetometer } from 'expo-sensors';
 import { EventEmitter } from 'events';
 
 const LOCATION_TASK_NAME = 'praxis-background-location-task';
@@ -71,7 +73,8 @@ class LocationService {
     accuracy: Location.LocationAccuracy.BestForNavigation,
   };
   private locationSubscription: Location.LocationSubscription | null = null;
-  private headingSubscription: Location.LocationSubscription | null = null;
+  private locationSubscription: Location.LocationSubscription | null = null;
+  private headingSubscription: any | null = null;
   private lastLocation: LocationData | null = null;
   private latestHeading: number | null = null; // Magnetic heading storage
 
@@ -129,12 +132,41 @@ class LocationService {
         (location) => {
           // FILTRAGE GPS
 
-          // 1. Précision stricte pour éviter les sauts d'antennes relais
-          // Les relais GSM ont souvent une précision > 100-2000m.
-          if (location.coords.accuracy && location.coords.accuracy > 50) {
+          // FILTRAGE GPS
+
+          // 1. Précision relaxée pour accepter les points un peu moins précis mais valides
+          if (location.coords.accuracy && location.coords.accuracy > 150) {
             // console.log('[LocationService] Rejected low accuracy:', location.coords.accuracy);
             return;
           }
+
+          // 2. Vitesse / Cohérence 
+          // On désactive temporairement le filtre de saut "worse jumps" pour voir si c'était lui le coupable
+          // Le filtre de précision devrait suffire pour les antennes relais (souvent > 1000m)
+          if (this.lastLocation) {
+            // ...
+          }
+
+          /*
+          if (this.lastLocation) {
+            const timeDelta = (location.timestamp - this.lastLocation.timestamp) / 1000; // secondes
+            if (timeDelta > 0) {
+              const dist = this.calculateDistance(
+                this.lastLocation.latitude, this.lastLocation.longitude,
+                location.coords.latitude, location.coords.longitude
+              );
+
+              // On accepte les sauts importants SI le temps écoulé est grand (ex: sortie de tunnel / reprise après pause)
+              // MAIS si c'est rapproché, on filtre.
+              const speed = dist / timeDelta; // m/s
+
+              if (speed > 83) { // ~300 km/h
+                console.log(`[LocationService] Rejected jump: ${Math.round(dist)}m in ${timeDelta.toFixed(1)}s (${Math.round(speed * 3.6)}km/h)`);
+                return;
+              }
+            }
+          }
+          */
 
           // 2. Vitesse / Cohérence : On rejette si saut impossible (> 300km/h soit ~83m/s)
           // Cela protège contre les abérrations GPS instantanées même avec "bonne" précision
@@ -176,11 +208,19 @@ class LocationService {
             }
           }
 
+          // 5. Sensor Fusion (Heading)
+          // Si vitesse > 1m/s, on utilise le CAP GPS (Course)
+          // Sinon, on utilise le CAP Magnétique (si disponible)
+          let finalHeading = location.coords.heading;
+          const speedCheck = location.coords.speed || 0;
+          if (speedCheck < 1 && this.latestHeading !== null) {
+            finalHeading = this.latestHeading;
+          }
+
           const locData: LocationData = {
             latitude: location.coords.latitude,
             longitude: location.coords.longitude,
             altitude: location.coords.altitude,
-            accuracy: location.coords.accuracy,
             accuracy: location.coords.accuracy,
             heading: finalHeading,
             speed: location.coords.speed,
@@ -191,16 +231,22 @@ class LocationService {
         }
       );
 
-      // Souscription au Heading (Compass)
-      this.headingSubscription = await Location.watchHeadingAsync((newHeading) => {
-        this.latestHeading = newHeading.magHeading;
+      // Souscription au Heading (Magnetometer)
+      // On utilise le Magnetometer pour l'orientation à l'arrêt
+      this.headingSubscription = Magnetometer.addListener((data) => {
+        const { x, y } = data;
+        let heading = Math.atan2(y, x) * (180 / Math.PI);
+        if (heading < 0) heading += 360;
+        // Correction basic (Portrait) - A adapter si landscape
+        this.latestHeading = heading;
 
         // Si on est à l'arrêt, on met à jour l'orientation immédiatement
         if (this.lastLocation && (this.lastLocation.speed || 0) < 1) {
-          this.lastLocation.heading = newHeading.magHeading;
+          this.lastLocation.heading = heading;
           locationEmitter.emit('location', this.lastLocation);
         }
       });
+      Magnetometer.setUpdateInterval(500); // 2Hz suffisant pour le background
 
       this.isTracking = true;
       return true;
