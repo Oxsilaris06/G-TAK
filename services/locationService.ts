@@ -71,7 +71,9 @@ class LocationService {
     accuracy: Location.LocationAccuracy.BestForNavigation,
   };
   private locationSubscription: Location.LocationSubscription | null = null;
+  private headingSubscription: Location.LocationSubscription | null = null;
   private lastLocation: LocationData | null = null;
+  private latestHeading: number | null = null; // Magnetic heading storage
 
   /**
    * Met à jour les options de suivi
@@ -179,7 +181,8 @@ class LocationService {
             longitude: location.coords.longitude,
             altitude: location.coords.altitude,
             accuracy: location.coords.accuracy,
-            heading: location.coords.heading,
+            accuracy: location.coords.accuracy,
+            heading: finalHeading,
             speed: location.coords.speed,
             timestamp: location.timestamp,
           };
@@ -187,6 +190,17 @@ class LocationService {
           locationEmitter.emit('location', locData);
         }
       );
+
+      // Souscription au Heading (Compass)
+      this.headingSubscription = await Location.watchHeadingAsync((newHeading) => {
+        this.latestHeading = newHeading.magHeading;
+
+        // Si on est à l'arrêt, on met à jour l'orientation immédiatement
+        if (this.lastLocation && (this.lastLocation.speed || 0) < 1) {
+          this.lastLocation.heading = newHeading.magHeading;
+          locationEmitter.emit('location', this.lastLocation);
+        }
+      });
 
       this.isTracking = true;
       return true;
@@ -205,6 +219,10 @@ class LocationService {
       if (this.locationSubscription) {
         this.locationSubscription.remove();
         this.locationSubscription = null;
+      }
+      if (this.headingSubscription) {
+        this.headingSubscription.remove();
+        this.headingSubscription = null;
       }
 
       // Arrêter la tâche en arrière-plan
