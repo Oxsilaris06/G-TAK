@@ -49,7 +49,7 @@
     "react-native-qrcode-svg": "^6.3.0",
     "react-native-get-random-values": "~1.11.0",
     "react-native-webview": "^13.16.0",
-    "react-native-webrtc": "125.3.0",
+    "react-native-webrtc": "124.0.4",
     "@config-plugins/react-native-webrtc": "^9.0.0",
     "peerjs": "^1.5.4",
     "date-fns": "^4.1.0",
