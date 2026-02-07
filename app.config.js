@@ -6,18 +6,21 @@ const path = require('path');
  * Plugin pour ajouter un post_install hook au Podfile
  * Cela force les modular headers sur MapLibre et configure correctement les pods
  */
+/**
+ * Plugin pour ajouter un post_install hook au Podfile
+ * Cela force les modular headers sur MapLibre et configure correctement les pods
+ */
 const withMapLibreFix = (config) => {
   return withPodfile(config, (config) => {
-    const podfile = config.modResults.contents;
+    let podfile = config.modResults.contents;
 
-    // Hook post_install pour configurer MapLibre
-    const postInstallHook = `
-  post_install do |installer|
+    // Contenu à injecter pour MapLibre
+    const mapLibreFixContent = `
+    # Fix MapLibre configuration
     installer.pods_project.targets.each do |target|
       target.build_configurations.each do |config|
         config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.1'
         
-        # Force modular headers pour MapLibre
         if target.name == 'MapLibre'
           config.build_settings['DEFINES_MODULE'] = 'YES'
           config.build_settings['CLANG_ENABLE_MODULES'] = 'YES'
@@ -25,7 +28,6 @@ const withMapLibreFix = (config) => {
       end
     end
     
-    # Configuration spécifique pour MapLibre avec use_frameworks! static
     installer.pod_targets.each do |pod|
       if pod.name == 'MapLibre'
         def pod.build_type
@@ -33,22 +35,25 @@ const withMapLibreFix = (config) => {
         end
       end
     end
-  end`;
+`;
 
-    // Vérifier si un post_install existe déjà
-    if (!podfile.includes('post_install do |installer|')) {
-      // Ajouter le hook avant le 'end' final du Podfile
-      const lines = podfile.split('\n');
-      const lastEndIndex = lines.lastIndexOf('end');
-      if (lastEndIndex !== -1) {
-        lines.splice(lastEndIndex, 0, postInstallHook);
-        config.modResults.contents = lines.join('\n');
-      }
+    if (podfile.includes('post_install do |installer|')) {
+      // Injecter dans le hook existant
+      console.log('✅ Injecting MapLibre fix into existing post_install hook');
+      podfile = podfile.replace(
+        'post_install do |installer|',
+        `post_install do |installer|${mapLibreFixContent}`
+      );
     } else {
-      // Si post_install existe, on l'améliore
-      console.log('⚠️ post_install hook already exists, manual merge may be needed');
+      // Créer le hook s'il n'existe pas
+      console.log('✅ Creating new post_install hook for MapLibre');
+      podfile += `
+post_install do |installer|${mapLibreFixContent}
+end
+`;
     }
 
+    config.modResults.contents = podfile;
     return config;
   });
 };
