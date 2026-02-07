@@ -8,26 +8,34 @@ const path = require('path');
  */
 /**
  * Plugin pour ajouter un post_install hook au Podfile
- * Cela force les modular headers sur MapLibre et configure correctement les pods
- */
 const withMapLibreFix = (config) => {
   return withPodfile(config, (config) => {
     let podfile = config.modResults.contents;
 
-    // Contenu à injecter pour MapLibre
+    // Murphy's Law Fix: Force specific settings for MapLibre
     const mapLibreFixContent = `
-    # Fix MapLibre configuration
+    # Fix MapLibre configuration - Robust "Murphy's Law" Edition
     installer.pods_project.targets.each do |target|
       target.build_configurations.each do |config|
         config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.1'
         
+        # Force Module support for MapLibre
         if target.name == 'MapLibre'
           config.build_settings['DEFINES_MODULE'] = 'YES'
           config.build_settings['CLANG_ENABLE_MODULES'] = 'YES'
+          config.build_settings['MACH_O_TYPE'] = 'staticlib'
+        end
+
+        # Ensure consumer finds the headers
+        if target.name == 'maplibre-react-native'
+          config.build_settings['HEADER_SEARCH_PATHS'] ||= '$(inherited)'
+          config.build_settings['HEADER_SEARCH_PATHS'] << ' "${PODS_CONFIGURATION_BUILD_DIR}/MapLibre/MapLibre.framework/Headers"'
+          config.build_settings['HEADER_SEARCH_PATHS'] << ' "${PODS_ROOT}/Headers/Public/MapLibre"'
         end
       end
     end
     
+    # Force MapLibre to behave as a static framework
     installer.pod_targets.each do |pod|
       if pod.name == 'MapLibre'
         def pod.build_type
@@ -39,21 +47,13 @@ const withMapLibreFix = (config) => {
 
     // Check if post_install hook exists
     const postInstallMatch = podfile.match(/post_install\s+do\s+\|([^|]+)\|/);
-
+    
     if (postInstallMatch) {
-      // Hook exists, capture variable name (e.g. 'installer')
       const installerVar = postInstallMatch[1].trim();
-      console.log(`✅ Injecting MapLibre fix into existing post_install hook (using variable '${installerVar}')`);
-
-      // Adapt fix content to use the correct variable name
+      console.log(`✅ Injecting Robust MapLibre fix into existing post_install hook (using variable '${installerVar}')`);
       const adaptedFix = mapLibreFixContent.replace(/installer/g, installerVar);
-
-      podfile = podfile.replace(
-        postInstallMatch[0],
-        `${postInstallMatch[0]}${adaptedFix}`
-      );
+      podfile = podfile.replace(postInstallMatch[0], `${postInstallMatch[0]}${adaptedFix}`);
     } else {
-      // Create new hook if none exists
       console.log('✅ Creating new post_install hook for MapLibre');
       podfile += `
 post_install do |installer|${mapLibreFixContent}
