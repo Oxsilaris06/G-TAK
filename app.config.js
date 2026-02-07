@@ -176,6 +176,7 @@ export default withExpoDevicePatch(withMapLibreFix({
     },
 
     plugins: [
+      './plugins/withKotlinFix',
       [
         "expo-build-properties",
         {
