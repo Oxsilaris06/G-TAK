@@ -9,7 +9,8 @@
     "web": "expo start --web",
     "prebuild": "expo prebuild",
     "lint": "eslint . --ext .ts,.tsx",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "postinstall": "node scripts/patch-expo-modules.js"
   },
   "dependencies": {
     "expo": "^52.0.0",
