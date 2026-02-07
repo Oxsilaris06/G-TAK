@@ -17,7 +17,7 @@ import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SplashScreen from 'expo-splash-screen';
 import * as Battery from 'expo-battery';
-import { Magnetometer } from 'expo-sensors';
+
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 
@@ -84,7 +84,7 @@ const App: React.FC = () => {
 
     // const magSubscription = useRef<any>(null); // Removed: Managed by LocationService
     const lastSentHead = useRef<number>(0);
-    const lastSentHead = useRef<number>(0);
+
 
     // Prevention double scan
     const [scanned, setScanned] = useState(false);
