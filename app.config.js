@@ -104,7 +104,7 @@ const withExpoDevicePatch = (config) => {
 const PROJECT_ID = "f55fd8e2-57c6-4432-a64c-fae41bb16a3e";
 const VERSION = "4.1.0";
 
-module.exports = withExpoDevicePatch(withMapLibreFix({
+export default withExpoDevicePatch(withMapLibreFix({
   expo: {
     name: "Praxis",
     slug: "praxis",

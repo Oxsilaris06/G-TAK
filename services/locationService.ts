@@ -78,6 +78,8 @@ class LocationService {
   private lastLocation: LocationData | null = null;
   private latestHeading: number | null = null; // Magnetic heading storage
   private isLandscape: boolean = false;
+  private lastEmittedHeading: number | null = null; // Dernier heading transmis
+  private lastHeadingEmitTime: number = 0; // Timestamp de la dernière émission
 
   setOrientation(isLandscape: boolean) {
     this.isLandscape = isLandscape;
@@ -252,10 +254,44 @@ class LocationService {
 
         this.latestHeading = heading;
 
-        // Si on est à l'arrêt, on met à jour l'orientation immédiatement
-        if (this.lastLocation && (this.lastLocation.speed || 0) < 1) {
-          this.lastLocation.heading = heading;
-          locationEmitter.emit('location', this.lastLocation);
+        // THROTTLING INTELLIGENT: Éviter de flooder le réseau avec des micro-changements
+        // On émet seulement si:
+        // 1. Changement significatif (>5°) OU
+        // 2. Plus de 2s depuis la dernière émission (pour garder "vivant" même si immobile)
+        const now = Date.now();
+        const headingDelta = this.lastEmittedHeading !== null
+          ? Math.abs(heading - this.lastEmittedHeading)
+          : 999; // Force première émission
+        const timeSinceLastEmit = now - this.lastHeadingEmitTime;
+
+        const shouldEmit = headingDelta > 5 || timeSinceLastEmit > 2000;
+
+        if (shouldEmit) {
+          this.lastEmittedHeading = heading;
+          this.lastHeadingEmitTime = now;
+
+          // CRITICAL FIX: Émettre les changements d'orientation significatifs
+          // Même si le GPS n'a pas bougé, on DOIT transmettre l'orientation aux autres
+          // Sinon, un utilisateur stationnaire en arrière-plan "gèle" visuellement pour les autres
+          if (this.lastLocation) {
+            // Mettre à jour le heading dans la dernière position connue
+            this.lastLocation.heading = heading;
+            // Forcer l'émission pour déclencher pulse() et updateUserPosition()
+            locationEmitter.emit('location', this.lastLocation);
+          } else {
+            // Edge case: Pas encore de position GPS, mais on a un cap
+            // Créer une location minimale pour transmettre au moins le heading
+            const minimalLocation: LocationData = {
+              latitude: 0,
+              longitude: 0,
+              altitude: null,
+              accuracy: null,
+              heading: heading,
+              speed: null,
+              timestamp: Date.now()
+            };
+            locationEmitter.emit('location', minimalLocation);
+          }
         }
       });
 
@@ -347,8 +383,8 @@ class LocationService {
   /**
    * Calcule la distance en mètres entre deux points (Haversine)
    */
-  public calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const R = 6371e3; // Rayon de la Terre en mètres
+  private calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const R = 6371e3; // Rayon de la terre en mètres
     const φ1 = lat1 * Math.PI / 180;
     const φ2 = lat2 * Math.PI / 180;
     const Δφ = (lat2 - lat1) * Math.PI / 180;
