@@ -183,7 +183,7 @@ export default withExpoDevicePatch(withMapLibreFix({
             compileSdkVersion: 35,
             targetSdkVersion: 35,
             buildToolsVersion: "35.0.0",
-            newArchEnabled: false,
+            newArchEnabled: true,
             gradleProperties: [
               { key: 'org.gradle.jvmargs', value: '-Xmx6144m -XX:MaxMetaspaceSize=512m' },
               // { key: 'kotlinVersion', value: '1.9.24' } // Let the plugin handle this
