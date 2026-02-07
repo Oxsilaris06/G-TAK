@@ -6,34 +6,47 @@ module.exports = function withKotlinFix(config) {
             let contents = config.modResults.contents;
 
             // 1. Force variable definition
-            // Matches: kotlinVersion = "1.x.x" or '1.x.x'
             contents = contents.replace(
                 /kotlinVersion\s*=\s*['"][\d.]+['"]/g,
                 `kotlinVersion = "1.9.24"`
             );
 
-            // 2. Hard replace configuration classpath if it uses the variable
+            // 2. Hard replace configuration classpath
             contents = contents.replace(
                 /classpath\s*\(['"]org\.jetbrains\.kotlin:kotlin-gradle-plugin:.*['"]\)/g,
                 `classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.24")`
             );
 
-            // 3. Inject Resolution Strategy
-            const resolutionStrategy = `
+            // 3. Inject Resolution Strategy & Compiler Options
+            const extraConfig = `
         allprojects {
+            // Force resolution strategy
             configurations.all {
                 resolutionStrategy.eachDependency { details ->
                     if (details.requested.group == 'org.jetbrains.kotlin' && details.requested.name == 'kotlin-gradle-plugin') {
                         details.useVersion "1.9.24"
                     }
+                    if (details.requested.group == 'org.jetbrains.kotlin' && details.requested.name.startsWith('kotlin-stdlib')) {
+                        details.useVersion "1.9.24"
+                    }
+                }
+            }
+
+            // Force compiler suppression
+            tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+                kotlinOptions {
+                    jvmTarget = "1.8"
+                    freeCompilerArgs += [
+                        "-P",
+                        "plugin:androidx.compose.compiler.plugins.kotlin:suppressKotlinVersionCompatibilityCheck=1.9.25"
+                    ]
                 }
             }
         }
       `;
 
-            // Insert resolution strategy at the end of buildscript or allprojects
             if (!contents.includes('resolutionStrategy.eachDependency')) {
-                contents += `\n${resolutionStrategy}\n`;
+                contents += `\n${extraConfig}\n`;
             }
 
             config.modResults.contents = contents;
