@@ -1,7 +1,7 @@
 name: Build iOS (Unsigned IPA for SideStore)
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # Déclenchement manuel via l'interface GitHub
 
 permissions:
   contents: write
@@ -9,6 +9,9 @@ permissions:
 jobs:
   build-ios:
     name: Build iOS IPA
+    # UTILISATION DE MACOS 14 (Sonoma - ARM64)
+    # Xcode 15.x est le défaut sur cette image, ce qui est plus stable que Xcode 16 (macos-15)
+    # pour les anciennes dépendances React Native.
     runs-on: macos-14
     timeout-minutes: 60
 
@@ -16,10 +19,27 @@ jobs:
       - name: 🏗 Setup Repository
         uses: actions/checkout@v4
 
+      # --- ETAPE DE VÉRIFICATION ---
+      - name: 🔍 VÉRIFICATION DU FICHIER CONFIG (Preuve)
+        run: |
+          echo "====================================================="
+          echo "CONTENU DE app.config.js SUR LE SERVEUR DE BUILD :"
+          echo "====================================================="
+          cat app.config.js
+          echo "====================================================="
+          
+          if grep -q "57c6 -4432" app.config.js; then
+            echo "❌ ERREUR CRITIQUE DÉTECTÉE : L'espace est PRÉSENT dans le fichier !"
+            exit 1
+          else
+            echo "✅ SUCCÈS : Aucun espace détecté dans l'ID du fichier."
+          fi
+
       - name: 🏗 Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          # Cache désactivé pour éviter les erreurs de lockfile absent
 
       - name: 🏗 Setup Java (for Expo tools)
         uses: actions/setup-java@v4
@@ -32,38 +52,139 @@ jobs:
           npm install --legacy-peer-deps
           npx expo install --fix -- --legacy-peer-deps
 
-      # Nettoyage profond pour forcer la réapplication des patches sur node_modules si nécessaire
-      # et s'assurer que le dossier ios est recréé proprement
-      - name: 🧹 Clean Build Environment
+      # --- PATCH EXPO-DEVICE (FIX CRITIQUE) ---
+      # Fix pour l'erreur "cannot find 'TARGET_OS_SIMULATOR' in scope" avec Xcode 15+
+      - name: 🚑 Patch expo-device (TARGET_OS_SIMULATOR)
         run: |
-          rm -rf ios
-          rm -rf android
-          rm -rf node_modules/.cache
-          # On ne supprime PAS node_modules entier pour gagner du temps, 
-          # le patch du plugin s'appliquera sur les fichiers existants.
+          echo "Patching expo-device for Xcode 15 compatibility..."
+          # On remplace la vérification dynamique par 'false' car on compile pour un DEVICE physique (Release)
+          # Cela corrige l'erreur de compilation immédiate.
+          # Le fichier est généralement dans node_modules/expo-device/ios/UIDevice.swift
+          find node_modules/expo-device/ios -name "UIDevice.swift" -exec sed -i '' 's/return TARGET_OS_SIMULATOR != 0/return false/g' {} +
+          echo "✅ Patch appliqué sur UIDevice.swift"
 
+      # --- PATCH MAPLIBRE IMPORTS (FIX MODULE NOT FOUND) ---
+      # Remplace @import MapLibre; par #import <MapLibre/MapLibre.h> pour éviter les erreurs de module
+      - name: 🚑 Patch MapLibre Imports
+        run: |
+          echo "Patching MapLibre imports for static framework compatibility..."
+          find node_modules/@maplibre/maplibre-react-native/ios -type f \( -name "*.h" -o -name "*.m" \) -print0 | xargs -0 sed -i '' 's/@import MapLibre;/#import <MapLibre\/MapLibre.h>/g'
+          echo "✅ Patch appliqué sur les fichiers MapLibre"
+
+      # Prebuild génère les dossiers natifs (/ios)
       - name: ⚙️ Expo Prebuild
-        # C'est ici que 'withMapLibreImportPatch' va s'exécuter et modifier le code source
-        run: npx expo prebuild --platform ios --no-install
+        run: npx expo prebuild --platform ios --clean --no-install
+
+      # --- MURPHY FIX : PATCH PODFILE POUR MAPLIBRE + iOS VERSION ---
+      - name: 🔧 Patch Podfile for MapLibre + iOS Version (Ruby Script)
+        run: |
+          cd ios
+          # Création d'un script Ruby pour modifier le Podfile proprement
+          cat <<'EOF' > patch_podfile.rb
+          file_path = 'Podfile'
+          text = File.read(file_path)
+          
+          # 1. Ajouter use_frameworks! avec linkage statique AVANT la plateforme
+          # CRITIQUE: Nécessaire pour que @import MapLibre fonctionne (modules)
+          unless text.include?("use_frameworks!")
+            text = text.sub(/(platform :ios)/, "use_frameworks! :linkage => :static\n\n\\1")
+            puts "✅ use_frameworks! :linkage => :static ajouté"
+          end
+          
+          # 2. Ajouter MapLibre SDK AVANT use_expo_modules! si pas déjà présent
+          # CRITIQUE: @maplibre/maplibre-react-native v10 nécessite MapLibre SDK 6.17.1 pour iOS
+          unless text.include?("pod 'MapLibre'")
+            text = text.sub(/(\s+use_expo_modules!)/, "  # MapLibre Native SDK 6.17.1 for @maplibre/maplibre-react-native v10\n  pod 'MapLibre', '6.17.1'\n\n\\1")
+            puts "✅ MapLibre SDK 6.17.1 ajouté au Podfile"
+          end
+          
+          # 3. Configuration post_install pour iOS version minimale et suppression warnings
+          config_block = <<~RUBY
+            installer.pods_project.targets.each do |target|
+              target.build_configurations.each do |config|
+                # Force iOS 13.4 minimum pour tous les pods
+                config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.4'
+                
+                # Suppression des warnings pour un build propre
+                config.build_settings['GCC_WARN_INHIBIT_ALL_WARNINGS'] = "YES"
+                config.build_settings['SWIFT_SUPPRESS_WARNINGS'] = "YES"
+              end
+            end
+          RUBY
+
+          # Injecter la config dans le bloc post_install existant
+          if text.include?('post_install do |installer|')
+            new_text = text.sub('post_install do |installer|', "post_install do |installer|\n#{config_block}")
+            File.write(file_path, new_text)
+            puts "✅ Podfile patché avec succès (Injection post_install)."
+          else
+            # Si pas de bloc, on en crée un à la fin
+            File.open(file_path, 'a') do |f|
+              f.puts ""
+              f.puts "post_install do |installer|"
+              f.puts config_block
+              f.puts "end"
+            end
+            puts "✅ Podfile patché avec succès (Ajout post_install)."
+          end
+          EOF
+          
+          # Exécution du script
+          ruby patch_podfile.rb
+          rm patch_podfile.rb
+          
+          echo "--- Vérification du Podfile (Début) ---"
+          head -n 30 Podfile
+          echo "--- Vérification du Podfile (Fin) ---"
+          tail -n 30 Podfile
 
       - name: 🔧 Install Pods
         run: |
           cd ios
           pod install --repo-update
-        env:
-          LANG: en_US.UTF-8
+          
+          # Vérification que MapLibre est bien installé
+          if [ -d "Pods/MapLibre" ]; then
+            echo "✅ MapLibre SDK installé avec succès"
+          else
+            echo "❌ ERREUR: MapLibre SDK non installé!"
+            echo "Podfile.lock:"
+            head -n 50 Podfile.lock
+            exit 1
+          fi
 
       - name: 🔨 Build Unsigned .app with Xcode
         run: |
           cd ios
           
+          # --- CORRECTION CRITIQUE DU WORKSPACE ---
           WORKSPACE=$(find . -maxdepth 1 -name "*.xcworkspace" | head -n 1)
-          SCHEME="Praxis"
+          if [ -z "$WORKSPACE" ]; then
+             echo "⚠️ Pas de workspace racine trouvé, recherche plus large..."
+             WORKSPACE=$(find . -name "*.xcworkspace" -not -path "*.xcodeproj/*" | head -n 1)
+          fi
+          echo "✅ Workspace Correct trouvé : $WORKSPACE"
           
+          # DÉTECTION INTELLIGENTE DU SCHEME
+          if xcodebuild -workspace "$WORKSPACE" -list | grep -q "Praxis"; then
+            SCHEME="Praxis"
+          elif xcodebuild -workspace "$WORKSPACE" -list | grep -q "GTAK"; then
+            SCHEME="GTAK"
+          else
+            SCHEME=$(xcodebuild -workspace "$WORKSPACE" -list | sed -n '/Schemes:/,$p' | tail -n +2 | head -n 1 | xargs)
+          fi
+          
+          if [ -z "$SCHEME" ]; then
+             echo "❌ ERREUR : Aucun Scheme trouvé. Forçage à 'Praxis'."
+             SCHEME="Praxis"
+          fi
+          echo "✅ SCHEME SÉLECTIONNÉ : $SCHEME"
+          
+          # Utilisation d'un chemin ABSOLU pour DerivedData
           DERIVED_DATA_PATH="$(pwd)/build_xc"
           mkdir -p "$DERIVED_DATA_PATH"
 
-          # Ajout de CLANG_ALLOW_NON_MODULAR... dans la ligne de commande aussi par sécurité
+          # Compilation pour ARM64 (Device) sans signature
           xcodebuild \
             -workspace "$WORKSPACE" \
             -scheme "$SCHEME" \
@@ -77,26 +198,30 @@ jobs:
             DISABLE_MANUAL_TARGET_ORDER_BUILD_WARNING=YES \
             COMPILER_INDEX_STORE_ENABLE=NO \
             CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES=YES \
-            GCC_WARN_INHIBIT_ALL_WARNINGS=YES \
-            SWIFT_SUPPRESS_WARNINGS=YES \
+            GCC_TREAT_WARNINGS_AS_ERRORS=NO \
+            SWIFT_TREAT_WARNINGS_AS_ERRORS=NO \
             ONLY_ACTIVE_ARCH=NO
 
       - name: 📦 Package into .ipa (Payload)
         run: |
           cd ios
           DERIVED_DATA_PATH="$(pwd)/build_xc"
-          mkdir Payload
           
+          mkdir Payload
+          # --- MURPHY FIX #4 : Trouver le bon .app ---
+          # On cherche spécifiquement l'app qui ne contient pas 'Tests' et qui est dans le dossier Release
           APP_PATH=$(find "$DERIVED_DATA_PATH/Build/Products/Release-iphoneos" -name "*.app" -maxdepth 1 | grep -v "Tests" | head -n 1)
           
           if [ -z "$APP_PATH" ]; then
-            echo "❌ ERREUR : Aucun fichier .app trouvé."
+            echo "❌ ERREUR : Aucun fichier .app trouvé dans $DERIVED_DATA_PATH"
             ls -R "$DERIVED_DATA_PATH/Build/Products/Release-iphoneos"
             exit 1
           fi
           
-          echo "✅ Packaging de : $APP_PATH"
+          echo "✅ Packaging de l'application : $APP_PATH"
           cp -r "$APP_PATH" Payload/
+          
+          # On zippe le dossier Payload pour créer l'IPA
           zip -r GTAK-unsigned.ipa Payload
 
       - name: 📤 Upload to GitHub Release
