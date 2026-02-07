@@ -6,8 +6,6 @@ const path = require('path');
  * Plugin pour ajouter un post_install hook au Podfile
  * Cela force les modular headers sur MapLibre et configure correctement les pods
  */
-/**
- * Plugin pour ajouter un post_install hook au Podfile
 const withMapLibreFix = (config) => {
   return withPodfile(config, (config) => {
     let podfile = config.modResults.contents;
@@ -47,7 +45,7 @@ const withMapLibreFix = (config) => {
 
     // Check if post_install hook exists
     const postInstallMatch = podfile.match(/post_install\s+do\s+\|([^|]+)\|/);
-    
+
     if (postInstallMatch) {
       const installerVar = postInstallMatch[1].trim();
       console.log(`✅ Injecting Robust MapLibre fix into existing post_install hook (using variable '${installerVar}')`);
@@ -106,7 +104,7 @@ const withExpoDevicePatch = (config) => {
 const PROJECT_ID = "f55fd8e2-57c6-4432-a64c-fae41bb16a3e";
 const VERSION = "4.1.0";
 
-export default withExpoDevicePatch(withMapLibreFix({
+module.exports = withExpoDevicePatch(withMapLibreFix({
   expo: {
     name: "Praxis",
     slug: "praxis",
