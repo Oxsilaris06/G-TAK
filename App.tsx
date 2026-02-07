@@ -626,12 +626,6 @@ const App: React.FC = () => {
                     );
                     break;
                 case 'IMAGE_READY':
-                    // Photo downloaded and saved successfully
-                    showToast(`✅ Photo tactique téléchargée`, 'success');
-                    triggerTacticalNotification(
-                        `✅ Photo Disponible`,
-                        `Image téléchargée et prête à visualiser`
-                    );
                     console.log('[App] Image Ready:', event.imageId, event.uri);
                     break;
             }
