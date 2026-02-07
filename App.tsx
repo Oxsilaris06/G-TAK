@@ -521,7 +521,7 @@ const App: React.FC = () => {
         else if (data.type === 'SYNC_PINGS') {
             // Handled by Store
             // IMPORTANT: Request missing images after sync
-            if (Array.isArray(data.pings)) {
+            if (Array.isArray(data.pings) && fromId) {
                 data.pings.forEach((ping: PingData) => {
                     if (ping.hasImage && ping.imageId) {
                         imageService.exists(ping.imageId).then(exists => {
