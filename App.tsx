@@ -462,12 +462,7 @@ const App: React.FC = () => {
 
             // Gestion Image Architecture
             if (data.ping.hasImage && data.ping.imageId) {
-                // Image-specific notification
-                showToast(`📷 Photo tactique reçue de ${senderName}`, 'info');
-                triggerTacticalNotification(
-                    `📷 Photo Tactique - ${senderName}`,
-                    `${data.ping.type}: ${data.ping.msg || 'Voir photo'}`
-                );
+                // Image-specific toast (no system notification to avoid crash)
 
                 imageService.exists(data.ping.imageId).then(exists => {
                     if (exists) {
@@ -526,23 +521,7 @@ const App: React.FC = () => {
                 }
             }
         }
-        else if (data.type === 'SYNC_PINGS') {
-            // Handled by Store
-            // IMPORTANT: Request missing images after sync
-            if (Array.isArray(data.pings)) {
-                data.pings.forEach((ping: PingData) => {
-                    if (ping.hasImage && ping.imageId) {
-                        const imageId = ping.imageId; // Type guard ensures this is string
-                        imageService.exists(imageId).then(exists => {
-                            if (!exists) {
-                                console.log('[App] Requesting missing image after sync:', imageId);
-                                connectivityService.requestImage(imageId, [fromId]);
-                            }
-                        });
-                    }
-                });
-            }
-        }
+        else if (data.type === 'SYNC_PINGS') { /* Handled by Store */ }
         else if (data.type === 'SYNC_LOGS') { /* Handled by Store */ }
         else if (data.type === 'PING_MOVE') {
             // If update has new image we don't have, request it
@@ -635,12 +614,6 @@ const App: React.FC = () => {
                     );
                     break;
                 case 'IMAGE_READY':
-                    // Photo downloaded and saved successfully
-                    showToast(`✅ Photo tactique téléchargée`, 'success');
-                    triggerTacticalNotification(
-                        `✅ Photo Disponible`,
-                        `Image téléchargée et prête à visualiser`
-                    );
                     console.log('[App] Image Ready:', event.imageId, event.uri);
                     break;
             }
