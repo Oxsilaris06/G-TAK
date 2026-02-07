@@ -521,7 +521,7 @@ const App: React.FC = () => {
         else if (data.type === 'SYNC_PINGS') {
             // Handled by Store
             // IMPORTANT: Request missing images after sync
-            if (Array.isArray(data.pings) && fromId) {
+            if (Array.isArray(data.pings)) {
                 data.pings.forEach((ping: PingData) => {
                     if (ping.hasImage && ping.imageId) {
                         imageService.exists(ping.imageId).then(exists => {
@@ -626,6 +626,12 @@ const App: React.FC = () => {
                     );
                     break;
                 case 'IMAGE_READY':
+                    // Photo downloaded and saved successfully
+                    showToast(`✅ Photo tactique téléchargée`, 'success');
+                    triggerTacticalNotification(
+                        `✅ Photo Disponible`,
+                        `Image téléchargée et prête à visualiser`
+                    );
                     console.log('[App] Image Ready:', event.imageId, event.uri);
                     break;
             }
