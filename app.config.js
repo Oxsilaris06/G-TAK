@@ -186,7 +186,8 @@ export default withExpoDevicePatch(withMapLibreFix({
             buildToolsVersion: "35.0.0",
             newArchEnabled: false,
             gradleProperties: [
-              { key: 'org.gradle.jvmargs', value: '-Xmx6144m -XX:MaxMetaspaceSize=512m' }
+              { key: 'org.gradle.jvmargs', value: '-Xmx6144m -XX:MaxMetaspaceSize=512m' },
+              { key: 'kotlinVersion', value: '1.9.24' }
             ]
           },
           ios: {
