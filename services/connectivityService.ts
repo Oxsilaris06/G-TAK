@@ -423,10 +423,11 @@ export class ConnectivityService {
 
     // REACTIVE KEEP-ALIVE (ACTIVE): Reply to notifications to keep link alive
     // "Receiving a notification obliges the sending of a ping/pong"
-    // CRITICAL: UPDATE_USER (including heading) must trigger activity to prevent timeout
-    const NOTIFICATION_TYPES = ['PING_UPDATE', 'PING', 'MSG', 'LOG_UPDATE', 'TOAST', 'UPDATE_USER', 'UPDATE'];
+    const NOTIFICATION_TYPES = ['PING_UPDATE', 'PING', 'MSG', 'LOG_UPDATE', 'TOAST'];
+    // Also specific user updates like CONTACT
+    const isContactUpdate = data.type === 'UPDATE_USER' && data.user?.status === 'CONTACT';
 
-    if (NOTIFICATION_TYPES.includes(data.type)) {
+    if (NOTIFICATION_TYPES.includes(data.type) || isContactUpdate) {
       // Force a PONG to confirm reception and refresh NAT
       this.sendTo(from, { type: 'HEARTBEAT_PONG' });
     }
