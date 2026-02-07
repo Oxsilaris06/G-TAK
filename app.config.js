@@ -37,15 +37,23 @@ const withMapLibreFix = (config) => {
     end
 `;
 
-    if (podfile.includes('post_install do |installer|')) {
-      // Injecter dans le hook existant
-      console.log('✅ Injecting MapLibre fix into existing post_install hook');
+    // Check if post_install hook exists
+    const postInstallMatch = podfile.match(/post_install\s+do\s+\|([^|]+)\|/);
+
+    if (postInstallMatch) {
+      // Hook exists, capture variable name (e.g. 'installer')
+      const installerVar = postInstallMatch[1].trim();
+      console.log(`✅ Injecting MapLibre fix into existing post_install hook (using variable '${installerVar}')`);
+
+      // Adapt fix content to use the correct variable name
+      const adaptedFix = mapLibreFixContent.replace(/installer/g, installerVar);
+
       podfile = podfile.replace(
-        'post_install do |installer|',
-        `post_install do |installer|${mapLibreFixContent}`
+        postInstallMatch[0],
+        `${postInstallMatch[0]}${adaptedFix}`
       );
     } else {
-      // Créer le hook s'il n'existe pas
+      // Create new hook if none exists
       console.log('✅ Creating new post_install hook for MapLibre');
       podfile += `
 post_install do |installer|${mapLibreFixContent}

@@ -507,8 +507,9 @@ const TacticalMap = ({
       const deltaLat = Math.abs(lat - ping.lat);
       const deltaLng = Math.abs(lng - ping.lng);
 
-      // If movement is very small (< ~50m), consider it a sloppy click
-      if (deltaLat < 0.0005 && deltaLng < 0.0005) {
+      // If movement is very small (< ~5m), consider it a sloppy click
+      // Previous limit was too high (0.0005 ~50m), preventing precise edits
+      if (deltaLat < 0.00005 && deltaLng < 0.00005) {
         handlePingClickWithThrottle(ping.id);
         return;
       }

@@ -378,7 +378,12 @@ const App: React.FC = () => {
             // Cleanup uniquement si on quitte vraiment la session
             // Handled mostly by unmount or explicit logout
         };
-    }, [hostId, settings.gpsUpdateInterval, isLandscape]); // Retiré 'view' des dépendances
+    }, [hostId, settings.gpsUpdateInterval]); // Removed isLandscape to avoid restart
+
+    // Dedicated effect for Orientation updates (Lightweight)
+    useEffect(() => {
+        locationService.setOrientation(isLandscape);
+    }, [isLandscape]);
 
     // Initialize ID immediately
     useEffect(() => {
@@ -460,7 +465,7 @@ const App: React.FC = () => {
             if (u.status === 'CONTACT' && prevStatus !== 'CONTACT') {
                 const coordStr = u.lat && u.lng ? `(${u.lat.toFixed(5)}, ${u.lng.toFixed(5)})` : '';
                 showToast(`${u.callsign} : CONTACT ! ${coordStr}`, 'error');
-                triggerTacticalNotification(`${u.callsign} - CONTACT`, `Position GPS: ${u.lat?.toFixed(5) || 'N/A'}`);
+                triggerTacticalNotification(`${u.callsign} - CONTACT`, `Pos: ${u.lat?.toFixed(5) || '?'}, ${u.lng?.toFixed(5) || '?'}`);
             }
 
             if (u.status !== OperatorStatus.CLEAR && u.status !== OperatorStatus.PROGRESSION) {

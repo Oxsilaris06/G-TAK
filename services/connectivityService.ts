@@ -392,9 +392,6 @@ export class ConnectivityService {
     }
   }
 
-  /**
-   * Gère les données reçues
-   */
   private handleData(data: any, from: string): void {
     if (!data || typeof data !== 'object') return;
 
@@ -405,6 +402,18 @@ export class ConnectivityService {
       // Send PONG back to host to confirm we are alive
       this.sendTo(from, { type: 'HEARTBEAT_PONG' });
       return;
+    }
+
+    // ACTIVITY AS HEARTBEAT: Any valid data proves connection is alive
+    if (this.state.role === OperatorRole.OPR && from === this.state.hostId) {
+      this.state.lastHostHeartbeat = Date.now();
+    } else if (this.state.role === OperatorRole.HOST) {
+      // Reset missed pongs for this client
+      const stats = this.state.peerHeartbeatStats.get(from);
+      if (stats) stats.missedPongs = 0;
+      // Also update connection timestamp
+      const peer = this.state.peerData.get(from);
+      if (peer) peer.connectionTimestamp = Date.now();
     }
 
     // --- IMAGE PROTOCOL HANDLERS ---

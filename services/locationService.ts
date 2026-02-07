@@ -255,6 +255,9 @@ class LocationService {
         // Offset de 90° souvent nécessaire selon le repère capteur
         heading = (heading - 90 + 360) % 360;
 
+        // Safety check for NaN
+        if (isNaN(heading)) heading = 0;
+
         this.latestHeading = heading;
 
         // Si on est à l'arrêt, on met à jour l'orientation immédiatement
