@@ -147,18 +147,26 @@ const App: React.FC = () => {
     }, []);
 
     const triggerTacticalNotification = async (title: string, body: string) => {
-        if (AppState.currentState !== 'background' || settings.disableBackgroundNotifications) return;
-        await Notifications.dismissAllNotificationsAsync();
-        await Notifications.scheduleNotificationAsync({
-            content: {
-                title,
-                body,
-                sound: true,
-                priority: Notifications.AndroidNotificationPriority.HIGH,
-                color: "#000000"
-            },
-            trigger: null,
-        });
+        try {
+            // Safety check: only trigger if app is in background
+            if (!AppState || AppState.currentState !== 'background' || settings.disableBackgroundNotifications) {
+                return;
+            }
+
+            await Notifications.dismissAllNotificationsAsync();
+            await Notifications.scheduleNotificationAsync({
+                content: {
+                    title,
+                    body,
+                    sound: true,
+                    priority: Notifications.AndroidNotificationPriority.HIGH,
+                    color: "#000000"
+                },
+                trigger: null,
+            });
+        } catch (error) {
+            console.warn('[App] Failed to trigger notification:', error);
+        }
     };
 
     const safeBroadcast = async (data: any, critical: boolean = false) => {
@@ -524,10 +532,11 @@ const App: React.FC = () => {
             if (Array.isArray(data.pings)) {
                 data.pings.forEach((ping: PingData) => {
                     if (ping.hasImage && ping.imageId) {
-                        imageService.exists(ping.imageId).then(exists => {
+                        const imageId = ping.imageId; // Type guard ensures this is string
+                        imageService.exists(imageId).then(exists => {
                             if (!exists) {
-                                console.log('[App] Requesting missing image after sync:', ping.imageId);
-                                connectivityService.requestImage(ping.imageId, [fromId]);
+                                console.log('[App] Requesting missing image after sync:', imageId);
+                                connectivityService.requestImage(imageId, [fromId]);
                             }
                         });
                     }
