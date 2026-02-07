@@ -59,6 +59,17 @@ jobs:
             sed -i 's/implementation.*com.github.jiangdongguo.*libausbc.*/\/\/ Dependency removed/g' $FILE
           fi
 
+      - name: 🐛 DEBUG CONFIG
+        run: |
+          echo "=== COPYING GRADLE.PROPERTIES TO ANDROID FOLDER ==="
+          cp gradle.properties android/gradle.properties || true
+          
+          echo "=== ANDROID/BUILD.GRADLE ==="
+          cat android/build.gradle
+          
+          echo "=== ANDROID/GRADLE.PROPERTIES ==="
+          cat android/gradle.properties
+
       - name: Build Android APK (Release)
         run: |
           cd android
