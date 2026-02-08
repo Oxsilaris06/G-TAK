@@ -383,6 +383,11 @@ export class ConnectivityService {
           data: chunk
         });
 
+        // BACKGROUND FIX: Pulse connection every 10 chunks to prevent timeout during transfer
+        if (i % 10 === 0) {
+          this.pulse();
+        }
+
         // SLOW DOWN: 20ms wait per chunk to ensure UDP/WebRTC buffers don't overflow
         await new Promise(r => setTimeout(r, 20));
       }
@@ -870,6 +875,8 @@ export class ConnectivityService {
         type: 'UPDATE_USER',
         user: this.state.userData,
       });
+      // BACKGROUND FIX: Pulse pour maintenir connexion lors de changements d'état
+      this.pulse();
     }
   }
 
