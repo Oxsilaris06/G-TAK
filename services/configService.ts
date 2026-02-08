@@ -43,6 +43,12 @@ class ConfigService {
    */
   async update(updates: Partial<AppSettings>): Promise<void> {
     this.settings = { ...this.settings, ...updates };
+
+    // SYNC STORE
+    import('../store/usePraxisStore').then(({ usePraxisStore }) => {
+      usePraxisStore.getState().actions.updateSettings(updates);
+    });
+
     try {
       mmkvStorage.setObject(CONFIG_KEY, this.settings, true);
     } catch (e) {

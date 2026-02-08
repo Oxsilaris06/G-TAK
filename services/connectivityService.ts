@@ -85,16 +85,7 @@ export class ConnectivityService {
   // FIX: Flag to prevent migration processing during intentional disconnect (e.g. back button)
   private isCleaningUp: boolean = false;
 
-  // ZUSTAND INTEGRATION: Store actions injected from App.tsx
-  private storeActions: any = null;
 
-  /**
-   * Injecte les actions du store Zustand
-   */
-  setStoreActions(actions: any): void {
-    this.storeActions = actions;
-    console.log('[Connectivity] Store actions injected');
-  }
 
   /**
    * Obtient l'intervalle de heartbeat depuis les settings
@@ -466,6 +457,9 @@ export class ConnectivityService {
     if (data.type === 'SYNC_PINGS') {
       // We received the pings synchronization
       this.emit({ type: 'PING_SYNC_RECEIVED', pings: data.pings });
+      // SYNC STORE
+      usePraxisStore.getState().actions.resetPings();
+      data.pings.forEach((p: any) => usePraxisStore.getState().actions.addPing(p));
       return;
     }
 
@@ -689,6 +683,9 @@ export class ConnectivityService {
 
           this.state.peerData.set(storageId, userWithNetId);
 
+          // SYNC STORE
+          usePraxisStore.getState().actions.updatePeer(storageId, userWithNetId);
+
           const patchedData = { ...data, user: userWithNetId };
           this.broadcastExcept(from, patchedData);
         } else {
@@ -697,13 +694,45 @@ export class ConnectivityService {
         break;
 
       case 'PING':
+        this.broadcast(data);
+        // SYNC STORE
+        if (data.ping) usePraxisStore.getState().actions.addPing(data.ping);
+        break;
+
       case 'LOG_UPDATE':
         this.broadcast(data);
+        // SYNC STORE
+        if (data.logs && Array.isArray(data.logs)) {
+          // Reset and replace logs (store doesn't have setLogs yet, so we use reset + add loop or specific logic)
+          // Using direct state manipulation for performance if needed, but actions are safer.
+          // Given typical log size, reset + loop is acceptable.
+          usePraxisStore.getState().actions.resetLogs();
+          data.logs.forEach((l: any) => usePraxisStore.getState().actions.addLog(l));
+        }
         break;
 
       case 'PING_MOVE':
+        // SYNC STORE
+        usePraxisStore.getState().actions.movePing(data.id, data.lat, data.lng);
+        console.log(`[Connectivity] Relaying ${data.type} from ${from}`);
+        this.broadcastExcept(from, data);
+        break;
+
       case 'PING_DELETE':
+        // SYNC STORE
+        usePraxisStore.getState().actions.deletePing(data.id);
+        console.log(`[Connectivity] Relaying ${data.type} from ${from}`);
+        this.broadcastExcept(from, data);
+        break;
+
       case 'PING_UPDATE':
+        // SYNC STORE
+        usePraxisStore.getState().actions.updatePing(data.id, {
+          msg: data.msg,
+          details: data.details,
+          hasImage: data.hasImage,
+          imageId: data.imageId
+        });
         // Avoid echo back to sender for edits/moves (optimization)
         console.log(`[Connectivity] Relaying ${data.type} from ${from}`);
         this.broadcastExcept(from, data);
@@ -832,9 +861,8 @@ export class ConnectivityService {
     });
 
     // HYBRID SYNC: Synchroniser automatiquement avec Zustand store
-    if (this.storeActions) {
-      this.storeActions.setPeers(peers);
-    }
+    // HYBRID SYNC: Synchroniser automatiquement avec Zustand store
+    usePraxisStore.getState().actions.setPeers(peers);
   }
 
   /**

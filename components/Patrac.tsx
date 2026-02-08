@@ -814,533 +814,526 @@ export default function Patrac({ onClose, onApplyToOI }: PatracProps) {
     }
   };
 
-  const loadPreset = async (index: number) => {
-    try {
-      // Chargement sécurisé
-      const data = mmkvStorage.getObject<IPatracData>(PRESET_KEYS[index], true);
+  const loadPreset = (index: number) => {
+    Alert.alert(
+      'Charger Preset',
+      `Cela écrasera la session actuelle. Continuer ?`,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Charger',
+          onPress: async () => {
+            try {
+              // Chargement sécurisé
+              const data = mmkvStorage.getObject<IPatracData>(PRESET_KEYS[index], true);
 
-      if (!data) {
-        // Fallback Legacy
-        const json = await AsyncStorage.getItem(PRESET_KEYS[index]);
-        if (!json) {
-          Alert.alert('Info', `Preset ${index + 1} est vide`);
-          return;
-        }
-        const oldData = JSON.parse(json);
-        restoreData(oldData);
-        // Migration
-        mmkvStorage.setObject(PRESET_KEYS[index], oldData, true);
-        await AsyncStorage.removeItem(PRESET_KEYS[index]);
-        return;
-      }
+              if (!data) {
+                // Fallback Legacy
+                const json = await AsyncStorage.getItem(PRESET_KEYS[index]);
+                if (!json) {
+                  Alert.alert('Info', `Preset ${index + 1} est vide`);
+                  return;
+                }
+                const oldData = JSON.parse(json);
+                restoreData(oldData);
+                // Migration
+                mmkvStorage.setObject(PRESET_KEYS[index], oldData, true);
+                await AsyncStorage.removeItem(PRESET_KEYS[index]);
+                Alert.alert('Succès', `Preset ${index + 1} chargé`);
+                return;
+              }
 
-      restoreData(data);
-    } catch (e) {
-      console.error('Load preset error:', e);
-      Alert.alert('Erreur', 'Impossible de charger le preset');
-    }
-  };
-
-  Alert.alert(
-    'Charger Preset',
-    `Cela écrasera la session actuelle. Continuer ?`,
-    [
-      { text: 'Annuler', style: 'cancel' },
-      {
-        text: 'Charger',
-        onPress: () => {
-          const data: IPatracData = JSON.parse(json);
-          restoreData(data);
-          saveData();
-          Alert.alert('Succès', `Preset ${index + 1} chargé`);
-        }
-      }
-    ]
-  );
-} catch (e) {
-  Alert.alert('Erreur', 'Impossible de charger le preset');
-}
-  };
-
-const renamePreset = (index: number) => {
-  Alert.prompt(
-    'Renommer Preset',
-    'Nouveau nom :',
-    [
-      { text: 'Annuler', style: 'cancel' },
-      {
-        text: 'OK',
-        onPress: (name) => {
-          if (name) {
-            const newNames = [...presetNames];
-            newNames[index] = name;
-            setPresetNames(newNames);
-            savePresetNames(newNames);
+              restoreData(data);
+              Alert.alert('Succès', `Preset ${index + 1} chargé`);
+            } catch (e) {
+              console.error('Load preset error:', e);
+              Alert.alert('Erreur', 'Impossible de charger le preset');
+            }
           }
         }
-      }
-    ],
-    'plain-text',
-    presetNames[index]
-  );
-};
+      ]
+    );
+  };
 
-// --- APPLY TO OI ---
-const handleApplyToOI = () => {
-  if (!onApplyToOI) {
-    Alert.alert('Erreur', 'Fonction non disponible');
-    return;
-  }
-
-  Alert.alert(
-    'Appliquer à OI',
-    'Cela remplacera la configuration PATRACDVR dans l\'Ordre Initial. Continuer ?',
-    [
-      { text: 'Annuler', style: 'cancel' },
-      {
-        text: 'Appliquer',
-        onPress: () => {
-          onApplyToOI({ vehicles, poolMembers });
-          Alert.alert('Succès', 'Configuration appliquée à l\'Ordre Initial');
+  const renamePreset = (index: number) => {
+    Alert.prompt(
+      'Renommer Preset',
+      'Nouveau nom :',
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'OK',
+          onPress: (name) => {
+            if (name) {
+              const newNames = [...presetNames];
+              newNames[index] = name;
+              setPresetNames(newNames);
+              savePresetNames(newNames);
+            }
+          }
         }
-      }
-    ]
-  );
-};
+      ],
+      'plain-text',
+      presetNames[index]
+    );
+  };
 
-// --- RENDER HELPERS ---
-const renderQuickEditPanel = () => {
-  if (!isQuickEditVisible || !activeMemberId) return null;
+  // --- APPLY TO OI ---
+  const handleApplyToOI = () => {
+    if (!onApplyToOI) {
+      Alert.alert('Erreur', 'Fonction non disponible');
+      return;
+    }
 
-  const member = getActiveMember();
-  if (!member) return null;
+    Alert.alert(
+      'Appliquer à OI',
+      'Cela remplacera la configuration PATRACDVR dans l\'Ordre Initial. Continuer ?',
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Appliquer',
+          onPress: () => {
+            onApplyToOI({ vehicles, poolMembers });
+            Alert.alert('Succès', 'Configuration appliquée à l\'Ordre Initial');
+          }
+        }
+      ]
+    );
+  };
 
-  return (
-    <View style={styles.quickEditPanel}>
-      <View style={styles.quickEditHeader}>
-        <Text style={styles.quickEditTitle}>Édition : <Text style={styles.quickEditTrigramme}>{member.trigramme}</Text></Text>
-        <TouchableOpacity onPress={() => { setIsQuickEditVisible(false); setActiveMemberId(null); }}>
-          <MaterialIcons name="close" size={24} color={THEME.textSecondary} />
+  // --- RENDER HELPERS ---
+  const renderQuickEditPanel = () => {
+    if (!isQuickEditVisible || !activeMemberId) return null;
+
+    const member = getActiveMember();
+    if (!member) return null;
+
+    return (
+      <View style={styles.quickEditPanel}>
+        <View style={styles.quickEditHeader}>
+          <Text style={styles.quickEditTitle}>Édition : <Text style={styles.quickEditTrigramme}>{member.trigramme}</Text></Text>
+          <TouchableOpacity onPress={() => { setIsQuickEditVisible(false); setActiveMemberId(null); }}>
+            <MaterialIcons name="close" size={24} color={THEME.textSecondary} />
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.quickEditContent}>
+          {Object.entries(ATTRIBUTE_MAPPING).map(([label, conf]) => (
+            <View key={label} style={styles.quickEditCategory}>
+              <Text style={styles.quickEditCategoryTitle}>{label}</Text>
+              <View style={styles.quickEditOptions}>
+                {(memberConfig[conf.key] || []).map(opt => {
+                  const isSelected = isQuickEditSelected(conf.attribute, opt);
+                  return (
+                    <TouchableOpacity
+                      key={opt}
+                      style={[styles.quickEditBtn, isSelected && styles.quickEditBtnSelected]}
+                      onPress={() => handleQuickEditToggle(conf.attribute, opt)}
+                    >
+                      <Text style={[styles.quickEditBtnText, isSelected && styles.quickEditBtnTextSelected]}>
+                        {opt}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+          ))}
+        </View>
+
+        <TouchableOpacity
+          style={styles.deleteMemberBtn}
+          onPress={() => member && deleteMember(member.id)}
+        >
+          <MaterialIcons name="delete" size={20} color={THEME.dangerRed} />
+          <Text style={styles.deleteMemberBtnText}>Supprimer l'opérateur</Text>
         </TouchableOpacity>
       </View>
+    );
+  };
 
-      <View style={styles.quickEditContent}>
-        {Object.entries(ATTRIBUTE_MAPPING).map(([label, conf]) => (
-          <View key={label} style={styles.quickEditCategory}>
-            <Text style={styles.quickEditCategoryTitle}>{label}</Text>
-            <View style={styles.quickEditOptions}>
-              {(memberConfig[conf.key] || []).map(opt => {
-                const isSelected = isQuickEditSelected(conf.attribute, opt);
-                return (
-                  <TouchableOpacity
-                    key={opt}
-                    style={[styles.quickEditBtn, isSelected && styles.quickEditBtnSelected]}
-                    onPress={() => handleQuickEditToggle(conf.attribute, opt)}
-                  >
-                    <Text style={[styles.quickEditBtnText, isSelected && styles.quickEditBtnTextSelected]}>
-                      {opt}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          </View>
-        ))}
-      </View>
+  const renderNewMemberModal = () => {
+    if (!isNewMemberModalVisible) return null;
 
-      <TouchableOpacity
-        style={styles.deleteMemberBtn}
-        onPress={() => member && deleteMember(member.id)}
-      >
-        <MaterialIcons name="delete" size={20} color={THEME.dangerRed} />
-        <Text style={styles.deleteMemberBtnText}>Supprimer l'opérateur</Text>
-      </TouchableOpacity>
-    </View>
-  );
-};
+    return (
+      <Modal visible={isNewMemberModalVisible} animationType="slide" transparent>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Nouveau Membre</Text>
 
-const renderNewMemberModal = () => {
-  if (!isNewMemberModalVisible) return null;
+            <Text style={styles.label}>Trigramme</Text>
+            <TextInput
+              style={styles.input}
+              value={newMemberTrigramme}
+              onChangeText={setNewMemberTrigramme}
+              placeholder="Ex: T1, CDG..."
+              placeholderTextColor={THEME.textSecondary}
+              autoCapitalize="characters"
+              maxLength={5}
+            />
 
-  return (
-    <Modal visible={isNewMemberModalVisible} animationType="slide" transparent>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
-        <View style={styles.modalContent}>
-          <Text style={styles.modalTitle}>Nouveau Membre</Text>
+            <ScrollView style={{ maxHeight: 300 }}>
+              {Object.entries(ATTRIBUTE_MAPPING).map(([label, conf]) => (
+                <View key={label} style={{ marginBottom: 10 }}>
+                  <Text style={styles.label}>{label}</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View style={{ flexDirection: 'row', gap: 6 }}>
+                      {(memberConfig[conf.key] || []).map(opt => {
+                        const isSelected = (newMemberData[conf.attribute] || (conf.attribute === 'tenue' ? 'UBAS' : conf.attribute === 'gpb' ? 'GPBL' : 'Sans')) === opt;
+                        return (
+                          <TouchableOpacity
+                            key={opt}
+                            style={[styles.chip, isSelected && styles.chipSelected]}
+                            onPress={() => setNewMemberData({ ...newMemberData, [conf.attribute]: opt })}
+                          >
+                            <Text style={[styles.chipText, isSelected && styles.chipTextSelected]}>{opt}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </ScrollView>
+                </View>
+              ))}
+            </ScrollView>
 
-          <Text style={styles.label}>Trigramme</Text>
-          <TextInput
-            style={styles.input}
-            value={newMemberTrigramme}
-            onChangeText={setNewMemberTrigramme}
-            placeholder="Ex: T1, CDG..."
-            placeholderTextColor={THEME.textSecondary}
-            autoCapitalize="characters"
-            maxLength={5}
-          />
-
-          <ScrollView style={{ maxHeight: 300 }}>
-            {Object.entries(ATTRIBUTE_MAPPING).map(([label, conf]) => (
-              <View key={label} style={{ marginBottom: 10 }}>
-                <Text style={styles.label}>{label}</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                  <View style={{ flexDirection: 'row', gap: 6 }}>
-                    {(memberConfig[conf.key] || []).map(opt => {
-                      const isSelected = (newMemberData[conf.attribute] || (conf.attribute === 'tenue' ? 'UBAS' : conf.attribute === 'gpb' ? 'GPBL' : 'Sans')) === opt;
-                      return (
-                        <TouchableOpacity
-                          key={opt}
-                          style={[styles.chip, isSelected && styles.chipSelected]}
-                          onPress={() => setNewMemberData({ ...newMemberData, [conf.attribute]: opt })}
-                        >
-                          <Text style={[styles.chipText, isSelected && styles.chipTextSelected]}>{opt}</Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-                </ScrollView>
-              </View>
-            ))}
-          </ScrollView>
-
-          <View style={{ flexDirection: 'row', gap: 10, marginTop: 15 }}>
-            <TouchableOpacity
-              style={[styles.modalBtn, { backgroundColor: 'transparent', borderColor: THEME.textSecondary, borderWidth: 1 }]}
-              onPress={() => { setIsNewMemberModalVisible(false); setNewMemberTrigramme(''); setNewMemberData({}); }}
-            >
-              <Text style={{ color: THEME.textSecondary }}>Annuler</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.modalBtn, { backgroundColor: THEME.successGreen }]}
-              onPress={createMember}
-            >
-              <Text style={{ color: '#000', fontWeight: 'bold' }}>Ajouter</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </KeyboardAvoidingView>
-    </Modal>
-  );
-};
-
-const renderConfigModal = () => {
-  if (!isConfigVisible) return null;
-
-  return (
-    <Modal visible={isConfigVisible} animationType="slide" transparent>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
-        <View style={[styles.modalContent, { maxHeight: '80%' }]}>
-          <Text style={styles.modalTitle}>Configuration Unité</Text>
-          <Text style={styles.helpText}>Séparez chaque valeur par une virgule</Text>
-
-          <ScrollView>
-            {Object.keys(DEFAULT_MEMBER_CONFIG).filter(k => k !== 'vehicules_types').map(key => (
-              <View key={key} style={{ marginBottom: 12 }}>
-                <Text style={styles.label}>{key.charAt(0).toUpperCase() + key.slice(1)}</Text>
-                <TextInput
-                  style={[styles.input, { minHeight: 60, textAlignVertical: 'top' }]}
-                  value={configInputs[key] || ''}
-                  onChangeText={text => setConfigInputs({ ...configInputs, [key]: text })}
-                  multiline
-                  placeholderTextColor={THEME.textSecondary}
-                />
-              </View>
-            ))}
-          </ScrollView>
-
-          <View style={{ flexDirection: 'row', gap: 10, marginTop: 15 }}>
-            <TouchableOpacity
-              style={[styles.modalBtn, { backgroundColor: 'transparent', borderColor: THEME.textSecondary, borderWidth: 1 }]}
-              onPress={() => setIsConfigVisible(false)}
-            >
-              <Text style={{ color: THEME.textSecondary }}>Annuler</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.modalBtn, { backgroundColor: THEME.accentBlue }]}
-              onPress={() => { updateConfigFromInputs(); setIsConfigVisible(false); }}
-            >
-              <Text style={{ color: '#fff', fontWeight: 'bold' }}>Sauvegarder</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </KeyboardAvoidingView>
-    </Modal>
-  );
-};
-
-const renderPresetsModal = () => {
-  if (!isPresetsVisible) return null;
-
-  return (
-    <Modal visible={isPresetsVisible} animationType="slide" transparent>
-      <View style={styles.modalOverlay}>
-        <View style={styles.modalContent}>
-          <Text style={styles.modalTitle}>Gestion des Presets</Text>
-
-          {PRESET_KEYS.map((_, index) => (
-            <View key={index} style={styles.presetRow}>
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 15 }}>
               <TouchableOpacity
-                style={styles.presetNameBtn}
-                onPress={() => renamePreset(index)}
+                style={[styles.modalBtn, { backgroundColor: 'transparent', borderColor: THEME.textSecondary, borderWidth: 1 }]}
+                onPress={() => { setIsNewMemberModalVisible(false); setNewMemberTrigramme(''); setNewMemberData({}); }}
               >
-                <Text style={styles.presetName}>{presetNames[index]}</Text>
-                <MaterialIcons name="edit" size={16} color={THEME.textSecondary} />
+                <Text style={{ color: THEME.textSecondary }}>Annuler</Text>
               </TouchableOpacity>
-              <View style={{ flexDirection: 'row', gap: 8 }}>
+              <TouchableOpacity
+                style={[styles.modalBtn, { backgroundColor: THEME.successGreen }]}
+                onPress={createMember}
+              >
+                <Text style={{ color: '#000', fontWeight: 'bold' }}>Ajouter</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+    );
+  };
+
+  const renderConfigModal = () => {
+    if (!isConfigVisible) return null;
+
+    return (
+      <Modal visible={isConfigVisible} animationType="slide" transparent>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { maxHeight: '80%' }]}>
+            <Text style={styles.modalTitle}>Configuration Unité</Text>
+            <Text style={styles.helpText}>Séparez chaque valeur par une virgule</Text>
+
+            <ScrollView>
+              {Object.keys(DEFAULT_MEMBER_CONFIG).filter(k => k !== 'vehicules_types').map(key => (
+                <View key={key} style={{ marginBottom: 12 }}>
+                  <Text style={styles.label}>{key.charAt(0).toUpperCase() + key.slice(1)}</Text>
+                  <TextInput
+                    style={[styles.input, { minHeight: 60, textAlignVertical: 'top' }]}
+                    value={configInputs[key] || ''}
+                    onChangeText={text => setConfigInputs({ ...configInputs, [key]: text })}
+                    multiline
+                    placeholderTextColor={THEME.textSecondary}
+                  />
+                </View>
+              ))}
+            </ScrollView>
+
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 15 }}>
+              <TouchableOpacity
+                style={[styles.modalBtn, { backgroundColor: 'transparent', borderColor: THEME.textSecondary, borderWidth: 1 }]}
+                onPress={() => setIsConfigVisible(false)}
+              >
+                <Text style={{ color: THEME.textSecondary }}>Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalBtn, { backgroundColor: THEME.accentBlue }]}
+                onPress={() => { updateConfigFromInputs(); setIsConfigVisible(false); }}
+              >
+                <Text style={{ color: '#fff', fontWeight: 'bold' }}>Sauvegarder</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+    );
+  };
+
+  const renderPresetsModal = () => {
+    if (!isPresetsVisible) return null;
+
+    return (
+      <Modal visible={isPresetsVisible} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Gestion des Presets</Text>
+
+            {PRESET_KEYS.map((_, index) => (
+              <View key={index} style={styles.presetRow}>
                 <TouchableOpacity
-                  style={[styles.presetActionBtn, { backgroundColor: THEME.accentBlue }]}
-                  onPress={() => savePreset(index)}
+                  style={styles.presetNameBtn}
+                  onPress={() => renamePreset(index)}
                 >
-                  <MaterialIcons name="save" size={18} color="#fff" />
+                  <Text style={styles.presetName}>{presetNames[index]}</Text>
+                  <MaterialIcons name="edit" size={16} color={THEME.textSecondary} />
                 </TouchableOpacity>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <TouchableOpacity
+                    style={[styles.presetActionBtn, { backgroundColor: THEME.accentBlue }]}
+                    onPress={() => savePreset(index)}
+                  >
+                    <MaterialIcons name="save" size={18} color="#fff" />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.presetActionBtn, { backgroundColor: THEME.successGreen }]}
+                    onPress={() => loadPreset(index)}
+                  >
+                    <MaterialIcons name="folder-open" size={18} color="#000" />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ))}
+
+            <TouchableOpacity
+              style={[styles.modalBtn, { backgroundColor: 'transparent', borderColor: THEME.textSecondary, borderWidth: 1, marginTop: 15 }]}
+              onPress={() => setIsPresetsVisible(false)}
+            >
+              <Text style={{ color: THEME.textSecondary }}>Fermer</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    );
+  };
+
+  return (
+    <SafeAreaView style={styles.container}>
+      {/* HEADER */}
+      <View style={styles.header}>
+        <TouchableOpacity onPress={onClose} style={styles.backButton}>
+          <MaterialIcons name="arrow-back" size={24} color={THEME.textPrimary} />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>PATRACDVR</Text>
+        <View style={{ width: 40 }} />
+      </View>
+
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
+        <ScrollView style={styles.content} contentContainerStyle={{ paddingBottom: 150 }}>
+
+          {/* ACTION BAR */}
+          <View style={styles.actionBar}>
+            <TouchableOpacity style={styles.actionBtn} onPress={resetAll}>
+              <MaterialIcons name="delete-forever" size={20} color={THEME.trashColor} />
+              <Text style={[styles.actionBtnText, { color: THEME.trashColor }]}>RAZ</Text>
+            </TouchableOpacity>
+
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <TouchableOpacity style={styles.actionBtn} onPress={() => setIsPresetsVisible(true)}>
+                <MaterialIcons name="bookmark" size={20} color={THEME.accentBlue} />
+                <Text style={styles.actionBtnText}>Presets</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.actionBtn} onPress={importData}>
+                <MaterialIcons name="upload-file" size={20} color={THEME.textSecondary} />
+                <Text style={styles.actionBtnText}>Importer</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.actionBtn} onPress={exportData}>
+                <MaterialIcons name="save" size={20} color={THEME.textSecondary} />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* MISSION INFO */}
+          <View style={styles.missionInputs}>
+            <View style={styles.missionInputGroup}>
+              <Text style={styles.label}>Titre de la mission</Text>
+              <TextInput
+                style={styles.input}
+                value={missionTitle}
+                onChangeText={setMissionTitle}
+                placeholder="Ex: OP JUD X"
+                placeholderTextColor={THEME.textSecondary}
+              />
+            </View>
+            <View style={styles.missionInputGroup}>
+              <Text style={styles.label}>Heure de rassemblement</Text>
+              <TextInput
+                style={styles.input}
+                value={rallyTime}
+                onChangeText={setRallyTime}
+                placeholder="Ex: 06:00"
+                placeholderTextColor={THEME.textSecondary}
+              />
+            </View>
+          </View>
+
+          {/* QUICK EDIT PANEL */}
+          {renderQuickEditPanel()}
+
+          {/* VEHICLE CREATION */}
+          <Text style={styles.sectionTitle}>1. Gestion des Véhicules</Text>
+          <View style={styles.vehicleCreationButtons}>
+            {memberConfig.vehicules_types.map(type => (
+              <TouchableOpacity
+                key={type}
+                style={styles.addBtn}
+                onPress={() => addVehicle(type)}
+              >
+                <Text style={styles.addBtnText}>+ {type}</Text>
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity
+              style={[styles.addBtn, { borderColor: THEME.accentBlue }]}
+              onPress={() => {
+                Alert.prompt(
+                  'Nouveau Véhicule',
+                  'Nom du véhicule :',
+                  [
+                    { text: 'Annuler', style: 'cancel' },
+                    { text: 'Créer', onPress: name => name && addVehicle(name) }
+                  ],
+                  'plain-text'
+                );
+              }}
+            >
+              <Text style={[styles.addBtnText, { color: THEME.accentBlue }]}>+ Créer Véhicule</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* VEHICLES */}
+          <Text style={styles.sectionTitle}>2. Composition des Véhicules</Text>
+          <View style={styles.vehiclesContainer}>
+            {vehicles.map(v => (
+              <View key={v.id} style={styles.vehicleRow}>
+                <View style={styles.vehicleHeader}>
+                  <TouchableOpacity
+                    style={{ flex: 1 }}
+                    onLongPress={() => {
+                      Alert.prompt(
+                        'Renommer',
+                        'Nouveau nom :',
+                        [
+                          { text: 'Annuler', style: 'cancel' },
+                          { text: 'OK', onPress: name => name && renameVehicle(v.id, name) }
+                        ],
+                        'plain-text',
+                        v.name
+                      );
+                    }}
+                    delayLongPress={600}
+                  >
+                    <Text style={styles.vehicleName}>{v.name}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => removeVehicle(v.id)}>
+                    <MaterialIcons name="close" size={20} color={THEME.dangerRed} />
+                  </TouchableOpacity>
+                </View>
+
                 <TouchableOpacity
-                  style={[styles.presetActionBtn, { backgroundColor: THEME.successGreen }]}
-                  onPress={() => loadPreset(index)}
+                  style={styles.membersContainer}
+                  onPress={() => {
+                    if (activeMemberId) {
+                      assignMemberToVehicle(activeMemberId, v.id);
+                    }
+                  }}
                 >
-                  <MaterialIcons name="folder-open" size={18} color="#000" />
+                  {v.members.map(m => (
+                    <TouchableOpacity
+                      key={m.id}
+                      style={[
+                        styles.memberBtn,
+                        activeMemberId === m.id && styles.memberBtnActive
+                      ]}
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        handleMemberPress(m);
+                      }}
+                      onLongPress={() => handleMemberLongPress(m)}
+                    >
+                      <Text style={styles.memberTrigramme}>{m.trigramme}</Text>
+                      <Text style={styles.memberSubtext}>{m.cellule !== 'Sans' ? m.cellule : ''}</Text>
+                    </TouchableOpacity>
+                  ))}
+                  {v.members.length === 0 && (
+                    <Text style={styles.emptyText}>Appuyez pour assigner</Text>
+                  )}
                 </TouchableOpacity>
               </View>
+            ))}
+          </View>
+
+          {/* POOL */}
+          <View style={styles.poolHeader}>
+            <Text style={styles.sectionTitle}>3. Personnel non attribué</Text>
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <TouchableOpacity onPress={() => setIsConfigVisible(true)}>
+                <MaterialIcons name="settings" size={20} color={THEME.accentBlue} />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setIsNewMemberModalVisible(true)}>
+                <MaterialIcons name="person-add" size={20} color={THEME.accentBlue} />
+              </TouchableOpacity>
             </View>
-          ))}
+          </View>
 
+          <View style={styles.poolContainer}>
+            {poolMembers.map(m => (
+              <TouchableOpacity
+                key={m.id}
+                style={[
+                  styles.memberBtn,
+                  activeMemberId === m.id && styles.memberBtnActive
+                ]}
+                onPress={() => handleMemberPress(m)}
+                onLongPress={() => handleMemberLongPress(m)}
+              >
+                <Text style={styles.memberTrigramme}>{m.trigramme}</Text>
+                <Text style={styles.memberSubtext}>{m.fonction !== 'Sans' ? m.fonction : ''}</Text>
+              </TouchableOpacity>
+            ))}
+            {poolMembers.length === 0 && (
+              <Text style={styles.emptyText}>Aucun membre - Appuyez sur + pour ajouter</Text>
+            )}
+          </View>
+
+          {/* TRASH */}
           <TouchableOpacity
-            style={[styles.modalBtn, { backgroundColor: 'transparent', borderColor: THEME.textSecondary, borderWidth: 1, marginTop: 15 }]}
-            onPress={() => setIsPresetsVisible(false)}
-          >
-            <Text style={{ color: THEME.textSecondary }}>Fermer</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    </Modal>
-  );
-};
-
-return (
-  <SafeAreaView style={styles.container}>
-    {/* HEADER */}
-    <View style={styles.header}>
-      <TouchableOpacity onPress={onClose} style={styles.backButton}>
-        <MaterialIcons name="arrow-back" size={24} color={THEME.textPrimary} />
-      </TouchableOpacity>
-      <Text style={styles.headerTitle}>PATRACDVR</Text>
-      <View style={{ width: 40 }} />
-    </View>
-
-    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
-      <ScrollView style={styles.content} contentContainerStyle={{ paddingBottom: 150 }}>
-
-        {/* ACTION BAR */}
-        <View style={styles.actionBar}>
-          <TouchableOpacity style={styles.actionBtn} onPress={resetAll}>
-            <MaterialIcons name="delete-forever" size={20} color={THEME.trashColor} />
-            <Text style={[styles.actionBtnText, { color: THEME.trashColor }]}>RAZ</Text>
-          </TouchableOpacity>
-
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            <TouchableOpacity style={styles.actionBtn} onPress={() => setIsPresetsVisible(true)}>
-              <MaterialIcons name="bookmark" size={20} color={THEME.accentBlue} />
-              <Text style={styles.actionBtnText}>Presets</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.actionBtn} onPress={importData}>
-              <MaterialIcons name="upload-file" size={20} color={THEME.textSecondary} />
-              <Text style={styles.actionBtnText}>Importer</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.actionBtn} onPress={exportData}>
-              <MaterialIcons name="save" size={20} color={THEME.textSecondary} />
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* MISSION INFO */}
-        <View style={styles.missionInputs}>
-          <View style={styles.missionInputGroup}>
-            <Text style={styles.label}>Titre de la mission</Text>
-            <TextInput
-              style={styles.input}
-              value={missionTitle}
-              onChangeText={setMissionTitle}
-              placeholder="Ex: OP JUD X"
-              placeholderTextColor={THEME.textSecondary}
-            />
-          </View>
-          <View style={styles.missionInputGroup}>
-            <Text style={styles.label}>Heure de rassemblement</Text>
-            <TextInput
-              style={styles.input}
-              value={rallyTime}
-              onChangeText={setRallyTime}
-              placeholder="Ex: 06:00"
-              placeholderTextColor={THEME.textSecondary}
-            />
-          </View>
-        </View>
-
-        {/* QUICK EDIT PANEL */}
-        {renderQuickEditPanel()}
-
-        {/* VEHICLE CREATION */}
-        <Text style={styles.sectionTitle}>1. Gestion des Véhicules</Text>
-        <View style={styles.vehicleCreationButtons}>
-          {memberConfig.vehicules_types.map(type => (
-            <TouchableOpacity
-              key={type}
-              style={styles.addBtn}
-              onPress={() => addVehicle(type)}
-            >
-              <Text style={styles.addBtnText}>+ {type}</Text>
-            </TouchableOpacity>
-          ))}
-          <TouchableOpacity
-            style={[styles.addBtn, { borderColor: THEME.accentBlue }]}
+            style={styles.trashCan}
             onPress={() => {
-              Alert.prompt(
-                'Nouveau Véhicule',
-                'Nom du véhicule :',
-                [
-                  { text: 'Annuler', style: 'cancel' },
-                  { text: 'Créer', onPress: name => name && addVehicle(name) }
-                ],
-                'plain-text'
-              );
+              if (activeMemberId) {
+                deleteMember(activeMemberId);
+              }
             }}
           >
-            <Text style={[styles.addBtnText, { color: THEME.accentBlue }]}>+ Créer Véhicule</Text>
+            <MaterialIcons name="auto-delete" size={32} color={THEME.trashColor} />
+            <Text style={styles.trashText}>Appuyez pour supprimer</Text>
           </TouchableOpacity>
-        </View>
 
-        {/* VEHICLES */}
-        <Text style={styles.sectionTitle}>2. Composition des Véhicules</Text>
-        <View style={styles.vehiclesContainer}>
-          {vehicles.map(v => (
-            <View key={v.id} style={styles.vehicleRow}>
-              <View style={styles.vehicleHeader}>
-                <TouchableOpacity
-                  style={{ flex: 1 }}
-                  onLongPress={() => {
-                    Alert.prompt(
-                      'Renommer',
-                      'Nouveau nom :',
-                      [
-                        { text: 'Annuler', style: 'cancel' },
-                        { text: 'OK', onPress: name => name && renameVehicle(v.id, name) }
-                      ],
-                      'plain-text',
-                      v.name
-                    );
-                  }}
-                  delayLongPress={600}
-                >
-                  <Text style={styles.vehicleName}>{v.name}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => removeVehicle(v.id)}>
-                  <MaterialIcons name="close" size={20} color={THEME.dangerRed} />
-                </TouchableOpacity>
-              </View>
+          {/* GENERATE PDF BUTTON */}
+          <TouchableOpacity style={styles.generatePdfBtn} onPress={generatePDF}>
+            <MaterialIcons name="picture-as-pdf" size={24} color="#fff" />
+            <Text style={styles.generatePdfBtnText}>Générer le PATRACDVR</Text>
+          </TouchableOpacity>
 
-              <TouchableOpacity
-                style={styles.membersContainer}
-                onPress={() => {
-                  if (activeMemberId) {
-                    assignMemberToVehicle(activeMemberId, v.id);
-                  }
-                }}
-              >
-                {v.members.map(m => (
-                  <TouchableOpacity
-                    key={m.id}
-                    style={[
-                      styles.memberBtn,
-                      activeMemberId === m.id && styles.memberBtnActive
-                    ]}
-                    onPress={(e) => {
-                      e.stopPropagation();
-                      handleMemberPress(m);
-                    }}
-                    onLongPress={() => handleMemberLongPress(m)}
-                  >
-                    <Text style={styles.memberTrigramme}>{m.trigramme}</Text>
-                    <Text style={styles.memberSubtext}>{m.cellule !== 'Sans' ? m.cellule : ''}</Text>
-                  </TouchableOpacity>
-                ))}
-                {v.members.length === 0 && (
-                  <Text style={styles.emptyText}>Appuyez pour assigner</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-          ))}
-        </View>
-
-        {/* POOL */}
-        <View style={styles.poolHeader}>
-          <Text style={styles.sectionTitle}>3. Personnel non attribué</Text>
-          <View style={{ flexDirection: 'row', gap: 10 }}>
-            <TouchableOpacity onPress={() => setIsConfigVisible(true)}>
-              <MaterialIcons name="settings" size={20} color={THEME.accentBlue} />
+          {/* APPLY TO OI BUTTON */}
+          {onApplyToOI && (
+            <TouchableOpacity style={styles.applyToOIBtn} onPress={handleApplyToOI}>
+              <MaterialIcons name="check-circle" size={24} color="#fff" />
+              <Text style={styles.generatePdfBtnText}>Appliquer à l'Ordre Initial</Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => setIsNewMemberModalVisible(true)}>
-              <MaterialIcons name="person-add" size={20} color={THEME.accentBlue} />
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        <View style={styles.poolContainer}>
-          {poolMembers.map(m => (
-            <TouchableOpacity
-              key={m.id}
-              style={[
-                styles.memberBtn,
-                activeMemberId === m.id && styles.memberBtnActive
-              ]}
-              onPress={() => handleMemberPress(m)}
-              onLongPress={() => handleMemberLongPress(m)}
-            >
-              <Text style={styles.memberTrigramme}>{m.trigramme}</Text>
-              <Text style={styles.memberSubtext}>{m.fonction !== 'Sans' ? m.fonction : ''}</Text>
-            </TouchableOpacity>
-          ))}
-          {poolMembers.length === 0 && (
-            <Text style={styles.emptyText}>Aucun membre - Appuyez sur + pour ajouter</Text>
           )}
-        </View>
 
-        {/* TRASH */}
-        <TouchableOpacity
-          style={styles.trashCan}
-          onPress={() => {
-            if (activeMemberId) {
-              deleteMember(activeMemberId);
-            }
-          }}
-        >
-          <MaterialIcons name="auto-delete" size={32} color={THEME.trashColor} />
-          <Text style={styles.trashText}>Appuyez pour supprimer</Text>
-        </TouchableOpacity>
+        </ScrollView>
+      </KeyboardAvoidingView>
 
-        {/* GENERATE PDF BUTTON */}
-        <TouchableOpacity style={styles.generatePdfBtn} onPress={generatePDF}>
-          <MaterialIcons name="picture-as-pdf" size={24} color="#fff" />
-          <Text style={styles.generatePdfBtnText}>Générer le PATRACDVR</Text>
-        </TouchableOpacity>
-
-        {/* APPLY TO OI BUTTON */}
-        {onApplyToOI && (
-          <TouchableOpacity style={styles.applyToOIBtn} onPress={handleApplyToOI}>
-            <MaterialIcons name="check-circle" size={24} color="#fff" />
-            <Text style={styles.generatePdfBtnText}>Appliquer à l'Ordre Initial</Text>
-          </TouchableOpacity>
-        )}
-
-      </ScrollView>
-    </KeyboardAvoidingView>
-
-    {/* MODALS */}
-    {renderNewMemberModal()}
-    {renderConfigModal()}
-    {renderPresetsModal()}
-  </SafeAreaView>
-);
+      {/* MODALS */}
+      {renderNewMemberModal()}
+      {renderConfigModal()}
+      {renderPresetsModal()}
+    </SafeAreaView>
+  );
 }
 
 // --- STYLES ---

@@ -244,6 +244,12 @@ class LocationService {
           };
           this.lastLocation = locData;
           locationEmitter.emit('location', locData);
+
+          // SYNC STORE
+          // Update local user position in global store
+          import('../store/usePraxisStore').then(({ usePraxisStore }) => {
+            usePraxisStore.getState().actions.setUserPosition(locData.latitude, locData.longitude, locData.heading || undefined);
+          });
         }
       );
 
