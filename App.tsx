@@ -62,6 +62,13 @@ const App: React.FC = () => {
 
     const [isAppReady, setIsAppReady] = useState(false);
     const [fontsLoaded] = useFonts({ 'Saira Stencil One': SairaStencilOne_400Regular });
+
+    // DEBUG LOGS
+    console.log(`[App] Render. Fonts: ${fontsLoaded}, StoreReady: ${isStoreReady}, AppReady: ${isAppReady}`);
+
+    useEffect(() => {
+        console.log("[App] MOUNTED");
+    }, []);
     const [activeNotif, setActiveNotif] = useState<{ id: string, msg: string, type: 'alert' | 'info' | 'success' | 'warning' } | null>(null);
 
     // ZUSTAND MIGRATION
@@ -116,7 +123,6 @@ const App: React.FC = () => {
     // useEffect removed.
 
     // Reference pour accès dans les callbacks sans dépendance
-    const [scanned, setScanned] = useState(false);
     // quickMessagesList removed -> use settings.quickMessages
     const [freeMsgInput, setFreeMsgInput] = useState('');
     const [tempPingLoc, setTempPingLoc] = useState<any>(null);
@@ -249,57 +255,78 @@ const App: React.FC = () => {
 
         let mounted = true;
         const initApp = async () => {
-            try {
-                const s = await configService.init();
-                if (mounted) {
-                    actions.updateSettings(s);
-                    // CORRECTION: Récupération persistante du Trigramme
-                    const savedTrigram = mmkvStorage.getString(CONFIG.TRIGRAM_STORAGE_KEY) || await AsyncStorage.getItem(CONFIG.TRIGRAM_STORAGE_KEY);
-                    const finalUsername = savedTrigram || s.username;
-
-                    if (s.finalUsername) {
-                        actions.updateUser({ callsign: finalUsername, paxColor: s.userArrowColor });
-                        setLoginInput(finalUsername);
-                    } else {
-                        actions.updateUser({ paxColor: s.userArrowColor });
-                    }
-                    // setQuickMessagesList handled by store (settings.quickMessages)
-                    // No need to set it locally.
-                    if (s.customMapUrl) setMapMode('custom');
-                }
-            } catch (e) { console.log("Config Error:", e); }
-
-            try {
-                const permResult = await permissionService.requestAllPermissions();
-                if (!permResult.location) setGpsStatus('ERROR');
-                await Camera.requestCameraPermissionsAsync();
-            } catch (e) { console.log("Perm Error:", e); }
-
-            try {
-                const level = await Battery.getBatteryLevelAsync();
-                if (mounted && level) actions.updateUser({ bat: Math.round(level * 100) });
-            } catch (e) { }
-
-            // --- INITIALISATION ID PERSISTANT ---
-            // On initialise la connectivité dès le chargement pour récupérer l'ID unique stocké
-            // Le service s'occupera d'écraser 'loading...' avec le vrai ID
-            // Le service s'occupera d'écraser 'loading...' avec le vrai ID
-            try {
-                // Use current user state but override specific fields for init
-                const currentUser = usePraxisStore.getState().user;
-                await connectivityService.init(
-                    { ...currentUser, id: 'loading...', role: OperatorRole.OPR },
-                    OperatorRole.OPR
-                );
-            } catch (e) { console.log("Init Connectivity Error:", e); }
-
             if (mounted) {
-                setIsAppReady(true);
-                setTimeout(() => SplashScreen.hideAsync().catch(() => { }), 500);
+                console.log("[App] initApp STARTED");
+
+                // 1. CONFIGURATION
+                try {
+                    const s = await configService.init();
+                    console.log("[App] Config loaded");
+                    if (mounted) {
+                        actions.updateSettings(s);
+                        // CORRECTION: Récupération persistante du Trigramme
+                        const savedTrigram = mmkvStorage.getString(CONFIG.TRIGRAM_STORAGE_KEY) || await AsyncStorage.getItem(CONFIG.TRIGRAM_STORAGE_KEY);
+                        const finalUsername = s.finalUsername || savedTrigram || s.username;
+
+                        if (finalUsername) {
+                            actions.updateUser({ callsign: finalUsername, paxColor: s.userArrowColor });
+                            setLoginInput(finalUsername);
+                        } else {
+                            actions.updateUser({ paxColor: s.userArrowColor });
+                        }
+
+                        if (s.customMapUrl) setMapMode('custom');
+                    }
+                } catch (e) { console.error("[App] Config Error:", e); }
+
+                // 2. PERMISSIONS
+                try {
+                    console.log("[App] Requesting Permissions...");
+                    const permResult = await permissionService.requestAllPermissions();
+                    if (!permResult.location) {
+                        console.warn("[App] GPS Permission denied");
+                        setGpsStatus('ERROR');
+                    }
+                    await Camera.requestCameraPermissionsAsync();
+                    console.log("[App] Permissions DONE");
+                } catch (e) { console.error("[App] Perm Error:", e); }
+
+                // 3. SERVICES
+                try {
+                    console.log("[App] Initializing Services...");
+
+                    // Battery (initial read)
+                    const level = await Battery.getBatteryLevelAsync();
+                    if (mounted && level) actions.updateUser({ bat: Math.round(level * 100) });
+
+                    // Connectivity
+                    const currentUser = usePraxisStore.getState().user;
+                    await connectivityService.init(
+                        { ...currentUser, id: 'loading...', role: OperatorRole.OPR },
+                        OperatorRole.OPR
+                    );
+
+                    // Location
+                    await locationService.init();
+
+                    console.log("[App] Services Initialized. Setting AppReady.");
+                    if (mounted) {
+                        setIsAppReady(true);
+                        setTimeout(() => SplashScreen.hideAsync().catch(() => { }), 500);
+                    }
+                } catch (e) {
+                    console.error("[App] Service Init Error:", e);
+                    Alert.alert("Erreur Critique", "Impossible d'initialiser l'application: " + e);
+                }
             }
         };
+
         initApp();
 
+        return () => { mounted = false; };
+    }, [isStoreReady]); // Dependency on SecureBoot status
+
+    useEffect(() => {
         const battSub = Battery.addBatteryLevelListener(({ batteryLevel }) => {
             const newLevel = Math.round(batteryLevel * 100);
             const currentBat = usePraxisStore.getState().user.bat;
@@ -318,8 +345,14 @@ const App: React.FC = () => {
             }
         });
 
+        return () => {
+            battSub && battSub.remove();
+            appStateSub.remove();
+        };
+    }, []);
 
-
+    // Location Subscription Effect
+    useEffect(() => {
         const locSub = locationService.subscribe((loc) => {
             setGpsStatus('OK');
 
@@ -352,11 +385,10 @@ const App: React.FC = () => {
         });
 
         return () => {
-            mounted = false; locSub(); battSub.remove(); appStateSub.remove();
+            locSub();
             locationService.stopTracking();
-            // magSubscription remove handled in LocationService now
         };
-    }, [isStoreReady]);
+    }, []);
 
     useEffect(() => {
         // MISSION CRITICAL: Capteurs actifs tant qu'on est connecté à une session
