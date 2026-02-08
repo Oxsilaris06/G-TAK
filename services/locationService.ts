@@ -81,6 +81,7 @@ class LocationService {
   private lastEmittedHeading: number | null = null; // Dernier heading transmis
   private lastHeadingEmitTime: number = 0; // Timestamp de la dernière émission
   private headingFallbackInterval: NodeJS.Timeout | null = null; // Fallback si sensor s'arrête
+  private backgroundPulseInterval: NodeJS.Timeout | null = null; // Guaranteed background tick
 
   setOrientation(isLandscape: boolean) {
     this.isLandscape = isLandscape;
@@ -131,6 +132,10 @@ class LocationService {
           });
         }
       }
+
+      // START BACKGROUND PULSE LOOP
+      // Independent timer to guarantee network traffic even if stationary
+      this.startBackgroundPulse();
 
       // Souscription en premier plan pour des mises à jour plus rapides
       this.locationSubscription = await Location.watchPositionAsync(
@@ -420,6 +425,23 @@ class LocationService {
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
     return R * c;
+  }
+
+  /**
+   * GUARANTEED BACKGROUND TICK
+   * Force a pulse emission every X seconds to keep network alive
+   * This runs inside the context of the service wrapper (App scope) but requires
+   * the Foreground Service to keep the App process alive.
+   */
+  private startBackgroundPulse() {
+    if (this.backgroundPulseInterval) clearInterval(this.backgroundPulseInterval);
+
+    // Pulse every 10 seconds (aligned with heartbeat interval)
+    // This is safe because Foreground Service keeps CPU awake.
+    this.backgroundPulseInterval = setInterval(() => {
+      // Emit a 'pulse' event that App.tsx or ConnectivityService listens to
+      locationEmitter.emit('pulse');
+    }, 10000);
   }
 }
 
