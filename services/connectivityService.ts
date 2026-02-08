@@ -11,6 +11,7 @@ import { mmkvStorage } from './mmkvStorage';
 import { CONFIG } from '../constants';
 import { imageService } from './imageService';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
+import { usePraxisStore } from '../store/usePraxisStore';
 
 export type ConnectivityEvent =
   | { type: 'PEER_OPEN'; id: string }
@@ -295,8 +296,9 @@ export class ConnectivityService {
       this.sendTo(hostId, { type: 'REQUEST_PINGS' });
     });
 
-    conn.on('data', (data) => {
-      this.handleData(data, hostId);
+    conn.on('data', async (raw: any) => {
+      const data = await this.decryptPayload(raw);
+      if (data) this.handleData(data, hostId);
     });
 
     conn.on('close', () => {
@@ -329,8 +331,9 @@ export class ConnectivityService {
       // Le broadcast se fera après traitement du HELLO (ligne 430)
     });
 
-    conn.on('data', (data: any) => {
-      this.handleData(data, conn.peer);
+    conn.on('data', async (raw: any) => {
+      const data = await this.decryptPayload(raw);
+      if (data) this.handleData(data, conn.peer);
     });
 
     conn.on('close', () => {
@@ -854,28 +857,40 @@ export class ConnectivityService {
   /**
    * Diffuse des données à tous les peers
    */
-  broadcast(data: any): void {
+  /**
+   * Diffuse des données à tous les peers
+   */
+  async broadcast(data: any): Promise<void> {
+    // Optimisation: Si payload vide ou invalide
+    if (!data) return;
+
+    const finalData = await this.encryptPayload(data);
+
     this.state.connections.forEach((conn) => {
       if (conn.open) {
         try {
-          conn.send(data);
+          conn.send(finalData);
         } catch (e) {
           console.error('[Connectivity] Broadcast error:', e);
         }
       }
     });
-    // NOTE: pulse() retiré d'ici car créait une boucle infinie
-    // Les pulse() sont gérés par les appelants spécifiques (updateUser, etc.)
   }
 
   /**
    * Diffuse à tous sauf un peer
    */
-  broadcastExcept(exceptPeerId: string, data: any): void {
+  /**
+   * Diffuse à tous sauf un peer
+   */
+  async broadcastExcept(exceptPeerId: string, data: any): Promise<void> {
+    if (!data) return;
+    const finalData = await this.encryptPayload(data);
+
     this.state.connections.forEach((conn, peerId) => {
       if (peerId !== exceptPeerId && conn.open) {
         try {
-          conn.send(data);
+          conn.send(finalData);
         } catch (e) {
           console.error('[Connectivity] Broadcast error:', e);
         }
@@ -1411,6 +1426,73 @@ export class ConnectivityService {
 
     this.state.isReconnecting = false;
     this.state.reconnectAttempt = 0;
+  }
+  // --- ENCRYPTION HELPERS ---
+
+  private async encryptPayload(data: any): Promise<any> {
+    const settings = configService.get();
+    if (!settings.enableSessionEncryption || !settings.activeSessionKeyId) {
+      return data;
+    }
+
+    const key = settings.sessionKeys?.find(k => k.id === settings.activeSessionKeyId);
+    if (!key) return data;
+
+    try {
+      const payload = JSON.stringify(data);
+      // XOR Cipher (Prototype for MVP)
+      // Ideally replace with AES-GCM via a native library if available
+      const keyChars = key.secret.split('').map(c => c.charCodeAt(0));
+      let encrypted = '';
+      for (let i = 0; i < payload.length; i++) {
+        encrypted += String.fromCharCode(payload.charCodeAt(i) ^ keyChars[i % keyChars.length]);
+      }
+
+      // Base64 encode for safe transport
+      // Using global btoa if available or Buffer
+      const b64 = typeof btoa !== 'undefined' ? btoa(encrypted) : Buffer.from(encrypted, 'binary').toString('base64');
+
+      return {
+        _encrypted: true,
+        _keyId: key.id,
+        payload: b64
+      };
+    } catch (e) {
+      console.error('[Connectivity] Encryption failed', e);
+      return data;
+    }
+  }
+
+  private async decryptPayload(data: any): Promise<any> {
+    if (!data || !data._encrypted) return data;
+
+    const settings = configService.get();
+    const key = settings.sessionKeys?.find(k => k.id === data._keyId);
+
+    if (!key) {
+      console.warn('[Connectivity] Decryption failed: Unknown Key ID', data._keyId);
+
+      // Notify user via Store Action
+      usePraxisStore.getState().actions.showNotification(
+        `Message chiffré illisible (Clé: ${data._keyId.slice(0, 4)}...). Activez le chiffrement.`,
+        'warning'
+      );
+
+      return null; // Cannot decrypt
+    }
+
+    try {
+      const encrypted = typeof atob !== 'undefined' ? atob(data.payload) : Buffer.from(data.payload, 'base64').toString('binary');
+      const keyChars = key.secret.split('').map(c => c.charCodeAt(0));
+      let decrypted = '';
+      for (let i = 0; i < encrypted.length; i++) {
+        decrypted += String.fromCharCode(encrypted.charCodeAt(i) ^ keyChars[i % keyChars.length]);
+      }
+      return JSON.parse(decrypted);
+    } catch (e) {
+      console.error('[Connectivity] Decryption failed', e);
+      return null;
+    }
   }
 }
 

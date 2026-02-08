@@ -41,6 +41,7 @@ import PrivacyConsentModal from './components/PrivacyConsentModal';
 import { NotificationToast } from './components/NotificationToast';
 import ComposantOrdreInitial from './components/ComposantOrdreInitial';
 import TacticalBackground from './components/TacticalBackground';
+import SecureBootView from './components/SecureBootView';
 import { useActions } from './store/usePraxisStore';
 
 try { SplashScreen.preventAutoHideAsync().catch(() => { }); } catch (e) { }
@@ -58,6 +59,9 @@ const App: React.FC = () => {
 
     // HYBRID ZUSTAND: Accès aux actions du store (sans remplacer les useState existants)
     const storeActions = useActions();
+
+    // SECURE BOOT STATE
+    const [isStoreReady, setIsStoreReady] = useState(false);
 
     const [isAppReady, setIsAppReady] = useState(false);
     const [fontsLoaded] = useFonts({ 'Saira Stencil One': SairaStencilOne_400Regular });
@@ -248,6 +252,9 @@ const App: React.FC = () => {
     };
 
     useEffect(() => {
+        // SECURE BOOT: Ne rien faire tant que le stockage n'est pas déverrouillé
+        if (!isStoreReady) return;
+
         let mounted = true;
         const initApp = async () => {
             try {
@@ -352,7 +359,7 @@ const App: React.FC = () => {
             locationService.stopTracking();
             // magSubscription remove handled in LocationService now
         };
-    }, []);
+    }, [isStoreReady]);
 
     useEffect(() => {
         // MISSION CRITICAL: Capteurs actifs tant qu'on est connecté à une session
@@ -1174,7 +1181,33 @@ const App: React.FC = () => {
         )
     };
 
-    if (!isAppReady || !fontsLoaded) return <View style={{ flex: 1, backgroundColor: '#000' }}><ActivityIndicator size="large" color="#2563eb" style={{ marginTop: 50 }} /></View>;
+    // 0. SECURE BOOT GATE
+    if (!fontsLoaded) return null;
+
+    if (!isStoreReady) {
+        return (
+            <SafeAreaView style={{ flex: 1, backgroundColor: '#000' }}>
+                <StatusBar style="light" backgroundColor="#000" />
+                <SecureBootView onUnlock={(key: string) => {
+                    try {
+                        mmkvStorage.init(key);
+                        setIsStoreReady(true);
+                    } catch (e) {
+                        Alert.alert("Echec", "Clé incorrecte ou données corrompues.");
+                    }
+                }} />
+            </SafeAreaView>
+        );
+    }
+
+    if (!isAppReady) {
+        return (
+            <View style={{ flex: 1, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' }}>
+                <ActivityIndicator size="large" color="#ef4444" />
+                <Text style={{ color: '#666', marginTop: 20 }}>Chargement Sécurisé...</Text>
+            </View>
+        );
+    }
 
     return (
         <View style={styles.container}>

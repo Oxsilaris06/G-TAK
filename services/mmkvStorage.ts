@@ -1,43 +1,59 @@
 /**
  * Service de Stockage Chiffré - MMKV
  * Remplace AsyncStorage avec une solution native haute performance
- * 
- * Avantages:
- * - 100x plus rapide qu'AsyncStorage
- * - Chiffrement AES-256 optionnel
- * - Stockage binaire efficace
- * - Pas de limite de taille (contrairement à AsyncStorage ~6MB)
  */
 
 import { MMKV } from 'react-native-mmkv';
 
-// Clé de chiffrement pour le stockage sécurisé (peut être récupérée d'un Keychain sécurisé)
-const ENCRYPTION_KEY = 'praxis-secure-storage-key-v1';
+// Instances MMKV (initialement nulles en attente du Secure Boot)
+let storage: MMKV | null = null;
+let storageFast: MMKV | null = null;
+let storageCache: MMKV | null = null;
 
-// Instance MMKV principale avec chiffrement
-export const storage = new MMKV({
-  id: 'praxis-secure-storage',
-  encryptionKey: ENCRYPTION_KEY,
-});
-
-// Instance MMKV pour les données non sensibles (performance maximale)
-export const storageFast = new MMKV({
-  id: 'praxis-fast-storage',
-});
-
-// Instance MMKV pour les logs et cache temporaire
-export const storageCache = new MMKV({
-  id: 'praxis-cache-storage',
-});
+let isInitialized = false;
 
 /**
  * Wrapper type-safe pour le stockage
  */
 export const mmkvStorage = {
   /**
+   * Initialise le stockage avec la clé dérivée de l'utilisateur
+   */
+  init: (encryptionKey: string) => {
+    if (isInitialized) return;
+
+    try {
+      console.log('[MMKV] Initializing Secure Storage...');
+      storage = new MMKV({
+        id: 'praxis-secure-storage',
+        encryptionKey: encryptionKey,
+      });
+
+      storageFast = new MMKV({
+        id: 'praxis-fast-storage',
+        encryptionKey: encryptionKey
+      });
+
+      storageCache = new MMKV({
+        id: 'praxis-cache-storage',
+        encryptionKey: encryptionKey
+      });
+
+      isInitialized = true;
+      console.log('[MMKV] Storage initialized successfully.');
+    } catch (e) {
+      console.error('[MMKV] Init Failed! Key might be wrong.', e);
+      throw e; // Propagate error to UI (ask user to retry pass)
+    }
+  },
+
+  isReady: () => isInitialized,
+
+  /**
    * Stocke une valeur string
    */
   set: (key: string, value: string, encrypted: boolean = true): void => {
+    if (!storage || !storageFast) return;
     const store = encrypted ? storage : storageFast;
     store.set(key, value);
   },
@@ -46,18 +62,21 @@ export const mmkvStorage = {
    * Stocke un objet JSON
    */
   setObject: <T>(key: string, value: T, encrypted: boolean = true): void => {
+    if (!storage || !storageFast) return;
     const store = encrypted ? storage : storageFast;
     try {
-      store.set(key, JSON.stringify(value));
+      const json = JSON.stringify(value);
+      store.set(key, json);
     } catch (e) {
-      console.error('[MMKV] Error saving object:', e);
+      console.error(`[MMKV] SetObject Error (${key}):`, e);
     }
   },
 
   /**
-   * Récupère une string
+   * Récupère une valeur string
    */
   getString: (key: string, encrypted: boolean = true): string | undefined => {
+    if (!storage || !storageFast) return undefined;
     const store = encrypted ? storage : storageFast;
     return store.getString(key);
   },
@@ -66,6 +85,7 @@ export const mmkvStorage = {
    * Récupère un nombre
    */
   getNumber: (key: string, encrypted: boolean = true): number | undefined => {
+    if (!storage || !storageFast) return undefined;
     const store = encrypted ? storage : storageFast;
     return store.getNumber(key);
   },
@@ -74,6 +94,7 @@ export const mmkvStorage = {
    * Récupère un booléen
    */
   getBoolean: (key: string, encrypted: boolean = true): boolean | undefined => {
+    if (!storage || !storageFast) return undefined;
     const store = encrypted ? storage : storageFast;
     return store.getBoolean(key);
   },
@@ -82,12 +103,16 @@ export const mmkvStorage = {
    * Récupère un objet JSON
    */
   getObject: <T>(key: string, encrypted: boolean = true): T | null => {
+    if (!storage || !storageFast) return null;
     const store = encrypted ? storage : storageFast;
     try {
       const json = store.getString(key);
-      return json ? JSON.parse(json) : null;
+      if (json) {
+        return JSON.parse(json) as T;
+      }
+      return null;
     } catch (e) {
-      console.error('[MMKV] Error parsing object:', e);
+      console.error(`[MMKV] GetObject Error (${key}):`, e);
       return null;
     }
   },
@@ -96,14 +121,16 @@ export const mmkvStorage = {
    * Supprime une clé
    */
   delete: (key: string, encrypted: boolean = true): void => {
+    if (!storage || !storageFast) return;
     const store = encrypted ? storage : storageFast;
     store.delete(key);
   },
 
   /**
-   * Vérifie si une clé existe
-   */
+ * Vérifie si une clé existe
+ */
   contains: (key: string, encrypted: boolean = true): boolean => {
+    if (!storage || !storageFast) return false;
     const store = encrypted ? storage : storageFast;
     return store.contains(key);
   },
@@ -112,6 +139,7 @@ export const mmkvStorage = {
    * Récupère toutes les clés
    */
   getAllKeys: (encrypted: boolean = true): string[] => {
+    if (!storage || !storageFast) return [];
     const store = encrypted ? storage : storageFast;
     return store.getAllKeys();
   },
@@ -120,6 +148,7 @@ export const mmkvStorage = {
    * Efface tout le stockage
    */
   clearAll: (encrypted: boolean = true): void => {
+    if (!storage || !storageFast) return;
     const store = encrypted ? storage : storageFast;
     store.clearAll();
   },
@@ -128,6 +157,7 @@ export const mmkvStorage = {
    * Cache temporaire - set
    */
   setCache: (key: string, value: string, ttlMs: number = 300000): void => {
+    if (!storageCache) return;
     const data = {
       value,
       expires: Date.now() + ttlMs,
@@ -139,6 +169,7 @@ export const mmkvStorage = {
    * Cache temporaire - get
    */
   getCache: (key: string): string | null => {
+    if (!storageCache) return null;
     try {
       const json = storageCache.getString(key);
       if (!json) return null;
@@ -151,60 +182,7 @@ export const mmkvStorage = {
     } catch {
       return null;
     }
-  },
-
-  /**
-   * Migration depuis AsyncStorage (à exécuter une fois au démarrage)
-   */
-  migrateFromAsyncStorage: async (asyncStorage: any): Promise<void> => {
-    try {
-      const keys = await asyncStorage.getAllKeys();
-      for (const key of keys) {
-        const value = await asyncStorage.getItem(key);
-        if (value !== null) {
-          storage.set(key, value);
-        }
-      }
-      console.log('[MMKV] Migration from AsyncStorage completed');
-    } catch (e) {
-      console.error('[MMKV] Migration error:', e);
-    }
-  },
-};
-
-// Compatibilité avec l'API AsyncStorage pour migration facile
-export const mmkvAsyncStorageCompat = {
-  setItem: (key: string, value: string): Promise<void> => {
-    mmkvStorage.set(key, value);
-    return Promise.resolve();
-  },
-  getItem: (key: string): Promise<string | null> => {
-    return Promise.resolve(mmkvStorage.getString(key) ?? null);
-  },
-  removeItem: (key: string): Promise<void> => {
-    mmkvStorage.delete(key);
-    return Promise.resolve();
-  },
-  getAllKeys: (): Promise<string[]> => {
-    return Promise.resolve(mmkvStorage.getAllKeys());
-  },
-  multiGet: (keys: string[]): Promise<[string, string | null][]> => {
-    const result = keys.map((key): [string, string | null] => [
-      key,
-      mmkvStorage.getString(key) ?? null,
-    ]);
-    return Promise.resolve(result);
-  },
-  multiSet: (keyValues: [string, string][]): Promise<void> => {
-    keyValues.forEach(([key, value]) => {
-      mmkvStorage.set(key, value);
-    });
-    return Promise.resolve();
-  },
-  multiRemove: (keys: string[]): Promise<void> => {
-    keys.forEach((key) => mmkvStorage.delete(key));
-    return Promise.resolve();
-  },
+  }
 };
 
 export default mmkvStorage;

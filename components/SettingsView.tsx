@@ -48,6 +48,80 @@ const SettingsView: React.FC<Props> = ({ onClose, onUpdate }) => {
     setNewMsg('');
   };
 
+  // --- SESSION ENCRYPTION LOGIC ---
+
+  const generateNewKey = async () => {
+    const secret = await import('../services/cryptoService').then(m => m.cryptoService.generateSessionKey());
+    const newKey = {
+      id: Date.now().toString(),
+      alias: `Session ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`,
+      secret: secret,
+      createdAt: Date.now()
+    };
+
+    setSettings(prev => ({
+      ...prev,
+      sessionKeys: [...(prev.sessionKeys || []), newKey],
+      activeSessionKeyId: newKey.id,
+      enableSessionEncryption: true
+    }));
+    Alert.alert("Succès", "Nouvelle clé de session générée et activée.");
+  };
+
+  const importKeyJson = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({ type: 'application/json' });
+      if (result.canceled) return;
+
+      const fileContent = await FileSystem.readAsStringAsync(result.assets[0].uri);
+      const keyData = JSON.parse(fileContent);
+
+      // Basic validation
+      if (!keyData.secret || !keyData.alias) {
+        Alert.alert("Erreur", "Format JSON invalide.");
+        return;
+      }
+
+      const newKey = {
+        id: keyData.id || Date.now().toString(),
+        alias: keyData.alias,
+        secret: keyData.secret,
+        createdAt: keyData.createdAt || Date.now()
+      };
+
+      setSettings(prev => ({
+        ...prev,
+        sessionKeys: [...(prev.sessionKeys || []), newKey],
+        activeSessionKeyId: newKey.id,
+        enableSessionEncryption: true
+      }));
+      Alert.alert("Succès", `Clé "${newKey.alias}" importée.`);
+
+    } catch (e) {
+      Alert.alert("Erreur", "Echec de l'importation.");
+    }
+  };
+
+  const exportKey = async (key: any) => {
+    const fileName = `praxis_key_${key.alias.replace(/\s/g, '_')}.json`;
+    const fileUri = FileSystem.documentDirectory + fileName;
+    await FileSystem.writeAsStringAsync(fileUri, JSON.stringify(key, null, 2));
+
+    if (await import('expo-sharing').then(m => m.isAvailableAsync())) {
+      await import('expo-sharing').then(m => m.shareAsync(fileUri));
+    } else {
+      Alert.alert("Info", "Partage non disponible sur ce terminal.");
+    }
+  };
+
+  const deleteKey = (id: string) => {
+    setSettings(prev => ({
+      ...prev,
+      sessionKeys: prev.sessionKeys.filter(k => k.id !== id),
+      activeSessionKeyId: prev.activeSessionKeyId === id ? null : prev.activeSessionKeyId
+    }));
+  };
+
   const removeQuickMsg = (index: number) => {
     const newList = [...settings.quickMessages];
     newList.splice(index, 1);
@@ -301,6 +375,72 @@ const SettingsView: React.FC<Props> = ({ onClose, onUpdate }) => {
               trackColor={{ false: '#3f3f46', true: '#ef4444' }}
             />
           </View>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>CHIFFREMENT DE SESSION</Text>
+
+          <View style={styles.row}>
+            <View>
+              <Text style={styles.label}>Activer Chiffrement</Text>
+              <Text style={styles.subLabel}>Chiffre les positions et messages</Text>
+            </View>
+            <Switch
+              value={settings.enableSessionEncryption}
+              onValueChange={(v: boolean) => setSettings(s => ({ ...s, enableSessionEncryption: v }))}
+              trackColor={{ false: '#3f3f46', true: '#ef4444' }}
+            />
+          </View>
+
+          {settings.enableSessionEncryption && (
+            <>
+              <View style={styles.row}>
+                <TouchableOpacity onPress={generateNewKey} style={[styles.importBtn, { flex: 1, marginRight: 5, marginBottom: 0 }]}>
+                  <MaterialIcons name="security" size={20} color="white" />
+                  <Text style={{ color: 'white', fontSize: 10 }}>NOUVELLE CLÉ</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={importKeyJson} style={[styles.importBtn, { flex: 1, marginLeft: 5, marginBottom: 0 }]}>
+                  <MaterialIcons name="file-upload" size={20} color="white" />
+                  <Text style={{ color: 'white', fontSize: 10 }}>IMPORTER</Text>
+                </TouchableOpacity>
+              </View>
+
+              <Text style={[styles.sectionTitle, { marginTop: 15 }]}>CLÉS DISPONIBLES</Text>
+              {settings.sessionKeys?.map((key: any) => (
+                <View key={key.id} style={styles.msgRow}>
+                  <TouchableOpacity
+                    style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}
+                    onPress={() => setSettings(s => ({ ...s, activeSessionKeyId: key.id }))}
+                  >
+                    <MaterialIcons
+                      name={settings.activeSessionKeyId === key.id ? "radio-button-checked" : "radio-button-unchecked"}
+                      size={20}
+                      color={settings.activeSessionKeyId === key.id ? "#ef4444" : "#71717a"}
+                    />
+                    <View style={{ marginLeft: 10 }}>
+                      <Text style={[styles.msgText, settings.activeSessionKeyId === key.id && { color: 'white', fontWeight: 'bold' }]}>
+                        {key.alias}
+                      </Text>
+                      <Text style={{ fontSize: 10, color: '#52525b' }}>ID: {key.id.slice(0, 8)}...</Text>
+                    </View>
+                  </TouchableOpacity>
+                  <View style={{ flexDirection: 'row' }}>
+                    <TouchableOpacity onPress={() => exportKey(key)} style={{ marginRight: 15 }}>
+                      <MaterialIcons name="share" size={20} color="#3b82f6" />
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => deleteKey(key.id)}>
+                      <MaterialIcons name="delete" size={20} color="#ef4444" />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ))}
+              {(!settings.sessionKeys || settings.sessionKeys.length === 0) && (
+                <Text style={{ color: '#52525b', fontStyle: 'italic', textAlign: 'center', marginVertical: 10, fontSize: 12 }}>
+                  Aucune clé. Générez-en une pour sécuriser la session.
+                </Text>
+              )}
+            </>
+          )}
         </View>
 
         <View style={styles.section}>

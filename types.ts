@@ -80,6 +80,18 @@ export interface AppSettings {
   quickMessages: string[];
   disableBackgroundNotifications: boolean;
   maxTrailsPerUser: number;
+
+  // Session Encryption
+  enableSessionEncryption: boolean;
+  sessionKeys: SessionKey[];
+  activeSessionKeyId: string | null;
+}
+
+export interface SessionKey {
+  id: string;
+  alias: string;
+  secret: string; // AES Key (stored encrypted by MMKV)
+  createdAt: number;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -100,4 +112,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   ],
   disableBackgroundNotifications: false,
   maxTrailsPerUser: 500,
+  enableSessionEncryption: false,
+  sessionKeys: [],
+  activeSessionKeyId: null,
 };
