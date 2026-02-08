@@ -42,9 +42,6 @@ const TILE_URLS: Record<string, string> = {
 
 // Props du composant
 interface TacticalMapProps {
-  me: UserData;
-  peers: Record<string, UserData>;
-  pings: PingData[];
   mapMode: 'dark' | 'light' | 'satellite' | 'hybrid' | 'custom';
   customMapUrl?: string;
   showTrails: boolean;
@@ -275,10 +272,9 @@ const PingMarker = ({ ping, nightOpsMode, onPress, onLongPress }: PingMarkerProp
 
 // --- COMPOSANT PRINCIPAL ---
 
+import { useUser, useNetwork, usePings } from '../store/usePraxisStore';
+
 const TacticalMap = ({
-  me,
-  peers,
-  pings,
   mapMode,
   customMapUrl,
   showTrails,
@@ -301,6 +297,11 @@ const TacticalMap = ({
 }: TacticalMapProps) => {
   const mapRef = useRef<MapView>(null);
   const cameraRef = useRef<Camera>(null);
+
+  // ZUSTAND HOOKS
+  const me = useUser();
+  const { peers } = useNetwork();
+  const { pings } = usePings();
 
   const [isMapReady, setIsMapReady] = useState(false);
   const [followUser, setFollowUser] = useState(true);

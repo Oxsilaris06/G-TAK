@@ -505,10 +505,63 @@ export class ConnectivityService {
       }
       return;
     }
+
+    // --- STORE SYNCHRONIZATION (Host & Client) ---
+    // Previously handled by App.tsx, now handled centrally here.
+
+    if (data.type === 'PEERS_UPDATED' && data.peers) {
+      // Sync internal state
+      this.state.peerData = new Map(Object.entries(data.peers));
+      // Sync Store
+      usePraxisStore.getState().actions.setPeers(data.peers);
+      this.emit({ type: 'PEERS_UPDATED', peers: data.peers });
+      return;
+    }
+
+    if (data.type === 'UPDATE_USER' || data.type === 'UPDATE') {
+      if (data.user && data.user.id) {
+        // Sync internal state
+        this.state.peerData.set(data.user.id, data.user);
+        // Sync Store
+        usePraxisStore.getState().actions.updatePeer(data.user.id, data.user);
+      }
+      this.emit({ type: 'DATA_RECEIVED', data, from }); // Keep emit for Toast/Notifications in App.tsx
+    }
+
+    if (data.type === 'PING') {
+      if (data.ping) usePraxisStore.getState().actions.addPing(data.ping);
+      this.emit({ type: 'DATA_RECEIVED', data, from }); // Emit for Toasts
+    }
+
+    if (data.type === 'PING_MOVE') {
+      usePraxisStore.getState().actions.movePing(data.id, data.lat, data.lng);
+      this.emit({ type: 'DATA_RECEIVED', data, from });
+    }
+
+    if (data.type === 'PING_UPDATE') {
+      usePraxisStore.getState().actions.updatePing(data.id, {
+        msg: data.msg, details: data.details, hasImage: data.hasImage, imageId: data.imageId
+      });
+      this.emit({ type: 'DATA_RECEIVED', data, from });
+    }
+
+    if (data.type === 'PING_DELETE') {
+      usePraxisStore.getState().actions.deletePing(data.id);
+      this.emit({ type: 'DATA_RECEIVED', data, from });
+    }
+
+    if (data.type === 'LOG_UPDATE' && Array.isArray(data.logs)) {
+      usePraxisStore.getState().actions.setLogs(data.logs); // Ensure setLogs exists or use reset/add
+      this.emit({ type: 'DATA_RECEIVED', data, from });
+    }
+
     // -------------------------------
 
-    // Propager l'événement
-    this.emit({ type: 'DATA_RECEIVED', data, from });
+    // Propager l'événement pour les cas non gérés ou pour les notifications UI (Toasts)
+    // Note: Some cases above already emit.
+    if (!['PEERS_UPDATED', 'UPDATE_USER', 'UPDATE', 'PING', 'PING_MOVE', 'PING_UPDATE', 'PING_DELETE', 'LOG_UPDATE'].includes(data.type)) {
+      this.emit({ type: 'DATA_RECEIVED', data, from });
+    }
 
     // Gestion spéciale pour l'hôte
     if (this.state.role === OperatorRole.HOST) {

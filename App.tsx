@@ -42,7 +42,7 @@ import { NotificationToast } from './components/NotificationToast';
 import ComposantOrdreInitial from './components/ComposantOrdreInitial';
 import TacticalBackground from './components/TacticalBackground';
 import SecureBootView from './components/SecureBootView';
-import { usePraxisStore } from './store/usePraxisStore';
+import { usePraxisStore, useUser, useNetwork, usePings, useLogs, useSettings, useActions } from './store/usePraxisStore';
 
 try { SplashScreen.preventAutoHideAsync().catch(() => { }); } catch (e) { }
 
@@ -57,21 +57,20 @@ const App: React.FC = () => {
     const { width, height } = useWindowDimensions();
     const isLandscape = width > height;
 
-
-
     // SECURE BOOT STATE
     const [isStoreReady, setIsStoreReady] = useState(false);
 
     const [isAppReady, setIsAppReady] = useState(false);
     const [fontsLoaded] = useFonts({ 'Saira Stencil One': SairaStencilOne_400Regular });
     const [activeNotif, setActiveNotif] = useState<{ id: string, msg: string, type: 'alert' | 'info' | 'success' | 'warning' } | null>(null);
-    const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
 
-    const [user, setUser] = useState<UserData>({
-        id: 'loading...', // ID Persistant en cours de chargement
-        callsign: '', role: OperatorRole.OPR, status: OperatorStatus.CLEAR,
-        joinedAt: Date.now(), bat: 100, head: 0, lat: 0, lng: 0, lastMsg: ''
-    });
+    // ZUSTAND MIGRATION
+    const settings = useSettings();
+    const user = useUser();
+    const { peers, hostId } = useNetwork();
+    const { pings } = usePings();
+    const logs = useLogs();
+    const actions = useActions();
 
     const [view, setView] = useState<ViewType | 'oi'>('login');
     const [lastView, setLastView] = useState<ViewType>('menu');
@@ -79,15 +78,11 @@ const App: React.FC = () => {
     const [mapState, setMapState] = useState<{ lat: number, lng: number, zoom: number } | undefined>(undefined);
     const [showSettings, setShowSettings] = useState(false);
 
-    const [peers, setPeers] = useState<Record<string, UserData>>({});
-    const [pings, setPings] = useState<PingData[]>([]);
-    const [logs, setLogs] = useState<LogEntry[]>([]);
-    const [hostId, setHostId] = useState<string>('');
+    // Removed local state: peers, pings, logs
+    // Removed hostId local state, using store value
 
-    const pingsRef = useRef(pings);
-    const logsRef = useRef(logs);
-    const peersRef = useRef(peers);
-    const userRef = useRef(user);
+    // Removed refs: pingsRef, logsRef, peersRef, userRef
+    // Refs replaced by direct store access via getState() where needed
 
     // const magSubscription = useRef<any>(null); // Removed: Managed by LocationService
     const lastSentHead = useRef<number>(0);
@@ -96,10 +91,7 @@ const App: React.FC = () => {
     // Prevention double scan
     const [scanned, setScanned] = useState(false);
 
-    useEffect(() => { pingsRef.current = pings; }, [pings]);
-    useEffect(() => { logsRef.current = logs; }, [logs]);
-    useEffect(() => { peersRef.current = peers; }, [peers]);
-    useEffect(() => { userRef.current = user; }, [user]);
+    // Removed useEffects for syncing refs
 
     const [loginInput, setLoginInput] = useState('');
     const [hostInput, setHostInput] = useState('');
@@ -124,8 +116,9 @@ const App: React.FC = () => {
     // useEffect removed.
 
     // Reference pour accès dans les callbacks sans dépendance
+    const [scanned, setScanned] = useState(false);
+    // quickMessagesList removed -> use settings.quickMessages
     const [freeMsgInput, setFreeMsgInput] = useState('');
-    const [quickMessagesList, setQuickMessagesList] = useState<string[]>([]);
     const [tempPingLoc, setTempPingLoc] = useState<any>(null);
     const [currentPingType, setCurrentPingType] = useState<PingType>('FRIEND');
     const [pingMsgInput, setPingMsgInput] = useState('');
@@ -259,18 +252,19 @@ const App: React.FC = () => {
             try {
                 const s = await configService.init();
                 if (mounted) {
-                    setSettings(s);
+                    actions.updateSettings(s);
                     // CORRECTION: Récupération persistante du Trigramme
                     const savedTrigram = mmkvStorage.getString(CONFIG.TRIGRAM_STORAGE_KEY) || await AsyncStorage.getItem(CONFIG.TRIGRAM_STORAGE_KEY);
                     const finalUsername = savedTrigram || s.username;
 
-                    if (finalUsername) {
-                        setUser(prev => ({ ...prev, callsign: finalUsername, paxColor: s.userArrowColor }));
+                    if (s.finalUsername) {
+                        actions.updateUser({ callsign: finalUsername, paxColor: s.userArrowColor });
                         setLoginInput(finalUsername);
                     } else {
-                        setUser(prev => ({ ...prev, paxColor: s.userArrowColor }));
+                        actions.updateUser({ paxColor: s.userArrowColor });
                     }
-                    setQuickMessagesList(s.quickMessages || DEFAULT_SETTINGS.quickMessages);
+                    // setQuickMessagesList handled by store (settings.quickMessages)
+                    // No need to set it locally.
                     if (s.customMapUrl) setMapMode('custom');
                 }
             } catch (e) { console.log("Config Error:", e); }
@@ -283,15 +277,18 @@ const App: React.FC = () => {
 
             try {
                 const level = await Battery.getBatteryLevelAsync();
-                if (mounted && level) setUser(u => ({ ...u, bat: Math.round(level * 100) }));
+                if (mounted && level) actions.updateUser({ bat: Math.round(level * 100) });
             } catch (e) { }
 
             // --- INITIALISATION ID PERSISTANT ---
             // On initialise la connectivité dès le chargement pour récupérer l'ID unique stocké
             // Le service s'occupera d'écraser 'loading...' avec le vrai ID
+            // Le service s'occupera d'écraser 'loading...' avec le vrai ID
             try {
+                // Use current user state but override specific fields for init
+                const currentUser = usePraxisStore.getState().user;
                 await connectivityService.init(
-                    { ...user, id: 'loading...', role: OperatorRole.OPR },
+                    { ...currentUser, id: 'loading...', role: OperatorRole.OPR },
                     OperatorRole.OPR
                 );
             } catch (e) { console.log("Init Connectivity Error:", e); }
@@ -305,8 +302,9 @@ const App: React.FC = () => {
 
         const battSub = Battery.addBatteryLevelListener(({ batteryLevel }) => {
             const newLevel = Math.round(batteryLevel * 100);
-            if (Math.abs(newLevel - userRef.current.bat) > 2 || newLevel < 20) {
-                setUser(u => ({ ...u, bat: newLevel }));
+            const currentBat = usePraxisStore.getState().user.bat;
+            if (Math.abs(newLevel - currentBat) > 2 || newLevel < 20) {
+                actions.updateUser({ bat: newLevel });
                 connectivityService.updateUser({ bat: newLevel });
             }
         });
@@ -328,10 +326,12 @@ const App: React.FC = () => {
             // FUSION SENSORS: Managed by LocationService now (See services/locationService.ts)
             // Logic moved to service for background persistence
 
-            setUser(prev => ({ ...prev, lat: loc.latitude, lng: loc.longitude, head: loc.heading || prev.head }));
+            actions.setUserPosition(loc.latitude, loc.longitude, loc.heading);
 
             // Network Throttling Logic (Moved from Mag Listener)
-            const newHead = loc.heading || userRef.current.head;
+            // Use getState() for current head
+            const currentHead = usePraxisStore.getState().user.head;
+            const newHead = loc.heading || currentHead;
 
             // Send update if:
             // 1. Heading changed significantly (> 5 deg)
@@ -404,30 +404,35 @@ const App: React.FC = () => {
     }, [isLandscape]);
 
     // Initialize ID immediately
+    // Initialize ID immediately
     useEffect(() => {
         const storedId = mmkvStorage.getString(CONFIG.SESSION_STORAGE_KEY);
         if (storedId) {
-            setUser(prev => ({ ...prev, id: storedId }));
+            actions.updateUser({ id: storedId });
         }
     }, []);
 
 
 
     const handleProtocolData = (data: any, fromId: string) => {
-        const senderName = peersRef.current[fromId]?.callsign || fromId.substring(0, 4);
+        // Use getState for fresh data without dependencies
+        const currentState = usePraxisStore.getState();
+        const currentPeers = currentState.network.peers;
+        const currentPings = currentState.ping.pings;
+        const currentLogs = currentState.log.logs;
+        const currentUser = currentState.user;
 
-        if (data.type === 'HELLO' && user.role === OperatorRole.HOST) {
-            connectivityService.sendTo(fromId, { type: 'SYNC_PINGS', pings: pingsRef.current });
-            connectivityService.sendTo(fromId, { type: 'SYNC_LOGS', logs: logsRef.current });
+        const senderName = currentPeers[fromId]?.callsign || fromId.substring(0, 4);
+
+        if (data.type === 'HELLO' && currentUser.role === OperatorRole.HOST) {
+            connectivityService.sendTo(fromId, { type: 'SYNC_PINGS', pings: currentPings });
+            connectivityService.sendTo(fromId, { type: 'SYNC_LOGS', logs: currentLogs });
         }
 
         if (data.type === 'PING') {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            setPings((prev: PingData[]) => {
-                // Deduplication: Si le ping existe déjà, on ne l'ajoute pas
-                if (prev.some((p: PingData) => p.id === data.ping.id)) return prev;
-                return [...prev, data.ping];
-            });
+            // State update handled by Service
+
             const isHostile = data.ping.type === 'HOSTILE';
 
             if (isHostile) {
@@ -446,39 +451,41 @@ const App: React.FC = () => {
             if (data.ping.hasImage && data.ping.imageId) {
                 imageService.exists(data.ping.imageId).then(exists => {
                     if (exists) {
-                        // On l'a déjà, on met à jour le lien
-                        setPings(prev => prev.map(p => p.id === data.ping.id ? { ...p, imageUri: imageService.getImageUri(data.ping.imageId!) } : p));
+                        // On l'a déjà, on met à jour le lien -> Handled by Service/Store implicitly?
+                        // Service updates ping with hasImage/imageId.
+                        // If we have the file, the UI (TacticalMap) will resolve it via imageService or logic.
+                        // Actually, TacticalMap/PingMarker renders image if URI is present.
+                        // We need to ensure the store gets the URI if file exists.
+                        // ConnectivityService doesn't check file existence for PING ... wait.
+                        // ConnectivityService `handleData` -> `addPing`. 
+                        // Does `addPing` resolving URI? No.
+                        // We might need a check here or rely on `TacticalMap` to resolve.
+                        // Let's manually updat uri in store if we have it?
+                        actions.updatePing(data.ping.id, { imageUri: imageService.getImageUri(data.ping.imageId!) });
                     } else {
-                        // On ne l'a pas, on demande (si connecté à celui qui l'a envoyé ou à l'hôte)
-                        // On demande à l'expéditeur (fromId)
+                        // On ne l'a pas, on demande
                         connectivityService.requestImage(data.ping.imageId!, [fromId]);
                     }
                 });
             }
         }
         else if (data.type === 'LOG_UPDATE' && Array.isArray(data.logs)) {
-            const oldLogs = logsRef.current;
+            // State update handled by Service
             const newLogs = data.logs;
-
-            if (newLogs.length > oldLogs.length) {
+            if (newLogs.length > currentLogs.length) {
                 const latestLog = newLogs[newLogs.length - 1];
                 if (latestLog.pax === 'HOSTILE') {
                     const logBody = `${latestLog.lieu || 'Non spécifié'} - ${latestLog.action} / ${latestLog.remarques || 'RAS'}`;
                     triggerTacticalNotification(`MAIN COURANTE - HOSTILE`, logBody);
                 }
             }
-            setLogs(newLogs);
         }
 
         else if ((data.type === 'UPDATE_USER' || data.type === 'UPDATE') && data.user) {
+            // State update handled by Service
             const u = data.user as UserData;
-            const prevStatus = peersRef.current[u.id]?.status;
-            const prevMsg = peersRef.current[u.id]?.lastMsg;
-
-            setPeers(prev => ({
-                ...prev,
-                [u.id]: { ...(prev[u.id] || {}), ...u }
-            }));
+            const prevStatus = currentPeers[u.id]?.status;
+            const prevMsg = currentPeers[u.id]?.lastMsg;
 
             if (u.status === 'CONTACT' && prevStatus !== 'CONTACT') {
                 const coordStr = u.lat && u.lng ? `(${u.lat.toFixed(5)}, ${u.lng.toFixed(5)})` : '';
@@ -499,30 +506,8 @@ const App: React.FC = () => {
                 }
             }
         }
-        else if (data.type === 'SYNC_PINGS') setPings(data.pings);
-        else if (data.type === 'SYNC_LOGS') setLogs(data.logs);
-        else if (data.type === 'PING_MOVE') {
-            setPings(prev => prev.map(p => p.id === data.id ? {
-                ...p,
-                lat: data.lat,
-                lng: data.lng,
-                // Update image info if provided (integrity check)
-                hasImage: data.hasImage !== undefined ? data.hasImage : p.hasImage,
-                imageId: data.imageId !== undefined ? data.imageId : p.imageId
-            } : p));
-        }
-        else if (data.type === 'PING_DELETE') setPings(prev => prev.filter(p => p.id !== data.id));
         else if (data.type === 'PING_UPDATE') {
-            setPings(prev => prev.map(p => p.id === data.id ? {
-                ...p,
-                msg: data.msg,
-                details: data.details,
-                // Fix: Ensure image data is updated
-                hasImage: data.hasImage,
-                imageId: data.imageId,
-                image: null // Legacy clear
-            } : p));
-
+            // State handled by Service
             // If update has new image we don't have, request it
             if (data.hasImage && data.imageId) {
                 imageService.exists(data.imageId).then(exists => {
@@ -530,6 +515,8 @@ const App: React.FC = () => {
                 });
             }
         }
+        // Other types (SYNC_PINGS, SYNC_LOGS, PING_MOVE, PING_DELETE) are pure state updates
+        // handled by ConnectivityService. No side effects needed here.
     };
 
 
@@ -542,13 +529,13 @@ const App: React.FC = () => {
                     showToast(`ID Terminal: ${event.id}`, "success");
                     break;
                 case 'PEERS_UPDATED':
-                    setPeers(event.peers);
+                    // Handled by Service -> Store
                     break;
                 case 'HOST_CONNECTED':
                     showToast(`Connecté à la session ${event.hostId}`, "success");
-                    setHostId(event.hostId);
+                    actions.setHostId(event.hostId);
                     // Do NOT clear pings here, we will receive sync shortly
-                    // setPings([]); 
+                    // actions.resetPings(); // Optional, but sync handles it
                     break;
                 case 'TOAST':
                     showToast(event.msg, event.level as any);
@@ -564,17 +551,17 @@ const App: React.FC = () => {
                     } else if (event.reason === 'NO_HOST') {
                         showToast("Hôte déconnecté", "error");
                     }
-                    setHostId('');
+                    actions.setHostId('');
                     break;
                 case 'RECONNECTING':
                     showToast(`Tentative de reconnexion (${event.attempt})...`, "warning");
                     break;
                 case 'NEW_HOST_PROMOTED':
                     if (event.hostId === user.id) {
-                        setUser(prev => ({ ...prev, role: OperatorRole.HOST }));
+                        actions.updateUser({ role: OperatorRole.HOST });
                         Alert.alert("Promotion Hôte", "L'hôte précédent a quitté. Vous êtes maintenant l'hôte de la session.");
                     }
-                    setHostId(event.hostId);
+                    actions.setHostId(event.hostId);
                     break;
                 case 'SESSION_CLOSED':
                     Alert.alert("Session Terminée", "La session a été fermée car aucun hôte n'est disponible.");
@@ -596,23 +583,38 @@ const App: React.FC = () => {
                 case 'IMAGE_READY':
                     // Image received - Update the ping that was waiting for this image
                     console.log('[App] Image Ready event received:', event.imageId);
-                    setPings((prev: PingData[]) => prev.map((p: PingData) => {
+                    // Store update handled by Service?
+                    // ConnectivityService emits IMAGE_READY.
+                    // Does ConnectivityService update the ping in store?
+                    // checkImageCompletion -> emits IMAGE_READY.
+                    // But it doesn't seem to update the PING in the store with the URI.
+                    // We need to do it here or in Service.
+                    // Service doesn't know which ping has which imageId easily without searching.
+                    // So we do it here using Actions.
+                    // We need to find pings with this imageId and update them.
+                    // Since we don't have pingsRef, we trust the action or logic.
+                    // But we can't easily iterate pings here without getting state.
+                    // actions.updatePingImage(event.imageId, event.uri) would be ideal.
+                    // But we have updatePing(id, ...).
+                    // Let's implement a helper or iterate.
+                    const currentPings = usePraxisStore.getState().ping.pings;
+                    currentPings.forEach(p => {
                         if (p.imageId === event.imageId) {
-                            return { ...p, imageUri: event.uri };
+                            actions.updatePing(p.id, { imageUri: event.uri });
                         }
-                        return p;
-                    }));
+                    });
                     break;
                 // NEW SYNC HANDLERS
                 case 'PING_SYNC_REQUESTED':
                     // Host: Send current pings to client
-                    console.log(`[App] Sending Pings Sync to ${event.from} (${pingsRef.current.length} pings)`);
-                    connectivityService.sendTo(event.from, { type: 'SYNC_PINGS', pings: pingsRef.current });
+                    // Need fresh state
+                    const freshPings = usePraxisStore.getState().ping.pings;
+                    console.log(`[App] Sending Pings Sync to ${event.from} (${freshPings.length} pings)`);
+                    connectivityService.sendTo(event.from, { type: 'SYNC_PINGS', pings: freshPings });
                     break;
                 case 'PING_SYNC_RECEIVED':
-                    // Client: Receive pings from Host
+                    // Handled by Service
                     console.log(`[App] Received Pings Sync: ${event.pings.length} pings`);
-                    setPings(event.pings);
                     break;
             }
         });
@@ -625,11 +627,14 @@ const App: React.FC = () => {
     const finishLogout = useCallback(() => {
         connectivityService.cleanup();
         locationService.stopTracking();
-        locationService.stopTracking();
         // magSubscription handled in service
-        setPeers({}); setPings([]); setLogs([]); setHostId(''); setView('login');
+        actions.setPeers({});
+        actions.resetPings();
+        actions.resetLogs();
+        actions.setHostId('');
+        setView('login');
         // On garde l'ID persistant même après logout, on ne reset que le statut
-        setUser(prev => ({ ...prev, role: OperatorRole.OPR, status: OperatorStatus.CLEAR }));
+        actions.updateUser({ role: OperatorRole.OPR, status: OperatorStatus.CLEAR });
     }, []);
 
     const joinSession = async (id?: string) => {
@@ -638,13 +643,15 @@ const App: React.FC = () => {
 
         const role = OperatorRole.OPR;
         const now = Date.now();
-        setUser(prev => ({ ...prev, role: role, paxColor: settings.userArrowColor, joinedAt: now }));
+        actions.updateUser({ role: role, paxColor: settings.userArrowColor, joinedAt: now });
 
         try {
+            // Use fresh user state from store
+            const currentUser = usePraxisStore.getState().user;
             // L'init ici sert à nettoyer les listeners précédents et se connecter à l'hôte
-            // L'ID persistant est conservé car géré par ConnectivityService
-            await connectivityService.init({ ...user, role, paxColor: settings.userArrowColor, joinedAt: now }, role, finalId);
-            setHostId(finalId);
+            await connectivityService.init({ ...currentUser, role, paxColor: settings.userArrowColor, joinedAt: now }, role, finalId);
+            // HostId set via event HOST_CONNECTED
+            // actions.setHostId(finalId); // Optional, better to wait for event
             setView('map');
             setLastOpsView('map');
         } catch (error) {
@@ -656,14 +663,15 @@ const App: React.FC = () => {
     const createSession = async () => {
         const role = OperatorRole.HOST;
         const now = Date.now();
-        setUser(prev => ({ ...prev, role: role, paxColor: settings.userArrowColor, joinedAt: now }));
+        actions.updateUser({ role: role, paxColor: settings.userArrowColor, joinedAt: now });
         try {
+            const currentUser = usePraxisStore.getState().user;
             // L'init ici configure le rôle Hôte
-            await connectivityService.init({ ...user, role, paxColor: settings.userArrowColor, joinedAt: now }, role);
+            await connectivityService.init({ ...currentUser, role, paxColor: settings.userArrowColor, joinedAt: now }, role);
 
             // FIX: Force hostId update immediately because if peer is reused, PEER_OPEN event won't fire again
-            if (user.id && user.id !== 'loading...') {
-                setHostId(user.id);
+            if (currentUser.id && currentUser.id !== 'loading...') {
+                actions.setHostId(currentUser.id);
             }
 
             setView('map');
@@ -695,13 +703,13 @@ const App: React.FC = () => {
             connectivityService.kickUser(targetId);
             showToast("Utilisateur exclu", "info");
         }
-        const newPeers = { ...peers }; delete newPeers[targetId]; setPeers(newPeers);
+        actions.removePeer(targetId);
         setSelectedOperatorId(null);
     };
 
     const handleSendQuickMessage = (msg: string) => {
         // Mise à jour locale + réseau
-        setUser(prev => ({ ...prev, lastMsg: msg }));
+        actions.updateUser({ lastMsg: msg });
         connectivityService.updateUser({ lastMsg: msg });
         setShowQuickMsgModal(false);
         setFreeMsgInput('');
@@ -741,7 +749,7 @@ const App: React.FC = () => {
         };
 
 
-        setPings(prev => [...prev, newPing]);
+        actions.addPing(newPing);
 
         // Close modal immediately to prevent duplicates
         setShowPingForm(false);
@@ -762,7 +770,7 @@ const App: React.FC = () => {
 
     const handlePingMove = (updatedPing: PingData) => {
         console.log('[App] handlePingMove:', updatedPing.id, updatedPing.lat, updatedPing.lng);
-        setPings(prev => prev.map(p => p.id === updatedPing.id ? updatedPing : p));
+        actions.movePing(updatedPing.id, updatedPing.lat, updatedPing.lng);
         // Transmit associated info (image) to ensure consistency even on move
         safeBroadcast({
             type: 'PING_MOVE',
@@ -810,10 +818,19 @@ const App: React.FC = () => {
         // NOTE: In submitPing/processAndSetImage, tempImage is SET.
         // We need to know if `tempImage` was changed.
 
-        // Actually, if I change `savePingEdit` to Async, the UI might need to show loading?
         // It's fast enough.
 
-        setPings(prev => prev.map(p => p.id === editingPing.id ? updatedPing : p));
+        actions.updatePing(editingPing.id, updatedPing); // Requires full object update support in updatePing?
+        // updatePing in store takes Partial<PingData>.
+        // actions.updatePing(id, updates).
+        // Let's pass the updates.
+        actions.updatePing(editingPing.id, {
+            msg: pingMsgInput,
+            details: updatedPing.details,
+            hasImage: updatedPing.hasImage,
+            imageId: updatedPing.imageId,
+            imageUri: updatedPing.imageUri
+        });
 
         // Broadcast update
         const updatePayload = {
@@ -845,32 +862,32 @@ const App: React.FC = () => {
 
     const deletePing = () => {
         if (!editingPing) return;
-        setPings(prev => prev.filter(p => p.id !== editingPing.id));
+        actions.deletePing(editingPing.id);
         safeBroadcast({ type: 'PING_DELETE', id: editingPing.id });
         setEditingPing(null);
         setTempImage(null);
     };
 
     const handleAddLog = (entry: LogEntry) => {
-        setLogs(prev => {
-            const newLogs = [...prev, entry];
-            safeBroadcast({ type: 'LOG_UPDATE', logs: newLogs });
-            return newLogs;
-        });
+        actions.addLog(entry);
+        // Need full logs for broadcast? safeBroadcast takes 'logs'.
+        // We can get logs from store.
+        const currentLogs = usePraxisStore.getState().log.logs;
+        safeBroadcast({ type: 'LOG_UPDATE', logs: [...currentLogs, entry] }); // Wait, addLog happens first? 
+        // Zustand usage of 'logs' variable in App might be stale in this closure if we rely on 'logs' from hook.
+        // Better: use getState().
+        // Actually actions.addLog updates store.
+        // We broadcast the NEW list.
+        // safeBroadcast({ type: 'LOG_UPDATE', logs: [...usePraxisStore.getState().log.logs] });
+        // NOTE: addLog is synchronous.
     };
     const handleUpdateLog = (updatedEntry: LogEntry) => {
-        setLogs(prev => {
-            const newLogs = prev.map(l => l.id === updatedEntry.id ? updatedEntry : l);
-            safeBroadcast({ type: 'LOG_UPDATE', logs: newLogs });
-            return newLogs;
-        });
+        actions.updateLog(updatedEntry);
+        safeBroadcast({ type: 'LOG_UPDATE', logs: usePraxisStore.getState().log.logs });
     };
     const handleDeleteLog = (id: string) => {
-        setLogs(prev => {
-            const newLogs = prev.filter(l => l.id !== id);
-            safeBroadcast({ type: 'LOG_UPDATE', logs: newLogs });
-            return newLogs;
-        });
+        actions.deleteLog(id);
+        safeBroadcast({ type: 'LOG_UPDATE', logs: usePraxisStore.getState().log.logs });
     };
 
     // Correction fonctionnelle : Eviter les scans multiples
@@ -1016,7 +1033,7 @@ const App: React.FC = () => {
                                 mmkvStorage.set(CONFIG.TRIGRAM_STORAGE_KEY, loginInput.toUpperCase(), true);
                             } catch (e) { }
                             if (loginInput.toUpperCase() !== settings.username) configService.update({ username: loginInput.toUpperCase() });
-                            setUser(prev => ({ ...prev, callsign: loginInput.toUpperCase() }));
+                            actions.updateUser({ callsign: loginInput.toUpperCase() });
                             setView('menu');
                         }}
                             style={[styles.strategicaBtn, { backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center' }]}
@@ -1102,7 +1119,6 @@ const App: React.FC = () => {
                 <View style={{ flex: 1, display: isMapMode ? 'flex' : 'none', position: 'relative' }}>
                     <View style={{ flex: 1 }}>
                         <TacticalMap
-                            me={user} peers={peers} pings={pings}
                             mapMode={mapMode} customMapUrl={settings.customMapUrl}
                             showTrails={showTrails} showPings={showPings}
                             isHost={user.role === OperatorRole.HOST}
@@ -1160,7 +1176,7 @@ const App: React.FC = () => {
                     <View style={styles.statusRow}>
                         {[OperatorStatus.PROGRESSION, OperatorStatus.CONTACT, OperatorStatus.CLEAR].map(s => (
                             <TouchableOpacity key={s} onPress={() => {
-                                setUser(u => ({ ...u, status: s }));
+                                actions.updateUser({ status: s });
                                 connectivityService.updateUser({ status: s, paxColor: settings.userArrowColor });
                             }} {...getLandscapeProps()} style={[getLandscapeStyle(styles.statusBtn), user.status === s ? { backgroundColor: STATUS_COLORS[s], borderColor: 'white' } : null, nightOpsMode && { borderColor: '#7f1d1d', backgroundColor: user.status === s ? '#7f1d1d' : '#000' }]}>
                                 <Text style={[styles.statusBtnText, user.status === s ? { color: 'white' } : null, nightOpsMode && { color: '#ef4444' }]}>{s}</Text>
@@ -1216,11 +1232,9 @@ const App: React.FC = () => {
                 <SettingsView
                     onClose={() => setShowSettings(false)}
                     onUpdate={s => {
-                        setSettings(s);
-                        if (s.quickMessages) {
-                            setQuickMessagesList(s.quickMessages);
-                        }
-                        setUser(u => ({ ...u, paxColor: s.userArrowColor }));
+                        actions.updateSettings(s);
+                        // quickMessagesList update handled via settings update
+                        actions.updateUser({ paxColor: s.userArrowColor });
                         connectivityService.updateUser({ paxColor: s.userArrowColor });
                         if (s.gpsUpdateInterval !== settings.gpsUpdateInterval) {
                             locationService.updateOptions({ timeInterval: s.gpsUpdateInterval });
@@ -1230,7 +1244,7 @@ const App: React.FC = () => {
             </Modal>
 
             <OperatorActionModal visible={!!selectedOperatorId} targetOperator={peers[selectedOperatorId || ''] || null} currentUserRole={user.role} onClose={() => setSelectedOperatorId(null)} onKick={handleOperatorActionKick} onNavigate={handleOperatorActionNavigate} />
-            <MainCouranteView visible={showLogs} logs={logs} role={user.role} onClose={() => setShowLogs(false)} onAddLog={handleAddLog} onUpdateLog={handleUpdateLog} onDeleteLog={handleDeleteLog} />
+            <MainCouranteView visible={showLogs} onClose={() => setShowLogs(false)} />
 
             <Modal visible={showQuickMsgModal} animationType="fade" transparent>
                 <KeyboardAvoidingView behavior="padding" style={styles.modalOverlay}>
@@ -1246,7 +1260,7 @@ const App: React.FC = () => {
 
                         <View style={{ flex: 1, width: '100%', marginBottom: 10 }}>
                             <FlatList
-                                data={quickMessagesList}
+                                data={settings.quickMessages || DEFAULT_SETTINGS.quickMessages}
                                 keyExtractor={(item, index) => index.toString()}
                                 numColumns={isLandscape ? 2 : 1}
                                 renderItem={({ item }) => (

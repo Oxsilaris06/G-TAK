@@ -46,6 +46,9 @@ interface MapState {
   navInfo: { dist: string; time: string } | null;
 }
 
+// Notification Type
+type NotificationType = 'alert' | 'info' | 'success' | 'warning';
+
 // État UI
 interface UIState {
   view: ViewType | 'oi';
@@ -60,7 +63,7 @@ interface UIState {
   showPingForm: boolean;
   nightOpsMode: boolean;
   selectedOperatorId: string | null;
-  activeNotification: { id: string; msg: string; type: 'alert' | 'info' | 'success' | 'warning' } | null;
+  activeNotification: { id: string; msg: string; type: NotificationType } | null;
 }
 
 // État des pings
@@ -91,37 +94,37 @@ interface PraxisState {
   // App State
   isAppReady: boolean;
   settings: AppSettings;
-  
+
   // User
   user: UserData;
-  
+
   // Network
   network: NetworkState;
-  
+
   // Map
   map: MapState;
-  
+
   // UI
   ui: UIState;
-  
+
   // Pings
   ping: PingState;
-  
+
   // Logs
   log: LogState;
-  
+
   // Messages
   message: MessageState;
-  
+
   // Actions
   actions: {
     // App
     setAppReady: (ready: boolean) => void;
-    
+
     // Settings
     updateSettings: (settings: Partial<AppSettings>) => void;
     resetSettings: () => void;
-    
+
     // User
     setUser: (user: Partial<UserData>) => void;
     setUserStatus: (status: OperatorStatus) => void;
@@ -129,7 +132,7 @@ interface PraxisState {
     setUserBattery: (bat: number) => void;
     setUserMessage: (msg: string) => void;
     resetUser: () => void;
-    
+
     // Network
     setHostId: (id: string) => void;
     setPeers: (peers: Record<string, UserData>) => void;
@@ -137,7 +140,7 @@ interface PraxisState {
     removePeer: (id: string) => void;
     setNetworkStatus: (status: Partial<NetworkState>) => void;
     resetNetwork: () => void;
-    
+
     // Map
     setMapCenter: (center: { lat: number; lng: number } | null) => void;
     setMapZoom: (zoom: number) => void;
@@ -148,14 +151,14 @@ interface PraxisState {
     setNavTarget: (id: string | null) => void;
     setNavMode: (mode: 'pedestrian' | 'vehicle') => void;
     setNavInfo: (info: { dist: string; time: string } | null) => void;
-    
+
     // UI
     setView: (view: ViewType | 'oi') => void;
     goBack: () => void;
     toggleSettings: () => void;
     toggleLogs: () => void;
     toggleNightOps: () => void;
-    showNotification: (msg: string, type: UIState['activeNotification']['type']) => void;
+    showNotification: (msg: string, type: NotificationType) => void;
     dismissNotification: () => void;
     setSelectedOperator: (id: string | null) => void;
     toggleQRModal: () => void;
@@ -163,7 +166,7 @@ interface PraxisState {
     toggleQuickMsgModal: () => void;
     togglePingMenu: () => void;
     togglePingForm: () => void;
-    
+
     // Pings
     addPing: (ping: PingData) => void;
     updatePing: (id: string, updates: Partial<PingData>) => void;
@@ -176,19 +179,19 @@ interface PraxisState {
     setTempImage: (image: string | null) => void;
     setFullScreenImage: (image: string | null) => void;
     resetPings: () => void;
-    
+
     // Logs
     addLog: (entry: LogEntry) => void;
     updateLog: (entry: LogEntry) => void;
     deleteLog: (id: string) => void;
     resetLogs: () => void;
-    
+
     // Messages
     addQuickMessage: (msg: string) => void;
     removeQuickMessage: (index: number) => void;
     setQuickMessages: (msgs: string[]) => void;
     setFreeMsgInput: (msg: string) => void;
-    
+
     // Global Reset
     resetAll: () => void;
   };

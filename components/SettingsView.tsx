@@ -25,13 +25,16 @@ interface Props {
 
 const CUSTOM_COLORS = ['#06b6d4', '#ec4899', '#8b5cf6', '#f97316'];
 
+import { useSettings } from '../store/usePraxisStore';
+
 const SettingsView: React.FC<Props> = ({ onClose, onUpdate }) => {
-  const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
+  const storeSettings = useSettings();
+  const [settings, setSettings] = useState<AppSettings>(storeSettings);
   const [newMsg, setNewMsg] = useState('');
 
   useEffect(() => {
-    setSettings(configService.get());
-  }, []);
+    setSettings(storeSettings);
+  }, [storeSettings]);
 
   const save = async () => {
     await configService.update(settings);
