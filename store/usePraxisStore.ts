@@ -293,8 +293,8 @@ export const usePraxisStore = create<PraxisState>()(
             }),
 
           // Settings
-          updateSettings: (newSettings) =>
-            set((state) => {
+          updateSettings: (newSettings: Partial<AppSettings>) =>
+            set((state: PraxisState) => {
               state.settings = { ...state.settings, ...newSettings };
             }),
           resetSettings: () =>
@@ -303,13 +303,13 @@ export const usePraxisStore = create<PraxisState>()(
             }),
 
           // User
-          setUser: (userData) =>
-            set((state) => {
+          setUser: (userData: Partial<UserData>) =>
+            set((state: PraxisState) => {
               state.user = { ...state.user, ...userData };
             }),
           // Alias for setUser (used in App.tsx)
-          updateUser: (userData) =>
-            set((state) => {
+          updateUser: (userData: Partial<UserData>) =>
+            set((state: PraxisState) => {
               state.user = { ...state.user, ...userData };
             }),
           setUserStatus: (status) =>

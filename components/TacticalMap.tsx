@@ -91,14 +91,7 @@ const calculateDestinationPoint = (lat: number, lng: number, distanceM: number, 
   return [toDeg(lam2), toDeg(phi2)]; // [lng, lat]
 };
 
-// 1. Marqueur Opérateur
-interface OperatorMarkerProps {
-  user: UserData;
-  isMe?: boolean;
-  color: string;
-  nightOpsMode: boolean;
-  mapHeading?: number;
-}
+// 1. Marqueur Opérateur (OperatorMarkerProps already declared above)
 
 const OperatorMarker = ({ user, isMe, color, nightOpsMode, mapHeading = 0 }: OperatorMarkerProps) => {
   // CORRECTION: User requested status colors even in Night Ops

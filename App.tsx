@@ -307,7 +307,7 @@ const App: React.FC = () => {
                     );
 
                     // Location
-                    await locationService.init();
+                    await locationService.startTracking();
 
                     console.log("[App] Services Initialized. Setting AppReady.");
                     if (mounted) {
@@ -407,8 +407,6 @@ const App: React.FC = () => {
             });
             // NEW: Pass orientation for Magnetometer correction (Landscape/Portrait)
             locationService.setOrientation(isLandscape);
-
-            locationService.startTracking();
 
             locationService.startTracking();
 

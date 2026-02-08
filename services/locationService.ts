@@ -74,7 +74,6 @@ class LocationService {
     accuracy: Location.LocationAccuracy.BestForNavigation,
   };
   private locationSubscription: Location.LocationSubscription | null = null;
-  private locationSubscription: Location.LocationSubscription | null = null;
   private headingSubscription: any | null = null;
   private lastLocation: LocationData | null = null;
   private latestHeading: number | null = null; // Magnetic heading storage
