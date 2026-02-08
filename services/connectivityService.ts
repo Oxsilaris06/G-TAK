@@ -23,7 +23,9 @@ export type ConnectivityEvent =
   | { type: 'NEW_HOST_PROMOTED'; hostId: string }
   | { type: 'SESSION_CLOSED' }
   | { type: 'IMAGE_READY'; imageId: string; uri: string }
-  | { type: 'JOIN_REQUEST'; peerId: string; callsign: string };
+  | { type: 'JOIN_REQUEST'; peerId: string; callsign: string }
+  | { type: 'PING_SYNC_REQUESTED'; from: string }
+  | { type: 'PING_SYNC_RECEIVED'; pings: any[] };
 
 interface ConnectionState {
   peer: Peer | null;
@@ -287,6 +289,10 @@ export class ConnectivityService {
         type: 'HELLO',
         user: { ...this.state.userData, connectionTimestamp: Date.now() },
       });
+
+      // SYNC: Request latest pings from Host immediately
+      console.log('[Connectivity] Requesting Pings Sync from Host...');
+      this.sendTo(hostId, { type: 'REQUEST_PINGS' });
     });
 
     conn.on('data', (data) => {
@@ -437,14 +443,30 @@ export class ConnectivityService {
 
     // REACTIVE KEEP-ALIVE (ACTIVE): Reply to notifications to keep link alive
     // "Receiving a notification obliges the sending of a ping/pong"
-    const NOTIFICATION_TYPES = ['PING_UPDATE', 'PING', 'MSG', 'LOG_UPDATE', 'TOAST'];
-    // Also specific user updates like CONTACT
-    const isContactUpdate = data.type === 'UPDATE_USER' && data.user?.status === 'CONTACT';
+    // IMPROVEMENT: Any significant data update should trigger a PONG to maintain the tunnel
+    const IGNORE_TYPES = ['HEARTBEAT_PONG', 'IMAGE_CHUNK', 'IMAGE_START'];
 
-    if (NOTIFICATION_TYPES.includes(data.type) || isContactUpdate) {
-      // Force a PONG to confirm reception and refresh NAT
+    if (!IGNORE_TYPES.includes(data.type)) {
+      // Force a PONG to confirm reception and refresh NAT for ALL updates
+      // This ensures that "Updates maintain the connection"
       this.sendTo(from, { type: 'HEARTBEAT_PONG' });
     }
+
+    // --- PING SYNC HANDLERS ---
+    if (data.type === 'REQUEST_PINGS') {
+      // We received a request for pings. 
+      // We emit this so App.tsx (which holds the state) can reply.
+      this.emit({ type: 'PING_SYNC_REQUESTED', from });
+      return;
+    }
+
+    if (data.type === 'SYNC_PINGS') {
+      // We received the pings synchronization
+      this.emit({ type: 'PING_SYNC_RECEIVED', pings: data.pings });
+      return;
+    }
+
+    // --- IMAGE PROTOCOL HANDLERS ---
 
     // --- IMAGE PROTOCOL HANDLERS ---
     if (data.type === 'REQUEST_IMAGE') {

@@ -528,6 +528,8 @@ const App: React.FC = () => {
         }
     };
 
+
+
     // --- EFFECT: Connectivity Events ---
     useEffect(() => {
         const unsubscribe = connectivityService.subscribe((event) => {
@@ -541,7 +543,8 @@ const App: React.FC = () => {
                 case 'HOST_CONNECTED':
                     showToast(`Connecté à la session ${event.hostId}`, "success");
                     setHostId(event.hostId);
-                    setPings([]);
+                    // Do NOT clear pings here, we will receive sync shortly
+                    // setPings([]); 
                     break;
                 case 'TOAST':
                     showToast(event.msg, event.level as any);
@@ -595,6 +598,17 @@ const App: React.FC = () => {
                         }
                         return p;
                     }));
+                    break;
+                // NEW SYNC HANDLERS
+                case 'PING_SYNC_REQUESTED':
+                    // Host: Send current pings to client
+                    console.log(`[App] Sending Pings Sync to ${event.from} (${pingsRef.current.length} pings)`);
+                    connectivityService.sendTo(event.from, { type: 'SYNC_PINGS', pings: pingsRef.current });
+                    break;
+                case 'PING_SYNC_RECEIVED':
+                    // Client: Receive pings from Host
+                    console.log(`[App] Received Pings Sync: ${event.pings.length} pings`);
+                    setPings(event.pings);
                     break;
             }
         });
