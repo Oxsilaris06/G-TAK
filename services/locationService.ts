@@ -94,8 +94,10 @@ class LocationService {
 
     // Redémarrer le suivi si actif
     if (this.isTracking) {
-      this.stopTracking();
-      this.startTracking();
+      // FIX RACE CONDITION: Ensure stop completes before start
+      this.stopTracking().then(() => {
+        this.startTracking();
+      });
     }
   }
 

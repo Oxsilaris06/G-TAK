@@ -374,13 +374,14 @@ const App: React.FC = () => {
 
             locationService.startTracking();
 
-            const unsubscribe = locationService.subscribe((loc) => {
-                connectivityService.updateUserPosition(loc.latitude, loc.longitude, loc.heading || 0);
-                connectivityService.pulse(); // Background Heartbeat Driver
-            });
+            locationService.startTracking();
+
+            // NOTE: No need to subscribe here again. The main subscription (line 321)
+            // handles data processing, throttling, and connectivity updates.
+            // This effect only manages the generic lifecycle (start/stop/options).
 
             return () => {
-                unsubscribe();
+                // Nothing to unsubscribe locally, startTracking/stopTracking handles the service state
             };
         } else {
             // Pas de session active - arrêt des capteurs pour économiser la batterie
