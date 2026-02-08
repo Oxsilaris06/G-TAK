@@ -41,6 +41,7 @@ import PrivacyConsentModal from './components/PrivacyConsentModal';
 import { NotificationToast } from './components/NotificationToast';
 import ComposantOrdreInitial from './components/ComposantOrdreInitial';
 import TacticalBackground from './components/TacticalBackground';
+import { useActions } from './store/usePraxisStore';
 
 try { SplashScreen.preventAutoHideAsync().catch(() => { }); } catch (e) { }
 
@@ -54,6 +55,9 @@ const App: React.FC = () => {
     useKeepAwake();
     const { width, height } = useWindowDimensions();
     const isLandscape = width > height;
+
+    // HYBRID ZUSTAND: Accès aux actions du store (sans remplacer les useState existants)
+    const storeActions = useActions();
 
     const [isAppReady, setIsAppReady] = useState(false);
     const [fontsLoaded] = useFonts({ 'Saira Stencil One': SairaStencilOne_400Regular });
@@ -284,6 +288,8 @@ const App: React.FC = () => {
                     { ...user, id: 'loading...', role: OperatorRole.OPR },
                     OperatorRole.OPR
                 );
+                // HYBRID INTEGRATION: Injecter les actions Zustand dans le service
+                connectivityService.setStoreActions(storeActions);
             } catch (e) { console.log("Init Connectivity Error:", e); }
 
             if (mounted) {

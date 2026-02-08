@@ -82,6 +82,17 @@ export class ConnectivityService {
   // FIX: Flag to prevent migration processing during intentional disconnect (e.g. back button)
   private isCleaningUp: boolean = false;
 
+  // ZUSTAND INTEGRATION: Store actions injected from App.tsx
+  private storeActions: any = null;
+
+  /**
+   * Injecte les actions du store Zustand
+   */
+  setStoreActions(actions: any): void {
+    this.storeActions = actions;
+    console.log('[Connectivity] Store actions injected');
+  }
+
   /**
    * Obtient l'intervalle de heartbeat depuis les settings
    */
@@ -784,6 +795,11 @@ export class ConnectivityService {
       type: 'PEERS_UPDATED',
       peers,
     });
+
+    // HYBRID SYNC: Synchroniser automatiquement avec Zustand store
+    if (this.storeActions) {
+      this.storeActions.setPeers(peers);
+    }
   }
 
   /**
