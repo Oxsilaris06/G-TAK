@@ -837,9 +837,8 @@ export class ConnectivityService {
         }
       }
     });
-
-    // CRITICAL: Maintenir heartbeat sur TOUTE action réseau (pings, status, logs, etc.)
-    this.pulse();
+    // NOTE: pulse() retiré d'ici car créait une boucle infinie
+    // Les pulse() sont gérés par les appelants spécifiques (updateUser, etc.)
   }
 
   /**
