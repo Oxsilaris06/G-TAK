@@ -418,7 +418,7 @@ const App: React.FC = () => {
 
         if (data.type === 'PING') {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            setPings(prev => {
+            setPings((prev: PingData[]) => {
                 // Deduplication: Si le ping existe déjà, on ne l'ajoute pas
                 if (prev.some((p: PingData) => p.id === data.ping.id)) return prev;
                 return [...prev, data.ping];
@@ -586,7 +586,14 @@ const App: React.FC = () => {
                     );
                     break;
                 case 'IMAGE_READY':
-                    // Image received
+                    // Image received - Update the ping that was waiting for this image
+                    console.log('[App] Image Ready event received:', event.imageId);
+                    setPings((prev: PingData[]) => prev.map((p: PingData) => {
+                        if (p.imageId === event.imageId) {
+                            return { ...p, imageUri: event.uri };
+                        }
+                        return p;
+                    }));
                     break;
             }
         });

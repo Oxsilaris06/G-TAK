@@ -425,7 +425,12 @@ export class ConnectivityService {
       this.state.lastHostHeartbeat = Date.now();
     } else if (this.state.role === OperatorRole.HOST) {
       const stats = this.state.peerHeartbeatStats.get(from);
-      if (stats) stats.missedPongs = 0;
+      if (stats) {
+        if (stats.missedPongs > 5) {
+          console.log(`[Connectivity] Heartbeat recovered for ${from} (was ${stats.missedPongs} missed)`);
+        }
+        stats.missedPongs = 0;
+      }
       const peer = this.state.peerData.get(from);
       if (peer) peer.connectionTimestamp = Date.now();
     }
@@ -1032,7 +1037,8 @@ export class ConnectivityService {
     } else {
       // CLIENT LOOP
       const timeSinceLastHostPing = now - this.state.lastHostHeartbeat;
-      const TIMEOUT = this.getHeartbeatInterval() * 4;
+      // TIMEOUT augmenté à 8x l'intervalle (ex: 80s ou 160s en BG) pour éviter faux positifs
+      const TIMEOUT = this.getHeartbeatInterval() * 8;
 
       if (timeSinceLastHostPing > TIMEOUT) {
         console.warn(`[Connectivity] Host heartbeat timeout (${timeSinceLastHostPing}ms > ${TIMEOUT}ms). Triggering disconnection handler.`);
