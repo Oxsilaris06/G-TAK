@@ -8,6 +8,7 @@ import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 
 import { EventEmitter } from 'events';
+import { configService } from './configService';
 
 const LOCATION_TASK_NAME = 'praxis-background-location-task';
 
@@ -438,10 +439,14 @@ class LocationService {
 
     // Pulse every 10 seconds (aligned with heartbeat interval)
     // This is safe because Foreground Service keeps CPU awake.
+    // Get interval from settings (default 10s)
+    const interval = configService.get().heartbeatInterval || 10000;
+    console.log(`[LocationService] Background pulse: ${interval}ms`);
+
     this.backgroundPulseInterval = setInterval(() => {
       // Emit a 'pulse' event that App.tsx or ConnectivityService listens to
       locationEmitter.emit('pulse');
-    }, 10000);
+    }, interval);
   }
 }
 
