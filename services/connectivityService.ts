@@ -501,12 +501,17 @@ export class ConnectivityService {
       if (pending.chk[i]) receivedCount++;
     }
 
+    // PULSE sur réception de chunks pour maintenir connexion pendant téléchargement
+    this.pulse();
+
     if (receivedCount === pending.total) { // All chunks received
       const fullBase64 = pending.chk.join('');
       this.state.tempChunks.delete(imageId);
       imageService.writeBase64(imageId, fullBase64).then((uri) => {
         console.log('[Connectivity] Image Received & Saved:', uri);
         this.emit({ type: 'IMAGE_READY', imageId, uri });
+        // NOTIFICATION: Image reçue en arrière-plan
+        this.emit({ type: 'TOAST', msg: '📷 Image reçue', level: 'success' });
       });
     }
   }
@@ -832,6 +837,9 @@ export class ConnectivityService {
         }
       }
     });
+
+    // CRITICAL: Maintenir heartbeat sur TOUTE action réseau (pings, status, logs, etc.)
+    this.pulse();
   }
 
   /**

@@ -80,6 +80,7 @@ class LocationService {
   private isLandscape: boolean = false;
   private lastEmittedHeading: number | null = null; // Dernier heading transmis
   private lastHeadingEmitTime: number = 0; // Timestamp de la dernière émission
+  private headingFallbackInterval: NodeJS.Timeout | null = null; // Fallback si sensor s'arrête
 
   setOrientation(isLandscape: boolean) {
     this.isLandscape = isLandscape;
@@ -295,6 +296,21 @@ class LocationService {
         }
       });
 
+      // FALLBACK CRITIQUE: Sur certains Android, watchHeadingAsync s'arrête en arrière-plan
+      // Solution: Timer de secours qui force une émission périodique du dernier heading connu
+      this.headingFallbackInterval = setInterval(() => {
+        const now = Date.now();
+        const timeSinceLastEmit = now - this.lastHeadingEmitTime;
+
+        // Si aucune mise à jour depuis 10s, forcer une émission (le sensor a probablement gelé)
+        if (timeSinceLastEmit > 10000 && this.latestHeading !== null && this.lastLocation) {
+          console.log('[LocationService] Fallback: Forcing heading update (sensor may be sleeping)');
+          this.lastHeadingEmitTime = now;
+          this.lastLocation.heading = this.latestHeading;
+          locationEmitter.emit('location', this.lastLocation);
+        }
+      }, 5000); // Vérifier toutes les 5s
+
       this.isTracking = true;
       return true;
     } catch (e) {
@@ -316,6 +332,12 @@ class LocationService {
       if (this.headingSubscription) {
         this.headingSubscription.remove();
         this.headingSubscription = null;
+      }
+
+      // Arrêter le fallback timer heading
+      if (this.headingFallbackInterval) {
+        clearInterval(this.headingFallbackInterval);
+        this.headingFallbackInterval = null;
       }
 
       // Arrêter la tâche en arrière-plan
