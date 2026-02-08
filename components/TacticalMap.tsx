@@ -153,25 +153,22 @@ const OperatorMarker = ({ user, isMe, color, nightOpsMode, mapHeading = 0 }: Ope
 
   return (
     <View style={[styles.markerRoot, isMe && { zIndex: 100 }]}>
-      {/* Circle ID - Member Icon */}
+      {/* Circle ID - Member Icon (First in DOM = Bottom Layer) */}
       <Animated.View style={[
         styles.circleId,
         {
           borderColor: displayColor,
           backgroundColor: isMe ? 'rgba(0,0,0,0.3)' : 'rgba(0,0,0,0.6)',
-          transform: [{ scale: pulseAnim }],
-          zIndex: 2 // Ensure it is above/below correctly
+          transform: [{ scale: pulseAnim }]
+          // Removed manual zIndex: 2 to prevent Android composition bugs
         }
       ]}>
         <Text style={styles.circleText}>{trigram}</Text>
       </Animated.View>
 
-      {/* Battery Warning */}
-      {/* Issue fix: Ensure it doesn't hide the member icon. 
-          Position is absolute bottom-right. zIndex higher to overlay on corner.
-      */}
-      {user.bat < 20 && (
-        <View style={[styles.batteryWarning, { zIndex: 3 }]}>
+      {/* Battery Warning (Last in DOM = Top Layer) */}
+      {user.bat !== undefined && user.bat !== null && user.bat < 20 && (
+        <View style={styles.batteryWarning}>
           <MaterialIcons name="battery-alert" size={12} color="#ef4444" />
         </View>
       )}
