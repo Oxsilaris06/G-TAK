@@ -127,6 +127,7 @@ interface PraxisState {
 
     // User
     setUser: (user: Partial<UserData>) => void;
+    updateUser: (user: Partial<UserData>) => void; // Alias for setUser (used in App.tsx)
     setUserStatus: (status: OperatorStatus) => void;
     setUserPosition: (lat: number, lng: number, head?: number) => void;
     setUserBattery: (bat: number) => void;
@@ -303,6 +304,11 @@ export const usePraxisStore = create<PraxisState>()(
 
           // User
           setUser: (userData) =>
+            set((state) => {
+              state.user = { ...state.user, ...userData };
+            }),
+          // Alias for setUser (used in App.tsx)
+          updateUser: (userData) =>
             set((state) => {
               state.user = { ...state.user, ...userData };
             }),
