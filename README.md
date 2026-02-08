@@ -56,7 +56,19 @@ Système de Pings & Alertes :
 
 Système de Ralliement : Navigation assistée (Distance/Azimut) vers un coéquipier.
 
-Main Courante Collaborative : Journal des événements partagé en temps réel avec l'Hôte, exportable en PDF.
+6. Sécurité Avancée (Secure Boot) :
+   
+   Chiffrement du Stockage Local : Toutes les données sont chiffrées (AES-256) par une phrase secrète utilisateur (Zero-Knowledge).
+   
+   Authentification Biométrique : Déverrouillage rapide via FaceID/TouchID.
+   
+   Chiffrement de Session : Canaux P2P chiffrés avec clés tournantes (AES-256), échangeables par QR Code.
+
+7. Main Courante Collaborative :
+   
+   Journal des événements partagé en temps réel avec l'Hôte.
+   
+   Exportable en PDF pour le débriefing.
 
 2. Module STRATÉGICA (Planification)
 
@@ -84,9 +96,11 @@ Aucun Serveur de Données : Il n'y a pas de base de données. Pas de compte util
 
 Données Éphémères : Toutes les données tactiques (positions, messages, logs) résident uniquement dans la mémoire vive (RAM) de l'appareil.
 
+Stockage Chiffré : Les données persistantes (paramètres, cartes) sont chiffrées par une clé maître dérivée de votre phrase secrète.
+
 Arrêt d'Urgence : Quitter la session ou fermer l'application efface instantanément toutes les données locales.
 
-Chiffrement : Les communications transitent via des canaux WebRTC sécurisés (DTLS/SRTP).
+Chiffrement : Les communications transitent via des canaux WebRTC sécurisés (DTLS/SRTP) et peuvent être sur-chiffrées par clé de session (AES).
 
 📖 Guide Rapide
 
@@ -96,7 +110,9 @@ Téléchargez le fichier .apk depuis les Releases.
 
 Autorisez l'installation depuis des sources inconnues.
 
-Au premier lancement, acceptez les permissions (Localisation Haute Précision, Caméra pour QR, Notifications).
+Au premier lancement, créez votre Phrase Secrète (Retenez-la bien, il n'y a pas de récupération !).
+
+Acceptez les permissions (Localisation Haute Précision, Caméra pour QR, Notifications, Biométrie).
 
 Démarrer une Session (Hôte)
 
@@ -134,6 +150,8 @@ Dans le menu Paramètres (roue dentée), vous pouvez :
 
 Identité : Changer votre Trigramme et votre couleur de flèche (pour la carte).
 
+Sécurité : Gérer les Clés de Chiffrement (Générer/Importer/Exporter) et activer la Biométrie.
+
 GPS : Ajuster la fréquence d'actualisation (par défaut 2000ms). Réduire pour économiser la batterie, augmenter pour plus de précision.
 
 Carte : Charger un fichier MBTiles local ou entrer une URL de serveur de tuiles custom pour une utilisation hors-ligne.
@@ -142,13 +160,15 @@ Messages Rapides : Éditer la liste des messages prédéfinis ("Contact", "RAS",
 
 🛠️ Architecture Technique
 
-Frontend : React Native (Expo SDK 51).
+Frontend : React Native (Expo SDK 52).
 
 Langage : TypeScript.
 
 Cartographie : MapLibre GL (Vecteur & Raster).
 
 Réseau : PeerJS (WebRTC Data Channels) avec configuration STUN Google & Twilio.
+
+Sécurité : Expo Crypto, SecureStore, LocalAuthentication.
 
 Build : Android (APK).
 

@@ -22,6 +22,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system';
 import * as DocumentPicker from 'expo-document-picker';
 import { MaterialIcons } from '@expo/vector-icons';
+import { mmkvStorage } from '../services/mmkvStorage';
 
 // Import du module PATRACDVR
 import Patrac from './Patrac';
@@ -293,7 +294,8 @@ export default function OIView({ onClose }: OIViewProps) {
     const saveData = async () => {
         try {
             const data = { formData, vehicles, poolMembers, photos };
-            await AsyncStorage.setItem('OI_SESSION', JSON.stringify(data));
+            // MIGRATION SECURISEE: Utilisation de MMKV chiffré par Secure Boot
+            mmkvStorage.setObject('OI_SESSION', data, true);
         } catch (e) {
             console.error("Save error", e);
         }
@@ -301,14 +303,32 @@ export default function OIView({ onClose }: OIViewProps) {
 
     const loadData = async () => {
         try {
-            const json = await AsyncStorage.getItem('OI_SESSION');
-            if (json) {
-                const data = JSON.parse(json);
+            // Tentative de chargement depuis MMKV chiffré
+            const data = mmkvStorage.getObject<any>('OI_SESSION', true);
+
+            if (data) {
                 if (data.formData) setFormData(data.formData);
                 if (data.vehicles) setVehicles(data.vehicles);
                 if (data.poolMembers) setPoolMembers(data.poolMembers);
                 if (data.photos) setPhotos(data.photos);
             } else {
+                // Fallback: Tenter de récupérer depuis l'ancien AsyncStorage (Migration one-shot)
+                const oldJson = await AsyncStorage.getItem('OI_SESSION');
+                if (oldJson) {
+                    const oldData = JSON.parse(oldJson);
+                    if (oldData) {
+                        if (oldData.formData) setFormData(oldData.formData);
+                        if (oldData.vehicles) setVehicles(oldData.vehicles);
+                        if (oldData.poolMembers) setPoolMembers(oldData.poolMembers);
+                        if (oldData.photos) setPhotos(oldData.photos);
+                        // Sauvegarder immédiatement en sécurisé et nettoyer l'ancien
+                        mmkvStorage.setObject('OI_SESSION', oldData, true);
+                        await AsyncStorage.removeItem('OI_SESSION');
+                        return;
+                    }
+                }
+
+                // Initialisation par défaut si rien trouvé
                 const initialPool = MEMBER_CONFIG.members.map((m, i) => ({
                     ...m,
                     id: `m_${Date.now()}_${i}`,

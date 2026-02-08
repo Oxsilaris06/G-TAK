@@ -26,5 +26,11 @@ Praxis est conçue selon un principe de "Privacy by Design". Nous ne collectons,
  * Cartographie (Tuiles) : Les fonds de carte (images) sont téléchargés depuis des serveurs publics (CartoDB, ArcGIS) en fonction de votre zone géographique affichée.
  * Consentement
    En utilisant Praxis, vous acceptez que votre position géographique et votre pseudonyme (Trigramme) soient partagés en temps réel avec les autres utilisateurs que vous avez volontairement rejoints dans une session.
+ * Biométrie (FaceID / TouchID) :
+   * Usage : Authentification forte pour déverrouiller l'application et accéder aux clés de chiffrement stockées dans le matériel sécurisé (Secure Enclave / Titan M).
+   * Confidentialité : Les données biométriques restent dans le processeur sécurisé de votre appareil. Praxis reçoit uniquement une confirmation "Succès/Échec" du système d'exploitation.
+ * Chiffrement du Stockage (Secure Boot) :
+   * Toutes les données locales (cartes, historiques, préférences) sont chiffrées (AES-256) via une clé dérivée de votre phrase secrète.
+   * Architecture "Zero-Knowledge" : Nous ne connaissons pas votre phrase secrète. Si vous la perdez, vos données locales sont irrécupérables.
  * Contact
    Pour toute question technique ou relative à la confidentialité, veuillez ouvrir une "Issue" sur le dépôt GitHub du projet.

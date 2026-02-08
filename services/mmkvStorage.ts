@@ -185,4 +185,19 @@ export const mmkvStorage = {
   }
 };
 
+/**
+ * Adaptateur pour Zustand Persist
+ */
+export const mmkvAsyncStorageCompat = {
+  getItem: async (name: string): Promise<string | null> => {
+    return mmkvStorage.getString(name) || null;
+  },
+  setItem: async (name: string, value: string): Promise<void> => {
+    mmkvStorage.set(name, value);
+  },
+  removeItem: async (name: string): Promise<void> => {
+    mmkvStorage.delete(name);
+  },
+};
+
 export default mmkvStorage;

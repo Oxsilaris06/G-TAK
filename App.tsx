@@ -42,7 +42,7 @@ import { NotificationToast } from './components/NotificationToast';
 import ComposantOrdreInitial from './components/ComposantOrdreInitial';
 import TacticalBackground from './components/TacticalBackground';
 import SecureBootView from './components/SecureBootView';
-import { useActions } from './store/usePraxisStore';
+import { useActions, usePraxisStore } from './store/usePraxisStore';
 
 try { SplashScreen.preventAutoHideAsync().catch(() => { }); } catch (e) { }
 
@@ -1188,9 +1188,10 @@ const App: React.FC = () => {
         return (
             <SafeAreaView style={{ flex: 1, backgroundColor: '#000' }}>
                 <StatusBar style="light" backgroundColor="#000" />
-                <SecureBootView onUnlock={(key: string) => {
+                <SecureBootView onUnlock={async (key: string) => {
                     try {
                         mmkvStorage.init(key);
+                        await usePraxisStore.persist.rehydrate();
                         setIsStoreReady(true);
                     } catch (e) {
                         Alert.alert("Echec", "Clé incorrecte ou données corrompues.");
