@@ -61,10 +61,22 @@ const App: React.FC = () => {
     const [isStoreReady, setIsStoreReady] = useState(false);
 
     const [isAppReady, setIsAppReady] = useState(false);
-    const [fontsLoaded] = useFonts({ 'Saira Stencil One': SairaStencilOne_400Regular });
+    const [fontsLoaded, fontError] = useFonts({ 'Saira Stencil One': SairaStencilOne_400Regular });
+
+    // Log font loading errors
+    useEffect(() => {
+        if (fontError) {
+            console.error('[App] Font loading error:', fontError);
+        }
+    }, [fontError]);
 
     // DEBUG LOGS
     console.log(`[App] Render. Fonts: ${fontsLoaded}, StoreReady: ${isStoreReady}, AppReady: ${isAppReady}`);
+
+    // DEBUG: Log which gate is blocking if app doesn't show
+    if (!fontsLoaded) console.log('[App] ⛔ BLOCKED BY: fontsLoaded = false');
+    else if (!isStoreReady) console.log('[App] ⛔ BLOCKED BY: isStoreReady = false (SecureBootView should show)');
+    else if (!isAppReady) console.log('[App] ⛔ BLOCKED BY: isAppReady = false (Loading indicator should show)');
 
     useEffect(() => {
         console.log("[App] MOUNTED");
@@ -1225,7 +1237,8 @@ const App: React.FC = () => {
     };
 
     // 0. SECURE BOOT GATE
-    if (!fontsLoaded) return null;
+    // Allow app to proceed if fonts loaded OR if fonts errored (fallback to system fonts)
+    if (!fontsLoaded && !fontError) return null;
 
     if (!isStoreReady) {
         return (
